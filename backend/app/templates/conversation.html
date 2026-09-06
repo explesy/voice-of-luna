@@ -1,5 +1,8 @@
 {% for message in conversation.turns %}
-<article class="message {{ message.role }}"{% if message.role == "assistant" %} data-spoken-response{% endif %}>{{ message.text }}</article>
+<article class="message {{ message.role }}"{% if message.role == "assistant" %} data-spoken-response{% endif %}>
+  {{ message.text }}
+  {% if message.audio_url %}<audio class="reply-audio" data-server-audio controls preload="none" src="{{ message.audio_url }}">Your browser cannot play this local response.</audio>{% endif %}
+</article>
 {% endfor %}
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 <form hx-post="/conversations/{{ conversation.id }}/turns" hx-target="#conversation" hx-swap="innerHTML" hx-disabled-elt="find button">

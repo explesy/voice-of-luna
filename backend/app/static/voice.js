@@ -1,5 +1,6 @@
 let recorder;
 let chunks = [];
+let activePlayer;
 
 function status(text) {
   const element = document.querySelector("[data-voice-status]");
@@ -21,11 +22,19 @@ function voiceFor(language) {
 }
 
 function speakLatestResponse() {
-  if (!window.speechSynthesis) return;
   const responses = document.querySelectorAll("[data-spoken-response]");
   const latest = responses[responses.length - 1];
   if (!latest || latest.dataset.spoken) return;
   latest.dataset.spoken = "true";
+  const localAudio = latest.querySelector("[data-server-audio]");
+  if (localAudio) {
+    activePlayer = localAudio;
+    localAudio.addEventListener("play", () => status("Speaking…"), { once: true });
+    localAudio.addEventListener("ended", () => status("Microphone is off"), { once: true });
+    localAudio.play().catch(() => status("Press play to hear the local response"));
+    return;
+  }
+  if (!window.speechSynthesis) return;
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(latest.textContent);
   utterance.lang = languageFor(latest.textContent);
@@ -88,7 +97,14 @@ document.addEventListener("click", (event) => {
     if (recorder?.state === "recording") recorder.stop();
     else startRecording(recordButton);
   }
-  if (event.target.closest("[data-stop-speaking]")) window.speechSynthesis?.cancel();
+  if (event.target.closest("[data-stop-speaking]")) {
+    window.speechSynthesis?.cancel();
+    if (activePlayer) {
+      activePlayer.pause();
+      activePlayer.currentTime = 0;
+    }
+    status("Microphone is off");
+  }
 });
 
 document.body.addEventListener("htmx:afterSwap", (event) => {

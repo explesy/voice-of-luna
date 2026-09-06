@@ -4,16 +4,16 @@
 
 Personal, local-first voice interface for talking to a strong text model through an existing Codex login.
 
-> **Status: early prototype.** Text chat, browser recording, local speech-to-text, and browser speech synthesis work as one local voice loop. Streaming, interruption while recording, persistent history, and plugins are still future work.
+> **Status: early prototype.** Text chat, browser recording, local speech-to-text, and local Russian speech work as one voice loop on macOS. Streaming, interruption while recording, persistent history, and plugins are still future work.
 
-The current milestone is deliberately small: a FastAPI + htmx shell that starts an ephemeral local `codex app-server` thread. The browser records a short message, the backend transcribes it with local Whisper, sends only the resulting text to Codex, and asks the browser to read the response aloud.
+The current milestone is deliberately small: a FastAPI + htmx shell that starts an ephemeral local `codex app-server` thread. The browser records a short message, the backend transcribes it with local Whisper, sends only the resulting text to Codex, and renders Cyrillic replies through the local macOS voice before the browser plays them.
 
 ## Privacy model
 
 - The app uses the local Codex runtime already signed in on the owner's machine.
 - It does not read, copy, return, or store Codex OAuth tokens.
 - The app-server uses stdio locally; it must not be exposed on a public network.
-- A recording, its converted WAV file, and Whisper's JSON output are temporary files; they are deleted after each turn. Conversation text currently remains in memory only, until the server stops.
+- A recording, its converted WAV file, Whisper's JSON output, and generated reply audio are temporary files. The first three are deleted after each turn; reply audio is deleted after its one-time browser request. Conversation text currently remains in memory only, until the server stops.
 - Speech-to-text is local. The model response still goes through the owner's already-authorized Codex runtime and is subject to that account's normal usage limits.
 
 This is a personal local tool, not a shared hosted service. A public deployment needs a separate API-key provider and proper authentication.
@@ -39,7 +39,7 @@ uv sync --group dev
 uv run uvicorn app.main:app --reload
 ```
 
-Open <http://127.0.0.1:8000/>. The page is server-rendered HTML enhanced with htmx; there is no React client application. Press **Start recording**, allow the browser's microphone permission, speak, and press **Stop recording**. The browser's built-in speech synthesis reads the final answer aloud when it is available, choosing a Russian voice for text containing Cyrillic.
+Open <http://127.0.0.1:8000/>. The page is server-rendered HTML enhanced with htmx; there is no React client application. Press **Start recording**, allow the browser's microphone permission, speak, and press **Stop recording**. Cyrillic replies are rendered by the local macOS `Milena` voice and played in the browser; the visible audio controls remain available if autoplay is blocked. Set `VOICE_OF_LUNA_RUSSIAN_VOICE` to use another installed macOS Russian voice.
 
 ## Verify
 

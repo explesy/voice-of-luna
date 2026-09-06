@@ -9,12 +9,14 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from .codex import CodexAppServer, CodexUnavailable
+from .speak import LocalMacOsSpeaker, LocalSpeechError
 from .transcribe import LocalTranscriptionError, LocalWhisperTranscriber
 
 
@@ -29,7 +31,14 @@ class Conversation:
     turns: list[dict[str, str]] = field(default_factory=list)
 
 
+@dataclass
+class SpeechClip:
+    conversation_id: str
+    path: Path
+
+
 conversations: dict[str, Conversation] = {}
+speech_clips: dict[str, SpeechClip] = {}
 
 
 class TurnInput(BaseModel):
@@ -80,8 +89,7 @@ async def create_turn_fragment(
     conversation.turns.append({"role": "user", "text": text})
     try:
         reply = await CodexAppServer().reply(text)
-        conversation.turns.append({"role": "assistant", "text": reply})
-        error = None
+        error = await _append_assistant_turn(conversation, reply)
     except CodexUnavailable as exception:
         error = str(exception)
     return templates.TemplateResponse(
@@ -111,8 +119,7 @@ async def create_audio_turn_fragment(
         transcript = await LocalWhisperTranscriber().transcribe(wav_path)
         conversation.turns.append({"role": "user", "text": transcript})
         reply = await CodexAppServer().reply(transcript)
-        conversation.turns.append({"role": "assistant", "text": reply})
-        error = None
+        error = await _append_assistant_turn(conversation, reply)
     except AudioConversionError as exception:
         error = str(exception)
     except LocalTranscriptionError as exception:
@@ -150,7 +157,7 @@ async def create_turn(conversation_id: str, body: TurnInput) -> dict[str, str]:
         reply = await CodexAppServer().reply(body.text)
     except CodexUnavailable as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
-    conversation.turns.append({"role": "assistant", "text": reply})
+    await _append_assistant_turn(conversation, reply)
     return {"text": reply}
 
 
@@ -158,6 +165,42 @@ async def create_turn(conversation_id: str, body: TurnInput) -> dict[str, str]:
 async def delete_conversation(conversation_id: str) -> None:
     if conversations.pop(conversation_id, None) is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    for clip_id, clip in list(speech_clips.items()):
+        if clip.conversation_id == conversation_id:
+            _remove_temporary_audio(clip.path)
+            del speech_clips[clip_id]
+
+
+@app.get("/speech/{clip_id}")
+async def get_speech(clip_id: str) -> FileResponse:
+    clip = speech_clips.pop(clip_id, None)
+    if clip is None or not clip.path.is_file():
+        raise HTTPException(status_code=404, detail="Speech clip not found")
+    conversation = conversations.get(clip.conversation_id)
+    if conversation is not None:
+        for turn in conversation.turns:
+            if turn.get("audio_url") == f"/speech/{clip_id}":
+                turn.pop("audio_url", None)
+    return FileResponse(
+        clip.path,
+        media_type="audio/mp4",
+        background=BackgroundTask(_remove_temporary_audio, clip.path),
+    )
+
+
+async def _append_assistant_turn(conversation: Conversation, text: str) -> str | None:
+    turn = {"role": "assistant", "text": text}
+    try:
+        speech_path = await LocalMacOsSpeaker().synthesize(text)
+    except LocalSpeechError as exception:
+        conversation.turns.append(turn)
+        return str(exception)
+    if speech_path is not None:
+        clip_id = str(uuid4())
+        speech_clips[clip_id] = SpeechClip(conversation_id=conversation.id, path=speech_path)
+        turn["audio_url"] = f"/speech/{clip_id}"
+    conversation.turns.append(turn)
+    return None
 
 
 def _write_temporary_audio(recording: bytes, suffix: str) -> Path:

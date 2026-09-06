@@ -1,3 +1,5 @@
+import re
+
 from fastapi.testclient import TestClient
 
 from app import main as main_module
@@ -101,3 +103,32 @@ def test_audio_turn_uses_safe_default_temporary_extension(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert source_paths[0].suffix == ".webm"
+
+
+def test_russian_reply_uses_a_one_time_local_speech_clip(monkeypatch, tmp_path) -> None:
+    conversation_id = client.post("/api/conversations").json()["id"]
+    clip = tmp_path / "milena.m4a"
+
+    async def fake_reply(_, __):
+        return "Привет, я говорю по-русски."
+
+    async def fake_synthesize(_, text):
+        assert text == "Привет, я говорю по-русски."
+        clip.write_bytes(b"local speech")
+        return clip
+
+    monkeypatch.setattr(main_module.CodexAppServer, "reply", fake_reply)
+    monkeypatch.setattr(main_module.LocalMacOsSpeaker, "synthesize", fake_synthesize)
+    response = client.post(
+        f"/conversations/{conversation_id}/turns",
+        data={"text": "Привет"},
+    )
+
+    assert response.status_code == 200
+    match = re.search(r'src="(/speech/[^"]+)"', response.text)
+    assert match
+    audio = client.get(match.group(1))
+    assert audio.status_code == 200
+    assert audio.headers["content-type"].startswith("audio/mp4")
+    assert audio.content == b"local speech"
+    assert not clip.exists()
