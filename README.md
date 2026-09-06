@@ -4,7 +4,7 @@
 
 Personal, local-first voice interface for talking to a strong text model through an existing Codex login.
 
-> **Status: early prototype.** Text chat, browser recording, local speech-to-text, and local Russian speech work as one voice loop on macOS. A live local conversation keeps its Codex context until it is deleted or the server stops. Streaming, interruption while recording, durable history, and plugins are still future work.
+> **Status: early prototype.** Text chat, browser recording, local speech-to-text, and local Russian speech work as one voice loop on macOS. Realtime UX includes visual states, immediate barge-in, mute, collapsible transcript, and server-side latency metrics. Streaming, continuous VAD endpointing, durable history, and plugins are still future work.
 
 The current milestone is deliberately small: a FastAPI + htmx shell that starts one local `codex app-server` process and one ephemeral Codex thread for each active conversation. The browser records a short message, the backend transcribes it with local Whisper, sends only the resulting text to Codex, and renders Cyrillic replies through the local macOS voice before the browser plays them.
 

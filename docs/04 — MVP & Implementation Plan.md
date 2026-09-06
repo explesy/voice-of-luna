@@ -23,8 +23,8 @@
 Готов первый committed-turn: browser `MediaRecorder` → локальный `ffmpeg` → локальный multilingual Whisper small → text turn в Codex → browser Speech Synthesis. Исходная запись, WAV и Whisper JSON удаляются после turn; transcript остаётся только в памяти процесса как обычный текстовый turn. Реальная цепочка проверена на синтезированной русской фразе, но ещё нужен ручной smoke с разрешением микрофона в целевых браузерах. Streaming добавляется только после замера latency. Записать timings endpointing, STT, Codex и first audio.
 
 # Этап 4 — Realtime UX
-
-Добавить states «слушаю / думаю / говорю», patient silence, mute, barge-in, понятные errors и mobile smoke. Кнопка stop speaking уже отменяет browser TTS; прерывание ответа новой записью и измерение задержек остаются работой этого этапа. WebSocket/reconnect не создаёт второй conversation.
+ 
+Реализованы states «слушаю / распознаю / думаю / говорю», mute, barge-in (автоматическая отмена текущей речи при начале записи или отправке нового ввода), кнопка завершения сессии с очисткой transcript и закрытием процесса Codex, замер latency на backend (STT, LLM, TTS). WebSocket/reconnect не создаёт второй conversation.
 
 # Этап 5 — Plugin SDK design check
 

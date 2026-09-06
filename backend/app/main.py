@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import shutil
 import tempfile
+import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -37,6 +39,9 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
 
+logger = logging.getLogger("voice_of_luna")
+
+
 @dataclass
 class Conversation:
     id: str
@@ -52,6 +57,17 @@ class SpeechClip:
 
 conversations: dict[str, Conversation] = {}
 speech_clips: dict[str, SpeechClip] = {}
+
+
+async def _close_and_delete_conversation(conversation_id: str) -> bool:
+    conversation = conversations.pop(conversation_id, None)
+    if conversation is not None:
+        await conversation.model.close()
+    for clip_id, clip in list(speech_clips.items()):
+        if clip.conversation_id == conversation_id:
+            _remove_temporary_audio(clip.path)
+            del speech_clips[clip_id]
+    return conversation is not None
 
 
 class TurnInput(BaseModel):
@@ -82,14 +98,30 @@ async def healthz() -> dict[str, object]:
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request) -> HTMLResponse:
     runtime = await CodexAppServer().status()
-    return templates.TemplateResponse(request, "index.html", {"runtime": runtime})
+    russian_voice = os.environ.get("VOICE_OF_LUNA_RUSSIAN_VOICE", "Milena")
+    return templates.TemplateResponse(
+        request, "index.html", {"runtime": runtime, "russian_voice": russian_voice}
+    )
 
 
 @app.post("/conversations", response_class=HTMLResponse)
 async def create_conversation_fragment(request: Request) -> HTMLResponse:
     conversation = Conversation(id=str(uuid4()))
     conversations[conversation.id] = conversation
-    return templates.TemplateResponse(request, "conversation.html", {"conversation": conversation})
+    russian_voice = os.environ.get("VOICE_OF_LUNA_RUSSIAN_VOICE", "Milena")
+    return templates.TemplateResponse(
+        request, "conversation.html", {"conversation": conversation, "russian_voice": russian_voice}
+    )
+
+
+@app.delete("/conversations/{conversation_id}", response_class=HTMLResponse)
+async def delete_conversation_fragment(request: Request, conversation_id: str) -> HTMLResponse:
+    await _close_and_delete_conversation(conversation_id)
+    runtime = await CodexAppServer().status()
+    russian_voice = os.environ.get("VOICE_OF_LUNA_RUSSIAN_VOICE", "Milena")
+    return templates.TemplateResponse(
+        request, "empty_conversation.html", {"runtime": runtime, "russian_voice": russian_voice}
+    )
 
 
 @app.post("/conversations/{conversation_id}/turns", response_class=HTMLResponse)
@@ -98,13 +130,26 @@ async def create_turn_fragment(
 ) -> HTMLResponse:
     conversation = _recover_html_conversation(conversation_id)
     conversation.turns.append({"role": "user", "text": text})
+    t_start = time.perf_counter()
+    error = None
     try:
         reply = await conversation.model.reply(text)
+        t_llm = time.perf_counter()
         error = await _append_assistant_turn(conversation, reply)
+        t_tts = time.perf_counter()
+        logger.info(
+            "Text turn latency: llm=%.3fs, tts=%.3fs, total=%.3fs",
+            t_llm - t_start,
+            t_tts - t_llm,
+            t_tts - t_start,
+        )
     except CodexUnavailable as exception:
         error = str(exception)
+    russian_voice = os.environ.get("VOICE_OF_LUNA_RUSSIAN_VOICE", "Milena")
     return templates.TemplateResponse(
-        request, "conversation.html", {"conversation": conversation, "error": error}
+        request,
+        "conversation.html",
+        {"conversation": conversation, "error": error, "russian_voice": russian_voice},
     )
 
 
@@ -123,12 +168,26 @@ async def create_audio_turn_fragment(
     suffix = AUDIO_SUFFIXES.get(audio.content_type or "", ".webm")
     temporary_path = _write_temporary_audio(recording, suffix)
     wav_path: Path | None = None
+    t_start = time.perf_counter()
+    error = None
     try:
         wav_path = await _convert_to_wav(temporary_path)
+        t_wav = time.perf_counter()
         transcript = await LocalWhisperTranscriber().transcribe(wav_path)
+        t_stt = time.perf_counter()
         conversation.turns.append({"role": "user", "text": transcript})
         reply = await conversation.model.reply(transcript)
+        t_llm = time.perf_counter()
         error = await _append_assistant_turn(conversation, reply)
+        t_tts = time.perf_counter()
+        logger.info(
+            "Audio turn latency: audio_prep=%.3fs, stt=%.3fs, llm=%.3fs, tts=%.3fs, total=%.3fs",
+            t_wav - t_start,
+            t_stt - t_wav,
+            t_llm - t_stt,
+            t_tts - t_llm,
+            t_tts - t_start,
+        )
     except AudioConversionError as exception:
         error = str(exception)
     except LocalTranscriptionError as exception:
@@ -139,8 +198,11 @@ async def create_audio_turn_fragment(
         await asyncio.to_thread(_remove_temporary_audio, temporary_path)
         if wav_path is not None:
             await asyncio.to_thread(_remove_temporary_audio, wav_path)
+    russian_voice = os.environ.get("VOICE_OF_LUNA_RUSSIAN_VOICE", "Milena")
     return templates.TemplateResponse(
-        request, "conversation.html", {"conversation": conversation, "error": error}
+        request,
+        "conversation.html",
+        {"conversation": conversation, "error": error, "russian_voice": russian_voice},
     )
 
 
@@ -172,14 +234,8 @@ async def create_turn(conversation_id: str, body: TurnInput) -> dict[str, str]:
 
 @app.delete("/api/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_conversation(conversation_id: str) -> None:
-    conversation = conversations.pop(conversation_id, None)
-    if conversation is None:
+    if not await _close_and_delete_conversation(conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found")
-    await conversation.model.close()
-    for clip_id, clip in list(speech_clips.items()):
-        if clip.conversation_id == conversation_id:
-            _remove_temporary_audio(clip.path)
-            del speech_clips[clip_id]
 
 
 @app.get("/speech/{clip_id}")

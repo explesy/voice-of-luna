@@ -1,27 +1,104 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Voice of Luna</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Voice of Luna — Персональный голосовой интерфейс</title>
+    <meta name="description" content="Local-first персональный голосовой интерфейс для общения с локальной моделью через Codex bridge." />
     <link rel="stylesheet" href="/static/app.css" />
     <script src="/static/vendor/htmx-2.0.4.min.js"></script>
   </head>
-  <body>
-    <main>
-      <header>
-        <p class="eyebrow">PERSONAL VOICE INTERFACE</p>
-        <h1>Voice of Luna</h1>
-        <p class="runtime {{ 'ready' if runtime.available else 'unavailable' }}">{{ runtime.detail }}</p>
-      </header>
-      <section id="conversation" class="conversation">
-        <div class="empty">
-          <p>Start a private conversation with your local Codex runtime.</p>
-          <button hx-post="/conversations" hx-target="#conversation" hx-swap="innerHTML">Start conversation</button>
+  <body class="app-body">
+    <div class="ambient-glow" aria-hidden="true"></div>
+    <div class="layout-wrapper">
+      <header class="app-header">
+        <div class="brand-group">
+          <div class="brand-logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+              <circle cx="18" cy="6" r="1" fill="currentColor"></circle>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <span class="brand-eyebrow">PERSONAL VOICE INTERFACE</span>
+            <h1 class="brand-name">Voice of Luna</h1>
+          </div>
         </div>
-      </section>
-      <p class="note">Audio stays on this machine: short recordings are transcribed by local Whisper, and Cyrillic replies use the local macOS voice. Temporary audio is deleted after use.</p>
-    </main>
+
+        <div class="header-badges">
+          <div class="status-chip {{ 'status-ready' if runtime.available else 'status-unavailable' }}" title="{{ runtime.detail }}">
+            <span class="status-dot"></span>
+            <span class="status-text">{{ 'Codex подключён' if runtime.available else 'Codex недоступен' }}</span>
+          </div>
+
+          <div class="status-chip chip-subtle" title="Используемый системный голос">
+            <svg class="chip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            </svg>
+            <span class="status-text">{{ russian_voice }}</span>
+          </div>
+
+          <button type="button" class="btn-icon-subtle" id="help-btn" aria-label="Справка и горячие клавиши" title="Справка и горячие клавиши">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <section id="conversation" class="conversation-container">
+          {% include "empty_conversation.html" %}
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <div class="footer-note">
+          <span>Local-first • Вся обработка звука выполняется на этом Mac • Данные приватны</span>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Help & Settings Dialog -->
+    <dialog id="help-dialog" class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>О системе «Voice of Luna»</h3>
+          <button type="button" class="btn-close" id="close-help-btn" aria-label="Закрыть">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="help-section">
+            <h4>Горячие клавиши</h4>
+            <ul class="shortcuts-list">
+              <li><kbd>Пробел</kbd> <span>Начать / остановить запись (когда поле ввода не активно)</span></li>
+              <li><kbd>Esc</kbd> <span>Прервать речь ассистента / закрыть окно</span></li>
+              <li><kbd>T</kbd> <span>Показать / скрыть транскрипт беседы</span></li>
+              <li><kbd>Enter</kbd> <span>Отправить текстовое сообщение</span></li>
+            </ul>
+          </div>
+
+          <div class="help-section">
+            <h4>Barge-in (Прерывание на лету)</h4>
+            <p>Вы можете начать говорить или нажать кнопку записи прямо во время ответа ассистента. Воспроизведение мгновенно остановится, и система начнёт слушать вашу новую мысль.</p>
+          </div>
+
+          <div class="help-section">
+            <h4>Приватность и архитектура</h4>
+            <p>Приложение не сохраняет сырой звук на диске и не передает токены наружу. Распознавание речи работает через локальный <code>whisper-cli</code>, синтез — через системный движок macOS. Модель опрашивается через локальный мост <code>codex app-server</code> вашей учётной записи.</p>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
     <script src="/static/voice.js"></script>
   </body>
 </html>

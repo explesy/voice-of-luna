@@ -67,6 +67,34 @@ def test_htmx_shell_creates_a_conversation_form() -> None:
     assert "hx-post" in fragment.text
 
 
+def test_htmx_delete_conversation_resets_shell() -> None:
+    conversation_id = client.post("/api/conversations").json()["id"]
+    deleted = client.delete(f"/conversations/{conversation_id}")
+    assert deleted.status_code == 200
+    assert "hx-post" in deleted.text
+
+
+def test_htmx_delete_conversation_closes_bridge_and_cleans_speech(monkeypatch, tmp_path) -> None:
+    conversation_id = client.post("/api/conversations").json()["id"]
+    clip_file = tmp_path / "test_clip.m4a"
+    clip_file.write_bytes(b"audio data")
+    main_module.speech_clips["clip-1"] = main_module.SpeechClip(
+        conversation_id=conversation_id, path=clip_file
+    )
+    closed = []
+
+    async def fake_close(bridge):
+        closed.append(id(bridge))
+
+    monkeypatch.setattr(main_module.CodexAppServer, "close", fake_close)
+
+    deleted = client.delete(f"/conversations/{conversation_id}")
+    assert deleted.status_code == 200
+    assert len(closed) == 1
+    assert not clip_file.exists()
+    assert "clip-1" not in main_module.speech_clips
+
+
 def test_stale_html_conversation_recovers_after_a_local_restart(monkeypatch) -> None:
     async def fake_reply(_, text):
         return f"Reply to: {text}"
