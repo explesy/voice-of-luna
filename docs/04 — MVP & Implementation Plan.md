@@ -1,67 +1,44 @@
 # MVP & Implementation Plan
 
-## Voice Trainer — Web App
+## Voice of Luna — Personal Voice Interface
 
-# Цель MVP
+# Результат MVP
 
-Доказать, что web-приложение может ощущаться как естественный голосовой разговор и при этом надёжнее стандартного Live-режима соблюдать детерминированный training protocol. Первая версия ориентирована на одного пользователя и один реальный сценарий тренировок.
+Один пользователь на своей машине открывает local HTTPS URL, разговаривает с сильной моделью голосом и использует уже авторизованный Codex runtime. Он может думать молча, перебивать ответ, видеть понятные статусы и удалить transcript. Личная тренировка не является функцией MVP.
 
-# Этап 0 — Skeleton
+# Этап 0 — Neutral skeleton
 
-Создать monorepo или два простых приложения: frontend React/TypeScript и backend FastAPI. Добавить Docker development environment, конфигурацию через environment variables, health endpoint и базовый session model. Настроить HTTPS/WSS для среды, где тестируется настоящий microphone input.
+Создать FastAPI backend с server-rendered HTML и htmx, health endpoint, runtime status и local conversation model. Добавить безопасные defaults: localhost only, нет telemetry, нет raw-audio persistence, нет secret в `.env` или frontend.
 
-# Этап 0.5 — Codex-connected spike
+# Этап 1 — Codex bridge spike
 
-До голосового контура проверить два LLM adapter-а на одном коротком structured turn. Для `LocalCodexLanguageModelProvider` подключить локальный Codex companion к личной ChatGPT/Codex-учётной записи через его поддерживаемый login flow и убедиться, что browser/backend не видят OAuth token. Проверить restart, истёкшую короткую сессию/refresh и явное отключение. Не писать собственный OpenAI OAuth client и не делать этот режим доступным с удалённого сервера. Если контракт app-server нестабилен или не документирован, зафиксировать результат и продолжить MVP через API-key adapter.
+Проверить установленный `codex app-server`: protocol handshake, ephemeral thread, один text `turn/start`, получение итоговой agent message, shutdown и безопасную ошибку без ответа. Bridge не делает OAuth сам и не читает credential files. Он использует уже выполненный `codex login` на машине владельца.
 
-# Этап 1 — Voice round trip
+# Этап 2 — Text conversation shell
 
-Получить microphone stream в браузере, передать его backend, сделать STT, отправить распознанный текст в text LLM, синтезировать ответ через TTS и проиграть его в браузере. На этом этапе protocol может быть минимальным. Главный результат — измеряемый полный voice loop и timing каждого участка.
+Подключить UI к local backend: создать conversation, отправить текст, получить ответ и удалить историю. Этот путь должен полностью работать до микрофона. Добавить contract tests с fake provider, а реальный Codex test оставить opt-in.
 
-# Этап 2 — Realtime UX
+# Этап 3 — Voice round trip
 
-Добавить automatic endpointing, partial/final transcript events, streaming response, audio queue и visual states «слушаю / думаю / говорю». Реализовать barge-in так, чтобы пользователь мог перебить TTS. Добавить reconnect и обработку ошибок микрофона/провайдера.
+Добавить microphone → STT → text turn → TTS → speaker. Сначала допустимы committed chunks; streaming добавляется только после замера latency. Записать timings endpointing, STT, Codex и first audio.
 
-# Этап 3 — Conversation Controller
+# Этап 4 — Realtime UX
 
-Реализовать конечный автомат и server-owned session clock. Добавить structured LLM output, Protocol Validator, counters, unfinished requirements и запрет недопустимых transitions. Создать unit tests для всех переходов до подключения сложного training content.
+Добавить states «слушаю / думаю / говорю», patient silence, mute, stop speaking, barge-in, понятные errors и mobile smoke. WebSocket/reconnect не создаёт второй conversation.
 
-# Этап 4 — Training protocol
+# Этап 5 — Plugin SDK design check
 
-Перенести первый реальный сценарий: scene → user attempt → ограниченная reflection → return to scene → exact replay → debrief. Добавить patient silence profile, точный replay из сохранённого turn и Repeat last line. Протокол должен работать без изменения core voice transport.
+После работающего voice loop реализовать manifest validation и один безопасный prompt-only example plugin. Не переносить личный training protocol, пока не доказана польза общего ядра.
 
-# Этап 5 — Persistence и debrief
+# Definition of Done
 
-Сохранять sessions, turns и events. Добавить post-session summary и страницу просмотра session transcript/log. Кнопка Report protocol issue должна помечать конкретный turn/state snapshot. Raw audio по умолчанию не хранить.
+- Local bridge работает с текущей авторизацией Codex, не экспортируя токены.
+- Обычный текстовый turn проходит end-to-end и даёт видимую ошибку при недоступном runtime.
+- Voice turn работает без клавиатуры после выдачи browser permissions.
+- Barge-in останавливает TTS локально.
+- Пользователь может удалить transcript; raw audio не остаётся в storage.
+- Модель, аудио и plugins не меняют базовый trust boundary.
 
-# Этап 6 — Usability pass
+# Основные риски
 
-Сделать минимальный session screen удобным на desktop и mobile browser. Проверить permissions, headphones/speaker behavior, фоновые вкладки, screen lock ограничения на мобильных браузерах и разные микрофоны. Добавить простые настройки голоса, длительности и silence profile.
-
-# Definition of Done для первой полезной версии
-
-Один пользователь может открыть HTTPS URL и провести полноценную голосовую тренировку без клавиатуры. Микрофон/STT/LLM/TTS работают в одном непрерывном flow. Session timer и state принадлежат backend. Модель не может самовольно завершить сессию или пропустить обязательный этап. Replay точный. Несколько секунд размышления не вызывают нежелательный ответ. Barge-in прекращает TTS. После сессии доступен debrief и воспроизводимый event log. В personal mode запрос проходит через локальный Codex companion, а OAuth credential не попадает в browser, session database или удалённый server.
-
-# Инженерные критерии
-
-Нет provider API keys во frontend bundle. Все model names конфигурируются. Domain controller тестируется без реальных provider calls. Каждое provider обращение имеет timeout и понятную ошибку. WebSocket reconnect не создаёт вторую параллельную сессию. Rejected model actions логируются. Удаление сессии удаляет persistent transcript/events согласно выбранной retention policy. Для Codex-connected adapter-а есть тест, доказывающий, что OAuth token не сериализуется ни в API response, ни в event payload, ни в application logs.
-
-# Первый backlog после MVP
-
-Project presets и редактор protocol config. Загрузка project context из внешних документов. Более умный retrieval прошлых тренировок. Несколько TTS/STT providers. Автоматическая оценка protocol adherence. Экспорт session summary. Пользовательские аккаунты. PWA-install. Улучшенная мобильная работа. Cost dashboard.
-
-# Что пока намеренно отложено
-
-Автоматизация consumer ChatGPT web UI. Native macOS/iOS/Android clients. Мультипользовательская коммерческая инфраструктура. Сложная vector database. Долговременная автономная память без контроля пользователя. Fine-tuning до появления данных, показывающих, что prompt \+ controller недостаточны.
-
-# Первые технические задачи
-
-Сначала собрать минимальный microphone → backend WebSocket → echo/playback path. Затем подключить STT и проверить endpointing на реальной речи и паузах. После этого добавить text LLM и TTS. Только когда latency голосового loop приемлема, добавить finite-state controller и перенести реальный training protocol. Такой порядок отделяет проблемы realtime audio от проблем поведения модели.
-
-# Главные риски
-
-Слишком большая задержка между turns. Endpointing обрезает размышления пользователя. Mobile browser ограничивает audio в фоне. Streaming TTS плохо отменяется при interrupt. LLM генерирует удобочитаемый текст, но нарушает machine contract. Context становится слишком большим и дорогим. Для Codex-connected mode дополнительно есть риск изменения или отсутствия подходящего app-server контракта и исчерпания лимита личной подписки; поэтому он должен быть feature-flagged и иметь API-key fallback. Эти риски должны измеряться отдельными timings и fixture tests, а не маскироваться дополнительными prompt-инструкциями.
-
-# Ключевой эксперимент
-
-Сравнить несколько настоящих тренировок через новый web prototype с предыдущим Live-подходом. Главная метрика эксперимента — не субъективная «умность» модели сама по себе, а число protocol violations, качество пауз/replay, ощущение естественности голоса и способность провести запланированную структуру от начала до конца.  
+App-server помечен экспериментальным и его schema может меняться; bridge должен pin/check version и иметь ясную деградацию в text-only local mode. Personal Codex subscription имеет свои usage limits, поэтому UI не обещает «безлимитный API». У браузерного STT/TTS есть platform/privacy ограничения; конкретные provider решения принимаются после замера voice loop.

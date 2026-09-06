@@ -9,3 +9,10 @@ drive-download-*.zip
 !.env.example
 .idea/
 .vscode/
+
+# Python development artifacts
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+data/

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Voice of Luna</title>
+    <link rel="stylesheet" href="/static/app.css" />
+    <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2pKa8KjQ+FLcD/0EypE1PKJYzq+4fZO9dQO4YswCu" crossorigin="anonymous"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">PERSONAL VOICE INTERFACE</p>
+        <h1>Voice of Luna</h1>
+        <p class="runtime {{ 'ready' if runtime.available else 'unavailable' }}">{{ runtime.detail }}</p>
+      </header>
+      <section id="conversation" class="conversation">
+        <div class="empty">
+          <p>Start a private conversation with your local Codex runtime.</p>
+          <button hx-post="/conversations" hx-target="#conversation" hx-swap="innerHTML">Start conversation</button>
+        </div>
+      </section>
+      <p class="note">This first shell is text-only. Microphone, STT, and TTS come after the local conversation path is accepted.</p>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+{% for message in conversation.turns %}
+<article class="message {{ message.role }}">{{ message.text }}</article>
+{% endfor %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form hx-post="/conversations/{{ conversation.id }}/turns" hx-target="#conversation" hx-swap="innerHTML" hx-disabled-elt="find button">
+  <label for="message">Message</label>
+  <textarea id="message" name="text" rows="3" maxlength="8000" required autofocus placeholder="Say what is on your mind…"></textarea>
+  <button type="submit">Send</button>
+</form>
