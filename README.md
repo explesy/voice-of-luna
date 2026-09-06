@@ -39,7 +39,7 @@ uv sync --group dev
 uv run uvicorn app.main:app --reload
 ```
 
-Open <http://127.0.0.1:8000/>. The page is server-rendered HTML enhanced with htmx; there is no React client application. Press **Start recording**, allow the browser's microphone permission, speak, and press **Stop recording**. The browser's built-in speech synthesis reads the final answer aloud when it is available.
+Open <http://127.0.0.1:8000/>. The page is server-rendered HTML enhanced with htmx; there is no React client application. Press **Start recording**, allow the browser's microphone permission, speak, and press **Stop recording**. The browser's built-in speech synthesis reads the final answer aloud when it is available, choosing a Russian voice for text containing Cyrillic.
 
 ## Verify
 

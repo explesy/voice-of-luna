@@ -6,6 +6,20 @@ function status(text) {
   if (element) element.textContent = text;
 }
 
+function languageFor(text) {
+  return /\p{Script=Cyrillic}/u.test(text) ? "ru-RU" : "en-US";
+}
+
+function voiceFor(language) {
+  const voices = window.speechSynthesis.getVoices();
+  const normalizedLanguage = language.toLowerCase();
+  const languageFamily = normalizedLanguage.split("-")[0];
+  return (
+    voices.find((voice) => voice.lang.toLowerCase() === normalizedLanguage) ||
+    voices.find((voice) => voice.lang.toLowerCase().startsWith(`${languageFamily}-`))
+  );
+}
+
 function speakLatestResponse() {
   if (!window.speechSynthesis) return;
   const responses = document.querySelectorAll("[data-spoken-response]");
@@ -13,7 +27,17 @@ function speakLatestResponse() {
   if (!latest || latest.dataset.spoken) return;
   latest.dataset.spoken = "true";
   window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(new SpeechSynthesisUtterance(latest.textContent));
+  const utterance = new SpeechSynthesisUtterance(latest.textContent);
+  utterance.lang = languageFor(latest.textContent);
+  utterance.voice = voiceFor(utterance.lang) || null;
+  utterance.addEventListener("start", () => status("Speaking…"));
+  utterance.addEventListener("end", () => status("Microphone is off"));
+  utterance.addEventListener("error", (event) => {
+    if (event.error !== "canceled" && event.error !== "interrupted") {
+      status(`Speech playback failed: ${event.error}`);
+    }
+  });
+  window.speechSynthesis.speak(utterance);
 }
 
 async function startRecording(button) {
