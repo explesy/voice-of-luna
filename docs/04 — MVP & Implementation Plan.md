@@ -20,11 +20,11 @@
 
 # Этап 3 — Voice round trip
 
-Добавить microphone → STT → text turn → TTS → speaker. Сначала допустимы committed chunks; streaming добавляется только после замера latency. Записать timings endpointing, STT, Codex и first audio.
+Готов первый committed-turn: browser `MediaRecorder` → локальный `ffmpeg` → локальный multilingual Whisper small → text turn в Codex → browser Speech Synthesis. Исходная запись, WAV и Whisper JSON удаляются после turn; transcript остаётся только в памяти процесса как обычный текстовый turn. Реальная цепочка проверена на синтезированной русской фразе, но ещё нужен ручной smoke с разрешением микрофона в целевых браузерах. Streaming добавляется только после замера latency. Записать timings endpointing, STT, Codex и first audio.
 
 # Этап 4 — Realtime UX
 
-Добавить states «слушаю / думаю / говорю», patient silence, mute, stop speaking, barge-in, понятные errors и mobile smoke. WebSocket/reconnect не создаёт второй conversation.
+Добавить states «слушаю / думаю / говорю», patient silence, mute, barge-in, понятные errors и mobile smoke. Кнопка stop speaking уже отменяет browser TTS; прерывание ответа новой записью и измерение задержек остаются работой этого этапа. WebSocket/reconnect не создаёт второй conversation.
 
 # Этап 5 — Plugin SDK design check
 
@@ -34,11 +34,11 @@
 
 - Local bridge работает с текущей авторизацией Codex, не экспортируя токены.
 - Обычный текстовый turn проходит end-to-end и даёт видимую ошибку при недоступном runtime.
-- Voice turn работает без клавиатуры после выдачи browser permissions.
+- Voice turn работает без клавиатуры после выдачи browser permissions; STT не требует облачного ключа и не отправляет audio в Codex.
 - Barge-in останавливает TTS локально.
 - Пользователь может удалить transcript; raw audio не остаётся в storage.
 - Модель, аудио и plugins не меняют базовый trust boundary.
 
 # Основные риски
 
-App-server помечен экспериментальным и его schema может меняться; bridge должен pin/check version и иметь ясную деградацию в text-only local mode. Personal Codex subscription имеет свои usage limits, поэтому UI не обещает «безлимитный API». У браузерного STT/TTS есть platform/privacy ограничения; конкретные provider решения принимаются после замера voice loop.
+App-server помечен экспериментальным и его schema может меняться; bridge должен pin/check version и иметь ясную деградацию в text-only local mode. Personal Codex subscription имеет свои usage limits, поэтому UI не обещает «безлимитный API». Whisper small занимает около 465 MB и требует локальных `whisper-cli` и `ffmpeg`; это намеренная цена за отсутствие аудио-провайдера. Browser Speech Synthesis зависит от браузера, системных голосов и пользовательского разрешения, поэтому не обещает один и тот же тембр или язык на всех устройствах.

@@ -20,7 +20,8 @@
           <button hx-post="/conversations" hx-target="#conversation" hx-swap="innerHTML">Start conversation</button>
         </div>
       </section>
-      <p class="note">This first shell is text-only. Microphone, STT, and TTS come after the local conversation path is accepted.</p>
+      <p class="note">Audio stays on this machine: short recordings are transcribed by local Whisper, then deleted. Browser speech synthesis reads the reply aloud.</p>
     </main>
+    <script src="/static/voice.js"></script>
   </body>
 </html>

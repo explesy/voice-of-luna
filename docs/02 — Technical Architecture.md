@@ -34,7 +34,7 @@ Browser не получает API keys, OAuth access token или refresh token.
 
 `SpeechToTextProvider`, `TextToSpeechProvider` и `LanguageModelProvider` — небольшие интерфейсы без provider-specific типов в core.
 
-`LocalCodexLanguageModelProvider` запускает app-server, выполняет protocol handshake, создаёт ephemeral thread и запрашивает `turn/start` с текстом пользователя. Он собирает только итоговую `agentMessage`, передаёт её в TTS и не показывает пользователю внутренние tool calls, reasoning или файловый контекст. Runtime запускается с read-only sandbox и без доступа к этому репозиторию, кроме пустого рабочего каталога companion.
+`LocalWhisperTranscriber` конвертирует browser recording локальным `ffmpeg` в mono 16 kHz WAV, запускает multilingual Whisper small и возвращает transcript. Исходник, WAV и JSON-результат существуют только на время turn и затем удаляются. `LocalCodexLanguageModelProvider` запускает app-server, выполняет protocol handshake и запрашивает `turn/start` с этим текстом. Provider собирает только итоговую `agentMessage`, передаёт её в browser TTS и не показывает пользователю внутренние tool calls, reasoning или файловый контекст. Runtime запускается с read-only sandbox и без доступа к этому репозиторию, кроме пустого рабочего каталога companion.
 
 `OpenAIApiLanguageModelProvider` остаётся будущим fallback для server deployment. Он не нужен, чтобы запустить personal MVP.
 

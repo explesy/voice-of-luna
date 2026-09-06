@@ -52,6 +52,9 @@ class CodexAppServer:
     async def reply(self, text: str) -> str:
         if not text.strip():
             raise ValueError("Message must not be empty")
+        return await self._reply_with_input([{"type": "text", "text": text}])
+
+    async def _reply_with_input(self, input_items: list[dict[str, str]]) -> str:
         runtime = await self.status()
         if not runtime.available:
             raise CodexUnavailable(runtime.detail)
@@ -88,7 +91,7 @@ class CodexAppServer:
             thread_id = thread["thread"]["id"]
             turn = await self._request(
                 "turn/start",
-                {"threadId": thread_id, "input": [{"type": "text", "text": text}]},
+                {"threadId": thread_id, "input": input_items},
             )
             turn_id = turn["turn"]["id"]
             return await self._wait_for_answer(thread_id, turn_id)

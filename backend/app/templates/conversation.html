@@ -1,9 +1,14 @@
 {% for message in conversation.turns %}
-<article class="message {{ message.role }}">{{ message.text }}</article>
+<article class="message {{ message.role }}"{% if message.role == "assistant" %} data-spoken-response{% endif %}>{{ message.text }}</article>
 {% endfor %}
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 <form hx-post="/conversations/{{ conversation.id }}/turns" hx-target="#conversation" hx-swap="innerHTML" hx-disabled-elt="find button">
   <label for="message">Message</label>
   <textarea id="message" name="text" rows="3" maxlength="8000" required autofocus placeholder="Say what is on your mind…"></textarea>
-  <button type="submit">Send</button>
+  <div class="controls">
+    <button type="button" class="record" data-record data-audio-url="/conversations/{{ conversation.id }}/audio">Start recording</button>
+    <button type="button" class="stop-speaking" data-stop-speaking>Stop speaking</button>
+    <button type="submit">Send text</button>
+    <span class="voice-status" data-voice-status aria-live="polite">Microphone is off</span>
+  </div>
 </form>

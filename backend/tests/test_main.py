@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app import main as main_module
 from app.main import app
 
 
@@ -29,3 +30,74 @@ def test_htmx_shell_creates_a_conversation_form() -> None:
     fragment = client.post("/conversations")
     assert fragment.status_code == 200
     assert "hx-post" in fragment.text
+
+
+def test_audio_turn_rejects_non_audio_upload() -> None:
+    conversation_id = client.post("/api/conversations").json()["id"]
+    response = client.post(
+        f"/conversations/{conversation_id}/audio",
+        files={"audio": ("note.txt", b"not audio", "text/plain")},
+    )
+    assert response.status_code == 415
+
+
+def test_audio_turn_removes_temporary_recording(monkeypatch) -> None:
+    conversation_id = client.post("/api/conversations").json()["id"]
+    received_paths = []
+    source_paths = []
+
+    async def fake_convert(source):
+        source_paths.append(source)
+        converted = source.with_suffix(".wav")
+        converted.write_bytes(b"converted audio")
+        return converted
+
+    async def fake_transcribe(_, path):
+        received_paths.append(path)
+        assert path.exists()
+        return "Hello from a local transcription."
+
+    async def fake_reply(_, text):
+        assert text == "Hello from a local transcription."
+        return "I heard you."
+
+    monkeypatch.setattr(main_module, "_convert_to_wav", fake_convert)
+    monkeypatch.setattr(main_module.LocalWhisperTranscriber, "transcribe", fake_transcribe)
+    monkeypatch.setattr(main_module.CodexAppServer, "reply", fake_reply)
+    response = client.post(
+        f"/conversations/{conversation_id}/audio",
+        files={"audio": ("recording.webm", b"fake audio", "audio/webm")},
+    )
+
+    assert response.status_code == 200
+    assert "I heard you." in response.text
+    assert received_paths and not received_paths[0].exists()
+    assert source_paths and not source_paths[0].exists()
+
+
+def test_audio_turn_uses_safe_default_temporary_extension(monkeypatch) -> None:
+    conversation_id = client.post("/api/conversations").json()["id"]
+    source_paths = []
+
+    async def fake_convert(source):
+        source_paths.append(source)
+        converted = source.with_suffix(".wav")
+        converted.write_bytes(b"converted audio")
+        return converted
+
+    async def fake_transcribe(_, __):
+        return "A transcript."
+
+    async def fake_reply(_, __):
+        return "A reply."
+
+    monkeypatch.setattr(main_module, "_convert_to_wav", fake_convert)
+    monkeypatch.setattr(main_module.LocalWhisperTranscriber, "transcribe", fake_transcribe)
+    monkeypatch.setattr(main_module.CodexAppServer, "reply", fake_reply)
+    response = client.post(
+        f"/conversations/{conversation_id}/audio",
+        files={"audio": ("untrusted.extension", b"fake audio", "audio/unknown")},
+    )
+
+    assert response.status_code == 200
+    assert source_paths[0].suffix == ".webm"

@@ -4,22 +4,34 @@
 
 Personal, local-first voice interface for talking to a strong text model through an existing Codex login.
 
-> **Status: early prototype.** The local text conversation path is working. Browser microphone, STT, TTS, and plugin execution are planned, not yet implemented.
+> **Status: early prototype.** Text chat, browser recording, local speech-to-text, and browser speech synthesis work as one local voice loop. Streaming, interruption while recording, persistent history, and plugins are still future work.
 
-The current milestone is deliberately small: a FastAPI + htmx text shell that starts an ephemeral local `codex app-server` thread. It proves the account and trust boundary before microphone capture, STT, and TTS are added.
+The current milestone is deliberately small: a FastAPI + htmx shell that starts an ephemeral local `codex app-server` thread. The browser records a short message, the backend transcribes it with local Whisper, sends only the resulting text to Codex, and asks the browser to read the response aloud.
 
 ## Privacy model
 
 - The app uses the local Codex runtime already signed in on the owner's machine.
 - It does not read, copy, return, or store Codex OAuth tokens.
 - The app-server uses stdio locally; it must not be exposed on a public network.
-- Raw audio is not part of the current implementation.
+- A recording, its converted WAV file, and Whisper's JSON output are temporary files; they are deleted after each turn. Conversation text currently remains in memory only, until the server stops.
+- Speech-to-text is local. The model response still goes through the owner's already-authorized Codex runtime and is subject to that account's normal usage limits.
 
 This is a personal local tool, not a shared hosted service. A public deployment needs a separate API-key provider and proper authentication.
 
 ## Run locally
 
-Prerequisites: Python 3.12+, [uv](https://docs.astral.sh/uv/), and a local Codex login (`codex login`).
+Prerequisites: Python 3.12+, [uv](https://docs.astral.sh/uv/), a local Codex login (`codex login`), `ffmpeg`, and [`whisper.cpp`](https://github.com/ggml-org/whisper.cpp)'s `whisper-cli` with a local multilingual model.
+
+On macOS with Homebrew, install the local audio tools and download the recommended Whisper small model (about 465 MB):
+
+```bash
+brew install ffmpeg whisper-cpp
+mkdir -p data/models
+curl -L --retry 3 https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin \
+  -o data/models/ggml-small.bin
+```
+
+`data/` is ignored by Git. To keep the model somewhere else, set `VOICE_OF_LUNA_WHISPER_MODEL` to its absolute path before starting the server.
 
 ```bash
 cd backend
@@ -27,7 +39,7 @@ uv sync --group dev
 uv run uvicorn app.main:app --reload
 ```
 
-Open <http://127.0.0.1:8000/>. The page is server-rendered HTML enhanced with htmx; there is no React client application.
+Open <http://127.0.0.1:8000/>. The page is server-rendered HTML enhanced with htmx; there is no React client application. Press **Start recording**, allow the browser's microphone permission, speak, and press **Stop recording**. The browser's built-in speech synthesis reads the final answer aloud when it is available.
 
 ## Verify
 
@@ -42,8 +54,8 @@ The test suite uses no model calls. A real one-turn Codex smoke check should be 
 
 ## Roadmap
 
-1. Browser microphone, STT, TTS, and barge-in over the existing local conversation path.
-2. Measured latency and mobile/browser behavior.
+1. Measured latency, browser/device behavior, and a clearer runtime readiness screen.
+2. Barge-in and more reliable speech playback controls.
 3. A capability-limited plugin boundary for optional conversation behaviors, such as training protocols.
 
 See [`docs/`](docs/) for product, architecture, conversation-core, and MVP documents.
