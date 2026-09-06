@@ -1,0 +1,11 @@
+.DS_Store
+
+# Source archive is kept locally as an import artifact; the Markdown sources are tracked.
+drive-download-*.zip
+
+# Local environment and editor files
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
