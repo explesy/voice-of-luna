@@ -83,9 +83,7 @@ async def create_conversation_fragment(request: Request) -> HTMLResponse:
 async def create_turn_fragment(
     request: Request, conversation_id: str, text: str = Form(min_length=1, max_length=8_000)
 ) -> HTMLResponse:
-    conversation = conversations.get(conversation_id)
-    if conversation is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    conversation = _recover_html_conversation(conversation_id)
     conversation.turns.append({"role": "user", "text": text})
     try:
         reply = await CodexAppServer().reply(text)
@@ -101,9 +99,7 @@ async def create_turn_fragment(
 async def create_audio_turn_fragment(
     request: Request, conversation_id: str, audio: UploadFile = File(...)
 ) -> HTMLResponse:
-    conversation = conversations.get(conversation_id)
-    if conversation is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    conversation = _recover_html_conversation(conversation_id)
     if not (audio.content_type or "").startswith("audio/"):
         raise HTTPException(status_code=415, detail="Expected an audio recording")
 
@@ -201,6 +197,23 @@ async def _append_assistant_turn(conversation: Conversation, text: str) -> str |
         turn["audio_url"] = f"/speech/{clip_id}"
     conversation.turns.append(turn)
     return None
+
+
+def _recover_html_conversation(conversation_id: str) -> Conversation:
+    """Keep a stale browser form usable after a local --reload restart.
+
+    Conversations intentionally live only in process memory. A page rendered
+    before a development-server restart has an obsolete id, but its next text
+    or audio turn is still safe to use as the first turn of a new conversation.
+    JSON routes remain strict so callers can distinguish a missing resource.
+    """
+
+    conversation = conversations.get(conversation_id)
+    if conversation is not None:
+        return conversation
+    conversation = Conversation(id=str(uuid4()))
+    conversations[conversation.id] = conversation
+    return conversation
 
 
 def _write_temporary_audio(recording: bytes, suffix: str) -> Path:

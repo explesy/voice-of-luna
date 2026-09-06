@@ -34,6 +34,18 @@ def test_htmx_shell_creates_a_conversation_form() -> None:
     assert "hx-post" in fragment.text
 
 
+def test_stale_html_conversation_recovers_after_a_local_restart(monkeypatch) -> None:
+    async def fake_reply(_, text):
+        return f"Reply to: {text}"
+
+    monkeypatch.setattr(main_module.CodexAppServer, "reply", fake_reply)
+    response = client.post("/conversations/expired/turns", data={"text": "Second message"})
+
+    assert response.status_code == 200
+    assert "Reply to: Second message" in response.text
+    assert "/conversations/expired/turns" not in response.text
+
+
 def test_audio_turn_rejects_non_audio_upload() -> None:
     conversation_id = client.post("/api/conversations").json()["id"]
     response = client.post(
@@ -41,6 +53,31 @@ def test_audio_turn_rejects_non_audio_upload() -> None:
         files={"audio": ("note.txt", b"not audio", "text/plain")},
     )
     assert response.status_code == 415
+
+
+def test_stale_voice_form_recovers_after_a_local_restart(monkeypatch) -> None:
+    async def fake_convert(source):
+        converted = source.with_suffix(".wav")
+        converted.write_bytes(b"converted audio")
+        return converted
+
+    async def fake_transcribe(_, __):
+        return "Second voice message"
+
+    async def fake_reply(_, text):
+        return f"Reply to: {text}"
+
+    monkeypatch.setattr(main_module, "_convert_to_wav", fake_convert)
+    monkeypatch.setattr(main_module.LocalWhisperTranscriber, "transcribe", fake_transcribe)
+    monkeypatch.setattr(main_module.CodexAppServer, "reply", fake_reply)
+    response = client.post(
+        "/conversations/expired/audio",
+        files={"audio": ("recording.webm", b"fake audio", "audio/webm")},
+    )
+
+    assert response.status_code == 200
+    assert "Reply to: Second voice message" in response.text
+    assert "/conversations/expired/audio" not in response.text
 
 
 def test_audio_turn_removes_temporary_recording(monkeypatch) -> None:
