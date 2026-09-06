@@ -23,7 +23,8 @@ def test_turn_rejects_unknown_conversation_without_starting_codex() -> None:
 def test_htmx_shell_creates_a_conversation_form() -> None:
     page = client.get("/")
     assert page.status_code == 200
-    assert "htmx.org" in page.text
+    assert 'src="/static/vendor/htmx-2.0.4.min.js"' in page.text
+    assert client.get("/static/vendor/htmx-2.0.4.min.js").status_code == 200
 
     fragment = client.post("/conversations")
     assert fragment.status_code == 200
