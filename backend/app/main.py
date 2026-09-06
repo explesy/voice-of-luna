@@ -4,6 +4,7 @@ import asyncio
 import os
 import shutil
 import tempfile
+from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from uuid import uuid4
@@ -20,7 +21,18 @@ from .speak import LocalMacOsSpeaker, LocalSpeechError
 from .transcribe import LocalTranscriptionError, LocalWhisperTranscriber
 
 
-app = FastAPI(title="Voice of Luna", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        yield
+    finally:
+        await asyncio.gather(
+            *(conversation.model.close() for conversation in conversations.values()),
+            return_exceptions=True,
+        )
+
+
+app = FastAPI(title="Voice of Luna", version="0.1.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
@@ -29,6 +41,7 @@ templates = Jinja2Templates(directory="app/templates")
 class Conversation:
     id: str
     turns: list[dict[str, str]] = field(default_factory=list)
+    model: CodexAppServer = field(default_factory=CodexAppServer)
 
 
 @dataclass
@@ -86,7 +99,7 @@ async def create_turn_fragment(
     conversation = _recover_html_conversation(conversation_id)
     conversation.turns.append({"role": "user", "text": text})
     try:
-        reply = await CodexAppServer().reply(text)
+        reply = await conversation.model.reply(text)
         error = await _append_assistant_turn(conversation, reply)
     except CodexUnavailable as exception:
         error = str(exception)
@@ -114,7 +127,7 @@ async def create_audio_turn_fragment(
         wav_path = await _convert_to_wav(temporary_path)
         transcript = await LocalWhisperTranscriber().transcribe(wav_path)
         conversation.turns.append({"role": "user", "text": transcript})
-        reply = await CodexAppServer().reply(transcript)
+        reply = await conversation.model.reply(transcript)
         error = await _append_assistant_turn(conversation, reply)
     except AudioConversionError as exception:
         error = str(exception)
@@ -150,7 +163,7 @@ async def create_turn(conversation_id: str, body: TurnInput) -> dict[str, str]:
         raise HTTPException(status_code=404, detail="Conversation not found")
     conversation.turns.append({"role": "user", "text": body.text})
     try:
-        reply = await CodexAppServer().reply(body.text)
+        reply = await conversation.model.reply(body.text)
     except CodexUnavailable as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     await _append_assistant_turn(conversation, reply)
@@ -159,8 +172,10 @@ async def create_turn(conversation_id: str, body: TurnInput) -> dict[str, str]:
 
 @app.delete("/api/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_conversation(conversation_id: str) -> None:
-    if conversations.pop(conversation_id, None) is None:
+    conversation = conversations.pop(conversation_id, None)
+    if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    await conversation.model.close()
     for clip_id, clip in list(speech_clips.items()):
         if clip.conversation_id == conversation_id:
             _remove_temporary_audio(clip.path)

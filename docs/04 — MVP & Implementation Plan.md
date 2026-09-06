@@ -16,7 +16,7 @@
 
 # Этап 2 — Text conversation shell
 
-Подключить UI к local backend: создать conversation, отправить текст, получить ответ и удалить историю. Этот путь должен полностью работать до микрофона. Добавить contract tests с fake provider, а реальный Codex test оставить opt-in.
+Подключить UI к local backend: создать conversation, запустить один local app-server process и ephemeral Codex thread для неё, отправить несколько text turn-ов в тот же thread, получить ответы и удалить историю вместе с runtime. Этот путь должен полностью работать до микрофона. Добавить contract tests с fake provider, а реальный Codex test оставить opt-in.
 
 # Этап 3 — Voice round trip
 

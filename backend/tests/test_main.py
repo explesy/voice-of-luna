@@ -18,9 +18,42 @@ def test_creates_and_deletes_conversation() -> None:
     assert deleted.status_code == 204
 
 
+def test_deleting_conversation_closes_its_codex_bridge(monkeypatch) -> None:
+    conversation_id = client.post("/api/conversations").json()["id"]
+    closed = []
+
+    async def fake_close(bridge):
+        closed.append(id(bridge))
+
+    monkeypatch.setattr(main_module.CodexAppServer, "close", fake_close)
+
+    deleted = client.delete(f"/api/conversations/{conversation_id}")
+
+    assert deleted.status_code == 204
+    assert len(closed) == 1
+
+
 def test_turn_rejects_unknown_conversation_without_starting_codex() -> None:
     response = client.post("/api/conversations/missing/turns", json={"text": "Hello"})
     assert response.status_code == 404
+
+
+def test_conversation_reuses_its_codex_bridge_between_turns(monkeypatch) -> None:
+    conversation_id = client.post("/api/conversations").json()["id"]
+    bridge_ids = []
+
+    async def fake_reply(bridge, text):
+        bridge_ids.append(id(bridge))
+        return f"Reply to: {text}"
+
+    monkeypatch.setattr(main_module.CodexAppServer, "reply", fake_reply)
+
+    first = client.post(f"/api/conversations/{conversation_id}/turns", json={"text": "First"})
+    second = client.post(f"/api/conversations/{conversation_id}/turns", json={"text": "Second"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert bridge_ids[0] == bridge_ids[1]
 
 
 def test_htmx_shell_creates_a_conversation_form() -> None:

@@ -21,7 +21,7 @@ class RuntimeStatus:
 
 
 class CodexAppServer:
-    """One ephemeral, read-only Codex thread for one conversation turn.
+    """One local Codex process and ephemeral thread for one conversation.
 
     The process inherits the operator's existing Codex login. This class never
     reads, stores, or returns credential files or tokens.
@@ -31,6 +31,7 @@ class CodexAppServer:
         self.command = command
         self.workdir = workdir or Path("/tmp")
         self._process: asyncio.subprocess.Process | None = None
+        self._thread_id: str | None = None
         self._next_id = 1
 
     async def status(self) -> RuntimeStatus:
@@ -55,6 +56,26 @@ class CodexAppServer:
         return await self._reply_with_input([{"type": "text", "text": text}])
 
     async def _reply_with_input(self, input_items: list[dict[str, str]]) -> str:
+        thread_id = await self._ensure_thread()
+        try:
+            turn = await self._request(
+                "turn/start",
+                {"threadId": thread_id, "input": input_items},
+            )
+            turn_id = turn["turn"]["id"]
+            return await self._wait_for_answer(thread_id, turn_id)
+        except CodexUnavailable:
+            await self.close()
+            raise
+        except (KeyError, TypeError, asyncio.TimeoutError) as error:
+            await self.close()
+            raise CodexUnavailable("Codex app-server returned an unexpected response") from error
+
+    async def _ensure_thread(self) -> str:
+        if self._process is not None and self._process.returncode is None and self._thread_id:
+            return self._thread_id
+
+        await self.close()
         runtime = await self.status()
         if not runtime.available:
             raise CodexUnavailable(runtime.detail)
@@ -88,17 +109,14 @@ class CodexAppServer:
                     ),
                 },
             )
-            thread_id = thread["thread"]["id"]
-            turn = await self._request(
-                "turn/start",
-                {"threadId": thread_id, "input": input_items},
-            )
-            turn_id = turn["turn"]["id"]
-            return await self._wait_for_answer(thread_id, turn_id)
-        except (KeyError, TypeError, asyncio.TimeoutError) as error:
-            raise CodexUnavailable("Codex app-server returned an unexpected response") from error
-        finally:
+            self._thread_id = thread["thread"]["id"]
+            return self._thread_id
+        except CodexUnavailable:
             await self.close()
+            raise
+        except (KeyError, TypeError, asyncio.TimeoutError) as error:
+            await self.close()
+            raise CodexUnavailable("Codex app-server returned an unexpected response") from error
 
     async def _wait_for_answer(self, thread_id: str, turn_id: str) -> str:
         messages: list[str] = []
@@ -157,3 +175,5 @@ class CodexAppServer:
                 self._process.kill()
                 await self._process.wait()
         self._process = None
+        self._thread_id = None
+        self._next_id = 1
