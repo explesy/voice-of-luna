@@ -1,6 +1,10 @@
 # Voice of Luna
 
+[![CI](https://github.com/explesy/voice-of-luna/actions/workflows/ci.yml/badge.svg)](https://github.com/explesy/voice-of-luna/actions/workflows/ci.yml)
+
 Personal, local-first voice interface for talking to a strong text model through an existing Codex login.
+
+> **Status: early prototype.** The local text conversation path is working. Browser microphone, STT, TTS, and plugin execution are planned, not yet implemented.
 
 The current milestone is deliberately small: a FastAPI + htmx text shell that starts an ephemeral local `codex app-server` thread. It proves the account and trust boundary before microphone capture, STT, and TTS are added.
 
@@ -34,6 +38,8 @@ uv run pytest -q
 
 The test suite uses no model calls. A real one-turn Codex smoke check should be run intentionally because it consumes the account's available Codex usage.
 
+`make setup`, `make test`, and `make run` provide the same common local workflow from the repository root.
+
 ## Roadmap
 
 1. Browser microphone, STT, TTS, and barge-in over the existing local conversation path.
@@ -42,6 +48,10 @@ The test suite uses no model calls. A real one-turn Codex smoke check should be 
 
 See [`docs/`](docs/) for product, architecture, conversation-core, and MVP documents.
 
+## Contributing and security
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Security-sensitive reports, especially anything related to local credentials or conversation data, belong in the process described in [SECURITY.md](SECURITY.md), not in a public issue.
+
 ## License
 
-No license has been selected yet. The repository is public for collaboration and review; choose a license before inviting reuse or accepting external contributions.
+Voice of Luna is available under the [MIT License](LICENSE).
