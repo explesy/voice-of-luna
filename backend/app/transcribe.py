@@ -10,17 +10,72 @@ import tempfile
 from pathlib import Path
 
 
+import httpx
+
+
 class LocalTranscriptionError(RuntimeError):
     """Raised when the local Whisper runtime cannot transcribe a recording."""
 
 
 class LocalWhisperTranscriber:
-    def __init__(self, model_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        model_path: Path | None = None,
+        language: str | None = None,
+        server_url: str | None = None,
+        prompt: str | None = None,
+    ) -> None:
         project_root = Path(__file__).resolve().parents[2]
         configured_path = os.environ.get("VOICE_OF_LUNA_WHISPER_MODEL")
         self.model_path = model_path or Path(configured_path or project_root / "data/models/ggml-small.bin")
+        self.language = language or os.environ.get("VOICE_OF_LUNA_WHISPER_LANGUAGE", "ru")
+        self.prompt = prompt or os.environ.get("VOICE_OF_LUNA_WHISPER_PROMPT")
+        host = os.environ.get("VOICE_OF_LUNA_WHISPER_HOST", "127.0.0.1")
+        port = os.environ.get("VOICE_OF_LUNA_WHISPER_PORT", "8089")
+        self.server_url = server_url or os.environ.get(
+            "VOICE_OF_LUNA_WHISPER_URL", f"http://{host}:{port}"
+        )
 
-    async def transcribe(self, audio_path: Path) -> str:
+    async def transcribe(
+        self,
+        audio_path: Path,
+        language: str | None = None,
+        prompt: str | None = None,
+    ) -> str:
+        target_language = language or self.language
+        target_prompt = prompt or self.prompt
+        transcript = await self._transcribe_http(audio_path, target_language, target_prompt)
+        if transcript is not None:
+            return transcript
+        return await self._transcribe_cli(audio_path, target_language, target_prompt)
+
+    async def _transcribe_http(
+        self, audio_path: Path, language: str, prompt: str | None = None
+    ) -> str | None:
+        url = f"{self.server_url.rstrip('/')}/inference"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                with open(audio_path, "rb") as audio_file:
+                    files = {"file": (audio_path.name, audio_file, "audio/wav")}
+                    data = {"language": language, "response_format": "json"}
+                    if prompt:
+                        data["prompt"] = prompt
+                    response = await client.post(url, files=files, data=data)
+                if response.status_code == 200:
+                    payload = response.json()
+                    transcript = payload.get("text", "").strip()
+                    if not transcript:
+                        raise LocalTranscriptionError("No speech was detected in this recording")
+                    return transcript
+        except LocalTranscriptionError:
+            raise
+        except Exception:
+            return None
+        return None
+
+    async def _transcribe_cli(
+        self, audio_path: Path, language: str, prompt: str | None = None
+    ) -> str:
         if shutil.which("whisper-cli") is None:
             raise LocalTranscriptionError("whisper-cpp is not installed locally")
         if not self.model_path.is_file():
@@ -31,20 +86,28 @@ class LocalWhisperTranscriber:
         output_base = Path(raw_output_base)
         output_json = Path(f"{output_base}.json")
         output_base.unlink(missing_ok=True)
+        threads = str(min(os.cpu_count() or 4, 8))
+        cmd = [
+            "whisper-cli",
+            "-m",
+            str(self.model_path),
+            "-f",
+            str(audio_path),
+            "-l",
+            language,
+            "-t",
+            threads,
+            "-np",
+            "-nt",
+            "-oj",
+            "-of",
+            str(output_base),
+        ]
+        if prompt:
+            cmd.extend(["--prompt", prompt])
         try:
             process = await asyncio.create_subprocess_exec(
-                "whisper-cli",
-                "-m",
-                str(self.model_path),
-                "-f",
-                str(audio_path),
-                "-l",
-                "auto",
-                "-np",
-                "-nt",
-                "-oj",
-                "-of",
-                str(output_base),
+                *cmd,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
