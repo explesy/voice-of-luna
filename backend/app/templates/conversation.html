@@ -1,229 +1,170 @@
-<div class="active-session animate-fade-in" data-conversation-id="{{ conversation.id }}">
-  <!-- Context bar: stats and quick navigation -->
-  <div class="session-topbar">
-    <div class="turns-badge">
-      <span class="dot-pulse"></span>
-      <span data-turns-count>{{ conversation.turns|length }}</span> {{ 'реплик' if conversation.turns|length != 1 else 'реплика' }}
-    </div>
+<div class="session-box animate-fade-in" data-conversation-id="{{ conversation.id }}">
+  <!-- Main Session Body: Left Floating Radar HUD + Centered Chat Viewport -->
+  <div class="session-body">
+    <!-- Left Floating Telemetry & Radar Stage (No box frame) -->
+    <aside class="radar-sidebar">
+      <div class="radar-stage state-idle">
+        <div class="radar-hud">
+          <div class="hud-corners">
+            <span class="corner tl">+</span>
+            <span class="corner tr">+</span>
+            <span class="corner bl">+</span>
+            <span class="corner br">+</span>
+          </div>
 
-    <div class="session-topbar-actions">
-      <button type="button" class="btn-subtle" data-toggle-transcript title="Открыть транскрипт (клавиша T)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-        </svg>
-        <span>Транскрипт</span>
-        {% if conversation.turns|length > 0 %}
-        <span class="count-pill">{{ conversation.turns|length }}</span>
+          <button type="button" class="radar-trigger" data-record data-audio-url="/conversations/{{ conversation.id }}/audio" aria-label="Toggle Microphone">
+            <svg class="radar-svg" viewBox="0 0 200 200">
+              <!-- Concentric target rings -->
+              <circle class="radar-grid grid-1" cx="100" cy="100" r="30" />
+              <circle class="radar-grid grid-2" cx="100" cy="100" r="60" />
+              <circle class="radar-grid grid-3" cx="100" cy="100" r="90" />
+              <!-- Crosshairs -->
+              <line class="radar-cross cross-v" x1="100" y1="10" x2="100" y2="190" />
+              <line class="radar-cross cross-h" x1="10" y1="100" x2="190" y2="100" />
+              <!-- Active Wave / Radar Sweep -->
+              <circle class="radar-sweep" cx="100" cy="100" r="75" />
+              <!-- Central Dynamic Pulse Core -->
+              <circle class="radar-core" cx="100" cy="100" r="22" />
+            </svg>
+
+            <!-- Centered HUD State Tag -->
+            <div class="radar-center-glyph">
+              <span class="glyph-idle">● READY</span>
+              <span class="glyph-listening">● REC</span>
+              <span class="glyph-thinking">◌ WAIT</span>
+              <span class="glyph-speaking">▲ TALK</span>
+            </div>
+          </button>
+        </div>
+
+        <!-- Telemetry status readout -->
+        <div class="telemetry-bar">
+          <div class="telemetry-line">
+            <span class="telemetry-pill" data-mode-pill>IDLE // READY</span>
+            <span class="telemetry-latency" id="latency-metrics" style="display: none;">
+              <span class="latency-pill" data-latency-hud>⚡ <span data-latency-val>--</span></span>
+            </span>
+          </div>
+          <p class="telemetry-desc" data-voice-status>Press [Space] or click radar to speak</p>
+        </div>
+
+        {% if error %}
+        <div class="term-alert" role="alert">
+          <span class="alert-tag">[ERROR]</span>
+          <span class="alert-msg">{{ error }}</span>
+        </div>
         {% endif %}
-      </button>
-
-      <button type="button" class="btn-subtle btn-danger-subtle" hx-delete="/conversations/{{ conversation.id }}" hx-target="#conversation" hx-swap="innerHTML" title="Завершить сессию">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
-          <line x1="12" y1="2" x2="12" y2="12"></line>
-        </svg>
-        <span>Завершить</span>
-      </button>
-    </div>
-  </div>
-
-  <!-- Central Voice Stage with Luna Orb -->
-  <div class="voice-stage">
-    <div class="orb-container">
-      <button type="button" class="luna-orb" data-record data-audio-url="/conversations/{{ conversation.id }}/audio" aria-label="Управление микрофоном: нажмите, чтобы говорить">
-        <div class="orb-aura"></div>
-        <div class="orb-ring ring-wave-1"></div>
-        <div class="orb-ring ring-wave-2"></div>
-        <div class="orb-ring ring-wave-3"></div>
-        <div class="orb-core">
-          <div class="orb-icon-state icon-idle">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
-            </svg>
-          </div>
-          <div class="orb-icon-state icon-listening">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-              <line x1="12" y1="19" x2="12" y2="22"></line>
-            </svg>
-          </div>
-          <div class="orb-icon-state icon-speaking">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-              <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-            </svg>
-          </div>
-          <div class="orb-icon-state icon-thinking">
-            <div class="thinking-spinner"></div>
-          </div>
-        </div>
-      </button>
-    </div>
-
-    <div class="voice-status-wrapper">
-      <div class="mode-pill" data-mode-pill>Готово к разговору</div>
-      <p class="voice-status" data-voice-status aria-live="polite">Нажмите микрофон или пробел, чтобы говорить</p>
-    </div>
-
-    {% if error %}
-    <div class="error-banner animate-fade-in" role="alert">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"></circle>
-        <line x1="12" y1="8" x2="12" y2="12"></line>
-        <line x1="12" y1="16" x2="12.01" y2="16"></line>
-      </svg>
-      <span>{{ error }}</span>
-    </div>
-    {% endif %}
-  </div>
-
-  <!-- Collapsible Text Input Panel (Fallback) -->
-  <div class="text-panel-drawer" id="text-panel" hidden>
-    <form class="text-form" hx-post="/conversations/{{ conversation.id }}/turns" hx-target="#conversation" hx-swap="innerHTML" hx-disabled-elt="find button">
-      <div class="text-input-container">
-        <label for="message" class="sr-only">Сообщение</label>
-        <textarea id="message" name="text" rows="2" maxlength="8000" required placeholder="Напишите мысль или вопрос… (Enter для отправки)"></textarea>
-        <button type="submit" class="btn-send-text" title="Отправить текст">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13"></line>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-          </svg>
-        </button>
       </div>
-    </form>
-  </div>
+    </aside>
 
-  <!-- Floating Control Deck -->
-  <div class="control-deck">
-    <div class="deck-surface">
-      <!-- Mute Mic -->
-      <button type="button" class="deck-btn" data-toggle-mute title="Отключить микрофон (Mute)">
-        <svg class="icon-unmuted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-          <line x1="12" y1="19" x2="12" y2="22"></line>
-        </svg>
-        <svg class="icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
-          <line x1="2" y1="2" x2="22" y2="22"></line>
-          <path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"></path>
-          <path d="M5 10v2a7 7 0 0 0 12 5"></path>
-          <path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"></path>
-          <path d="M9 9v3a3 3 0 0 0 5.12 2.12"></path>
-          <line x1="12" y1="19" x2="12" y2="22"></line>
-        </svg>
-      </button>
-
-      <!-- Primary Record / Mic Button -->
-      <button type="button" class="deck-btn-primary" data-record data-audio-url="/conversations/{{ conversation.id }}/audio" title="Запись (Пробел)">
-        <span class="btn-ripple"></span>
-        <svg class="icon-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-          <line x1="12" y1="19" x2="12" y2="22"></line>
-        </svg>
-        <svg class="icon-stop" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="display:none;">
-          <rect x="6" y="6" width="12" height="12" rx="2"></rect>
-        </svg>
-      </button>
-
-      <!-- Stop speaking (Barge-in / Stop) -->
-      <button type="button" class="deck-btn stop-speaking" data-stop-speaking title="Прервать речь (Esc)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"></circle>
-          <rect x="9" y="9" width="6" height="6"></rect>
-        </svg>
-      </button>
-
-      <!-- Replay last turn -->
-      <button type="button" class="deck-btn" data-replay title="Повторить последний ответ">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="1 4 1 10 7 10"></polyline>
-          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
-        </svg>
-      </button>
-
-      <!-- Toggle Text Panel -->
-      <button type="button" class="deck-btn" data-toggle-text-btn title="Ввести текст">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="4" width="20" height="16" rx="2"></rect>
-          <path d="M6 8h.01"></path>
-          <path d="M10 8h.01"></path>
-          <path d="M14 8h.01"></path>
-          <path d="M18 8h.01"></path>
-          <path d="M8 12h8"></path>
-          <path d="M6 16h12"></path>
-        </svg>
-      </button>
-
-      <!-- Toggle Transcript Drawer -->
-      <button type="button" class="deck-btn" data-toggle-transcript title="Открыть транскрипт (T)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-        </svg>
-      </button>
-    </div>
-  </div>
-
-  <!-- Secondary Transcript Drawer (Collapsible) -->
-  <aside id="transcript-drawer" class="transcript-drawer" aria-label="История разговора" hidden>
-    <div class="drawer-backdrop" data-close-transcript></div>
-    <div class="drawer-panel">
-      <div class="drawer-header">
-        <div class="drawer-title-group">
-          <h3>Транскрипт беседы</h3>
-          <span class="count-pill">{{ conversation.turns|length }}</span>
+    <!-- Centered Chat Viewport (Toolbar + Messages Feed + Prompt Dock) -->
+    <section class="chat-viewport">
+      <!-- Top meta toolbar -->
+      <div class="session-toolbar">
+        <div class="toolbar-left">
+          <span class="session-id">SESSION // {{ conversation.id[:8] }}</span>
+          <span class="counter-badge">[TURNS: <span data-turns-count>{{ conversation.turns|length }}</span>]</span>
         </div>
-        <div class="drawer-actions">
-          <button type="button" class="btn-subtle" data-copy-transcript title="Скопировать весь транскрипт в буфер">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
-              <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
-            </svg>
-            <span>Скопировать</span>
+        <div class="toolbar-right">
+          <div class="sys-chip session-plugin-chip" title="Выбор активного плагина / роли">
+            <span class="chip-led chip-led-plugin"></span>
+            <label for="session-plugin-select" class="session-plugin-label">PLUGIN:</label>
+            <select id="session-plugin-select" class="voice-select plugin-select session-plugin-select" aria-label="Выбор плагина">
+              {% for p in plugins %}
+              <option value="{{ p.id }}" {% if p.id == active_plugin %}selected{% endif %}>
+                {{ p.name }}
+              </option>
+              {% endfor %}
+              {% if not plugins %}
+              <option value="neutral" selected>Lúna (Core)</option>
+              {% endif %}
+            </select>
+          </div>
+          {% set current_p = none %}
+          {% for p in plugins %}
+            {% if p.id == active_plugin %}
+              {% set current_p = p %}
+            {% endif %}
+          {% endfor %}
+          <div class="sys-chip mode-selector-chip session-mode-chip" id="mode-chip" title="Режим плагина" {% if not current_p or not current_p.modes or current_p.modes|length <= 1 %}style="display: none;"{% endif %}>
+            <span class="chip-led chip-led-mode"></span>
+            <label for="mode-select" class="session-plugin-label">MODE:</label>
+            <select id="mode-select" class="voice-select session-mode-select" aria-label="Режим плагина">
+              {% if current_p and current_p.modes %}
+                {% for m in current_p.modes %}
+                <option value="{{ m.id }}" {% if m.id == active_plugin_mode %}selected{% endif %}>
+                  {{ m.label }}
+                </option>
+                {% endfor %}
+              {% endif %}
+            </select>
+          </div>
+          {% if conversation.turns|length > 0 %}
+          <button type="button" class="btn-term" data-copy-transcript title="Копировать диалог">
+            [COPY]
           </button>
-          <button type="button" class="btn-close" data-close-transcript aria-label="Закрыть транскрипт">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
+          {% endif %}
+          <button type="button" class="btn-term btn-term-reset" data-reset-chat hx-delete="/conversations/{{ conversation.id }}" hx-target="#conversation" hx-swap="innerHTML" title="Сбросить сессию">
+            [RESET_CHAT]
           </button>
         </div>
       </div>
-
-      <div class="drawer-body" id="transcript-body">
+      <!-- Terminal Dialogue Log -->
+      <div class="console-feed" id="messages-feed">
         {% if conversation.turns|length == 0 %}
-        <div class="empty-transcript">
-          <p>В этом разговоре пока нет реплик.</p>
-          <span>Нажмите кнопку микрофона или клавишу пробел, чтобы сказать что-то спонтанно.</span>
+        <div class="empty-console">
+          <p class="console-line">// session ready. no dialogue turns yet.</p>
+          <p class="console-line">// press spacebar to speak or enter text below.</p>
         </div>
         {% endif %}
 
         {% for message in conversation.turns %}
-        <article class="message {{ message.role }}"{% if message.role == "assistant" %} data-spoken-response{% endif %}>
-          <div class="message-meta">
-            <span class="message-role-tag">{{ 'Вы' if message.role == 'user' else 'Luna' }}</span>
+        <div class="log-entry {{ message.role }}"{% if message.role == "assistant" %} data-spoken-response{% endif %}>
+          <div class="log-header">
+            <span class="log-role">{{ 'USER >' if message.role == 'user' else 'LUNA >' }}</span>
           </div>
-          <div class="message-text">{{ message.text }}</div>
-          {% if message.audio_url %}
-          <div class="message-audio-wrap">
-            <audio class="reply-audio" data-server-audio controls preload="none" src="{{ message.audio_url }}">Ваш браузер не поддерживает локальный звук.</audio>
+          <div class="log-body">
+            <div class="log-text" data-raw-text="{{ message.text }}">{{ message.text | format_terminal_text }}</div>
+            {% if message.audio_url %}
+            <div class="log-audio">
+              <audio class="reply-audio" data-server-audio controls preload="none" src="{{ message.audio_url }}">Browser cannot play local audio.</audio>
+            </div>
+            {% endif %}
           </div>
-          {% endif %}
-        </article>
+        </div>
         {% endfor %}
       </div>
 
-      <div class="drawer-footer">
-        <button type="button" class="btn-danger-outline" hx-delete="/conversations/{{ conversation.id }}" hx-target="#conversation" hx-swap="innerHTML">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-          </svg>
-          <span>Удалить и завершить</span>
-        </button>
+      <!-- Command Prompt Dock -->
+      <div class="prompt-dock">
+        <form class="cmd-form" hx-post="/conversations/{{ conversation.id }}/turns" hx-target="#conversation" hx-swap="innerHTML" hx-disabled-elt="find button">
+          <!-- Record button -->
+          <button type="button" class="btn-cmd btn-record" data-record data-audio-url="/conversations/{{ conversation.id }}/audio" title="Record (Space)">
+            <span class="rec-led"></span>
+            <span class="rec-text">REC</span>
+          </button>
+
+          <!-- Stop speaking -->
+          <button type="button" class="btn-cmd stop-speaking" data-stop-speaking title="Stop speaking (Esc)">
+            <span>STOP</span>
+          </button>
+
+          <!-- Replay -->
+          <button type="button" class="btn-cmd" data-replay title="Replay response">
+            <span>REPLAY</span>
+          </button>
+
+          <!-- Command input line -->
+          <div class="cmd-input-field">
+            <span class="prompt-carat">></span>
+            <label for="message" class="sr-only">Command Input</label>
+            <input type="text" id="message" name="text" maxlength="8000" placeholder="Type prompt or command... (Enter)" required autocomplete="off" />
+            <button type="submit" class="btn-exec" title="Send (Enter)">
+              EXEC ↵
+            </button>
+          </div>
+        </form>
       </div>
-    </div>
-  </aside>
+    </section>
+  </div>
 </div>

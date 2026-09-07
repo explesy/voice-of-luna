@@ -3,102 +3,159 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Voice of Luna — Персональный голосовой интерфейс</title>
-    <meta name="description" content="Local-first персональный голосовой интерфейс для общения с локальной моделью через Codex bridge." />
+    <title>voice-of-luna // terminal</title>
+    <meta name="description" content="Local-first voice companion terminal over Codex bridge" />
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+    <link rel="alternate icon" type="image/x-icon" href="/static/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
+    <link rel="manifest" href="/static/site.webmanifest" />
+    <meta name="theme-color" content="#090a10" />
     <link rel="stylesheet" href="/static/app.css" />
     <script src="/static/vendor/htmx-2.0.4.min.js"></script>
   </head>
-  <body class="app-body">
-    <div class="ambient-glow" aria-hidden="true"></div>
-    <div class="layout-wrapper">
-      <header class="app-header">
-        <div class="brand-group">
-          <div class="brand-logo" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
-              <circle cx="18" cy="6" r="1" fill="currentColor"></circle>
-            </svg>
-          </div>
-          <div class="brand-text">
-            <span class="brand-eyebrow">PERSONAL VOICE INTERFACE</span>
-            <h1 class="brand-name">Voice of Luna</h1>
-          </div>
+  <body>
+    <div class="terminal-shell">
+      <header class="terminal-header">
+        <div class="header-left">
+          <span class="term-prompt">luna@local:~$</span>
+          <span class="term-title">voice-of-luna</span>
+          <span class="term-tag">v0.1</span>
         </div>
-
-        <div class="header-badges">
-          <div class="status-chip {{ 'status-ready' if runtime.available else 'status-unavailable' }}" title="{{ runtime.detail }}">
-            <span class="status-dot"></span>
-            <span class="status-text">{{ 'Codex подключён' if runtime.available else 'Codex недоступен' }}</span>
+        <div class="header-right">
+          <span class="sys-chip {{ 'chip-online' if runtime.available else 'chip-offline' }}" title="{{ runtime.detail }}">
+            <span class="chip-led"></span>CODEX:{{ 'ONLINE' if runtime.available else 'OFFLINE' }}
+          </span>
+          <div class="sys-chip model-selector-chip" title="Выбор модели Codex">
+            <span class="chip-led chip-led-model"></span>
+            <label for="model-select" class="voice-chip-label">MODEL:</label>
+            <select id="model-select" class="voice-select" aria-label="Выбор модели">
+              {% for m in models %}
+              <option value="{{ m.id }}" {% if m.id == active_model %}selected{% endif %}>
+                {{ m.displayName }}
+              </option>
+              {% endfor %}
+              {% if not models %}
+              <option value="gpt-5.6-luna" selected>GPT-5.6-Luna</option>
+              {% endif %}
+            </select>
           </div>
-
-          <div class="status-chip chip-subtle" title="Используемый системный голос">
-            <svg class="chip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-            </svg>
-            <span class="status-text">{{ russian_voice }}</span>
+          <div class="sys-chip effort-selector-chip" title="Уровень reasoning (размышлений модели)">
+            <span class="chip-led chip-led-effort"></span>
+            <label for="effort-select" class="voice-chip-label">EFFORT:</label>
+            <select id="effort-select" class="voice-select" aria-label="Уровень reasoning">
+              <option value="low" {% if active_effort == 'low' %}selected{% endif %}>low (fast)</option>
+              <option value="medium" {% if active_effort == 'medium' %}selected{% endif %}>medium</option>
+              <option value="high" {% if active_effort == 'high' %}selected{% endif %}>high</option>
+              <option value="xhigh" {% if active_effort == 'xhigh' %}selected{% endif %}>xhigh</option>
+            </select>
           </div>
-
-          <button type="button" class="btn-icon-subtle" id="help-btn" aria-label="Справка и горячие клавиши" title="Справка и горячие клавиши">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
-              <line x1="12" y1="17" x2="12.01" y2="17"></line>
-            </svg>
+          <div class="sys-chip voice-selector-chip" data-russian-voice="{{ active_voice }}" title="Выбор языка и голоса">
+            <span class="chip-led chip-led-voice"></span>
+            <label for="voice-select" class="voice-chip-label">VOICE:</label>
+            <select id="voice-select" class="voice-select" data-russian-voice="{{ active_voice }}" aria-label="Выбор голоса">
+              {% if edge_voices %}
+              <optgroup label="Нейросеть (Edge Cloud · Бесплатно)">
+                {% for v in edge_voices %}
+                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
+                  {{ v.name }} ★
+                </option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+              {% if silero_voices %}
+              <optgroup label="Локальная нейросеть (Silero · Offline)">
+                {% for v in silero_voices %}
+                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
+                  {{ v.name }} ★
+                </option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+              {% if local_russian_voices %}
+              <optgroup label="Локальные macOS (Offline)">
+                {% for v in local_russian_voices %}
+                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
+                  {{ v.name }}{% if v.is_enhanced %} ★{% endif %}
+                </option>
+                {% endfor %}
+              </optgroup>
+              {% elif russian_voices and not edge_voices %}
+              <optgroup label="Русский (Russian)">
+                {% for v in russian_voices %}
+                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
+                  {{ v.name }}{% if v.is_enhanced %} ★{% endif %}
+                </option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+              {% set active_is_other = other_voices and (other_voices | selectattr("name", "equalto", active_voice) | list | length > 0) %}
+              {% if active_is_other %}
+              <optgroup id="other-voices-group" label="Другие языки (Other)">
+                {% for v in other_voices %}
+                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
+                  {{ v.name }} ({{ v.locale }})
+                </option>
+                {% endfor %}
+              </optgroup>
+              <option value="__collapse_other__">▲ Скрыть другие языки</option>
+              {% elif other_voices %}
+              <option value="__expand_other__">▶ Другие языки (+{{ other_voices|length }})...</option>
+              {% endif %}
+              {% if not russian_voices and not other_voices %}
+              <option value="{{ active_voice }}" selected>{{ active_voice }}</option>
+              {% endif %}
+            </select>
+            {% if other_voices and not active_is_other %}
+            <template id="other-voices-template">
+              <optgroup id="other-voices-group" label="Другие языки (Other)">
+                {% for v in other_voices %}
+                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
+                  {{ v.name }} ({{ v.locale }})
+                </option>
+                {% endfor %}
+              </optgroup>
+            </template>
+            {% endif %}
+          </div>
+          <button type="button" class="sys-chip vad-toggle-chip is-auto" id="vad-toggle" title="Автоматическое определение конца речи [V]">
+            <span class="chip-led chip-led-vad"></span>
+            <span class="vad-label">VAD:</span>
+            <span class="vad-state-text">AUTO</span>
+          </button>
+          <button type="button" class="sys-chip vad-toggle-chip {{ 'is-auto' if remote_warmup_enabled else 'is-manual' }}" id="remote-warmup-toggle" title="Технический прогрев Codex расходует одну короткую реплику квоты на новый диалог">
+            <span class="chip-led chip-led-vad"></span>
+            <span class="vad-label">WARM:</span>
+            <span class="warmup-state-text">{{ 'ON' if remote_warmup_enabled else 'OFF' }}</span>
           </button>
         </div>
       </header>
 
-      <main class="main-content">
-        <section id="conversation" class="conversation-container">
-          {% include "empty_conversation.html" %}
-        </section>
+      <main class="terminal-main">
+        <div id="conversation" class="terminal-view">
+          {% include "conversation.html" %}
+        </div>
       </main>
 
-      <footer class="app-footer">
-        <div class="footer-note">
-          <span>Local-first • Вся обработка звука выполняется на этом Mac • Данные приватны</span>
+      <footer class="terminal-footer">
+        <div class="footer-shortcuts">
+          <span><kbd>SPACE</kbd> record</span>
+          <span><kbd>ESC</kbd> stop speech</span>
+          <span><kbd>ENTER</kbd> exec</span>
+        </div>
+        <div class="footer-meta">
+          <span>100% LOCAL // WHISPER_CPP // MACOS_SAY // CODEX_STDIO</span>
         </div>
       </footer>
     </div>
 
-    <!-- Help & Settings Dialog -->
-    <dialog id="help-dialog" class="modal-dialog">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>О системе «Voice of Luna»</h3>
-          <button type="button" class="btn-close" id="close-help-btn" aria-label="Закрыть">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="help-section">
-            <h4>Горячие клавиши</h4>
-            <ul class="shortcuts-list">
-              <li><kbd>Пробел</kbd> <span>Начать / остановить запись (когда поле ввода не активно)</span></li>
-              <li><kbd>Esc</kbd> <span>Прервать речь ассистента / закрыть окно</span></li>
-              <li><kbd>T</kbd> <span>Показать / скрыть транскрипт беседы</span></li>
-              <li><kbd>Enter</kbd> <span>Отправить текстовое сообщение</span></li>
-            </ul>
-          </div>
-
-          <div class="help-section">
-            <h4>Barge-in (Прерывание на лету)</h4>
-            <p>Вы можете начать говорить или нажать кнопку записи прямо во время ответа ассистента. Воспроизведение мгновенно остановится, и система начнёт слушать вашу новую мысль.</p>
-          </div>
-
-          <div class="help-section">
-            <h4>Приватность и архитектура</h4>
-            <p>Приложение не сохраняет сырой звук на диске и не передает токены наружу. Распознавание речи работает через локальный <code>whisper-cli</code>, синтез — через системный движок macOS. Модель опрашивается через локальный мост <code>codex app-server</code> вашей учётной записи.</p>
-          </div>
-        </div>
-      </div>
-    </dialog>
-
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
+    <script>
+      window._PLUGINS = {{ plugins | tojson }};
+      window._ACTIVE_PLUGIN = {{ active_plugin | tojson }};
+      window._ACTIVE_PLUGIN_MODE = {{ active_plugin_mode | tojson }};
+    </script>
     <script src="/static/voice.js"></script>
   </body>
 </html>

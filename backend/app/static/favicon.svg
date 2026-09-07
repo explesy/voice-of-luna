@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="100%" height="100%">
+  <defs>
+    <!-- Warm Radiant Tarot Gold -->
+    <linearGradient id="lunaGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fffbeb"/>
+      <stop offset="25%" stop-color="#fef08a"/>
+      <stop offset="60%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#b45309"/>
+    </linearGradient>
+
+    <!-- Neon Celestial Cyan -->
+    <linearGradient id="lunaCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="40%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+
+    <!-- Edge Shadow for High Contrast on both dark & light backgrounds -->
+    <filter id="crispShadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="0.75" stdDeviation="0.6" flood-color="#000000" flood-opacity="0.95"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#crispShadow)">
+    <!-- Crescent Moon with clear facial profile -->
+    <path d="M 16 1.5
+             C 6.5 1.5 1 8 1 16
+             C 1 24 6.5 30.5 16 30.5
+             C 10.5 27.5 11.5 23.5 14.5 22
+             C 12.8 20.5 13.5 18.5 16.5 17.5
+             C 12.8 16 12 14 18 13
+             C 11.8 10 10.8 5.5 16 1.5 Z"
+          fill="url(#lunaGold)"
+          stroke="#451a03"
+          stroke-width="0.75"
+          stroke-linejoin="round"/>
+
+    <!-- Serene Sleeping Eye of Luna -->
+    <path d="M 6 14 Q 8.5 16.5 11 14" fill="none" stroke="#451a03" stroke-width="1.3" stroke-linecap="round"/>
+
+    <!-- Radiant 8-Point Sparkling Tarot Star -->
+    <path d="M 18.5 11 L 27.5 20 M 18.5 20 L 27.5 11" stroke="url(#lunaGold)" stroke-width="0.8" stroke-linecap="round"/>
+    <path d="M 23 4.5 Q 23 15.5 13 15.5 Q 23 15.5 23 26.5 Q 23 15.5 33 15.5 Q 23 15.5 23 4.5 Z"
+          fill="url(#lunaCyan)"
+          stroke="#082f49"
+          stroke-width="0.6"/>
+    <circle cx="23" cy="15.5" r="1.7" fill="#ffffff"/>
+  </g>
+</svg>
