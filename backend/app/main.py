@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import inspect
+import json
 import logging
 import os
 import re
@@ -200,6 +201,7 @@ async def lifespan(_app: FastAPI):
         await asyncio.gather(reaper_task, return_exceptions=True)
         await asyncio.gather(
             whisper_server.close(),
+            LocalWhisperTranscriber.close_shared_http_client(),
             *(conversation.model.close() for conversation in conversations.values()),
             return_exceptions=True,
         )
@@ -229,6 +231,7 @@ class Conversation:
     active_websockets: int = 0
     remote_warmup_key: tuple[str, str] | None = None
     remote_warmup_task: asyncio.Task[None] | None = field(default=None, repr=False)
+    binary_audio: bool = False
 
 
 @dataclass
@@ -1176,7 +1179,6 @@ async def _stream_and_synthesize(
     await _await_conversation_warmup(conversation)
     speaker = LocalMacOsSpeaker(voice=conversation.voice)
     full_reply_parts: list[str] = []
-    sentence_queue: asyncio.Queue[str | None] = asyncio.Queue()
     current_sentence = ""
     in_sources_mode = False
     is_first_chunk = True
@@ -1184,21 +1186,34 @@ async def _stream_and_synthesize(
     t_first_sentence_queued: float | None = None
     t_first_audio: float | None = None
 
-    async def _send_audio(sentence_to_deliver: str) -> None:
+    # Pipelined TTS: pre-synthesize sentence n+1 concurrently while delivering sentence n
+    synthesis_jobs: asyncio.Queue[tuple[str, asyncio.Task[Path | None]] | None] = asyncio.Queue()
+
+    async def _send_audio(clean_text: str, clip_path: Path | None) -> None:
         nonlocal t_first_audio
-        clean_text = sanitize_for_speech(sentence_to_deliver).strip()
-        if not clean_text:
+        if clip_path is None:
             return
         try:
-            clip_path = await speaker.synthesize(clean_text)
-            if clip_path is not None:
-                if t_first_audio is None:
-                    t_first_audio = time.perf_counter()
-                clip_id = str(uuid4())
-                speech_clips[clip_id] = SpeechClip(conversation_id=conversation.id, path=clip_path)
-                audio_bytes = await asyncio.to_thread(clip_path.read_bytes)
+            if t_first_audio is None:
+                t_first_audio = time.perf_counter()
+            clip_id = str(uuid4())
+            speech_clips[clip_id] = SpeechClip(conversation_id=conversation.id, path=clip_path)
+            audio_bytes = await asyncio.to_thread(clip_path.read_bytes)
+            mime_type = "audio/mpeg" if clip_path.suffix == ".mp3" else "audio/wav"
+
+            if conversation.binary_audio:
+                # Binary frame: [0x01][2-byte big-endian header len L][JSON UTF-8][Raw audio bytes]
+                header_data = json.dumps({
+                    "clip_id": clip_id,
+                    "audio_url": f"/speech/{clip_id}",
+                    "mime_type": mime_type,
+                    "text": clean_text,
+                }).encode("utf-8")
+                header_len = len(header_data)
+                binary_frame = b"\x01" + header_len.to_bytes(2, byteorder="big") + header_data + audio_bytes
+                await websocket.send_bytes(binary_frame)
+            else:
                 audio_b64 = base64.b64encode(audio_bytes).decode("ascii")
-                mime_type = "audio/mpeg" if clip_path.suffix == ".mp3" else "audio/wav"
                 await websocket.send_json({
                     "type": "audio_chunk",
                     "clip_id": clip_id,
@@ -1208,26 +1223,34 @@ async def _stream_and_synthesize(
                     "text": clean_text,
                 })
         except Exception as exc:
-            logger.warning("Speech synthesis error during streaming: %s", exc, exc_info=True)
+            logger.warning("Speech delivery error during streaming: %s", exc, exc_info=True)
 
-    async def _synthesis_worker() -> None:
+    async def _synthesis_consumer() -> None:
         while True:
-            sentence_to_deliver = await sentence_queue.get()
+            job = await synthesis_jobs.get()
             try:
-                if sentence_to_deliver is None:
+                if job is None:
                     return
-                await _send_audio(sentence_to_deliver)
+                clean_text, synth_task = job
+                try:
+                    clip_path = await synth_task
+                except Exception as exc:
+                    logger.warning("Speech synthesis task error: %s", exc, exc_info=True)
+                    clip_path = None
+                await _send_audio(clean_text, clip_path)
             finally:
-                sentence_queue.task_done()
+                synthesis_jobs.task_done()
+
+    consumer_task = asyncio.create_task(_synthesis_consumer())
 
     async def _queue_sentence(sentence_to_deliver: str) -> None:
         nonlocal t_first_sentence_queued
-        if sanitize_for_speech(sentence_to_deliver).strip():
+        clean_text = sanitize_for_speech(sentence_to_deliver).strip()
+        if clean_text:
             if t_first_sentence_queued is None:
                 t_first_sentence_queued = time.perf_counter()
-            await sentence_queue.put(sentence_to_deliver)
-
-    synthesis_task = asyncio.create_task(_synthesis_worker())
+            synth_task = asyncio.create_task(speaker.synthesize(clean_text))
+            await synthesis_jobs.put((clean_text, synth_task))
 
     turn_ctx = TurnContext(
         conversation_id=conversation.id,
@@ -1282,8 +1305,8 @@ async def _stream_and_synthesize(
         if not in_sources_mode and current_sentence.strip():
             await _queue_sentence(current_sentence)
 
-        await sentence_queue.put(None)
-        await synthesis_task
+        await synthesis_jobs.put(None)
+        await consumer_task
 
         full_reply = "".join(full_reply_parts).strip()
         if not full_reply:
@@ -1339,9 +1362,20 @@ async def _stream_and_synthesize(
             "mode_label": "ERR // CODEX",
         })
     finally:
-        if not synthesis_task.done():
-            synthesis_task.cancel()
-            await asyncio.gather(synthesis_task, return_exceptions=True)
+        if not consumer_task.done():
+            consumer_task.cancel()
+            await asyncio.gather(consumer_task, return_exceptions=True)
+        # Cancel any pending pre-synthesis tasks remaining in the queue
+        while not synthesis_jobs.empty():
+            try:
+                item = synthesis_jobs.get_nowait()
+                if item is not None:
+                    _, task = item
+                    if not task.done():
+                        task.cancel()
+                synthesis_jobs.task_done()
+            except Exception:
+                break
 
 
 @app.websocket("/ws/conversations/{conversation_id}")
@@ -1486,6 +1520,8 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         if plugin_sys.strip():
                             base_instructions = f"{base_instructions}\n\n{plugin_sys.strip()}"
                         await conversation.model.set_base_instructions(base_instructions)
+                    if "binary_audio" in payload:
+                        conversation.binary_audio = bool(payload["binary_audio"])
                     warmup_status = "off"
                     if payload.get("remote_warmup") is True:
                         warmup_status = _schedule_conversation_warmup(

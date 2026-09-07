@@ -29,6 +29,7 @@ class WhisperServerManager:
         self.language = language or os.environ.get("VOICE_OF_LUNA_WHISPER_LANGUAGE", "auto")
         self.threads = min(os.cpu_count() or 4, 8)
         self._process: asyncio.subprocess.Process | None = None
+        self._http_client: httpx.AsyncClient | None = None
 
     @property
     def server_url(self) -> str:
@@ -38,11 +39,19 @@ class WhisperServerManager:
     def inference_url(self) -> str:
         return f"{self.server_url}/inference"
 
+    def _get_http_client(self) -> httpx.AsyncClient:
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(0.5, connect=0.2),
+                limits=httpx.Limits(max_keepalive_connections=2, max_connections=4),
+            )
+        return self._http_client
+
     async def is_healthy(self) -> bool:
         try:
-            async with httpx.AsyncClient(timeout=0.5) as client:
-                response = await client.get(self.server_url)
-                return response.status_code in (200, 404, 405)
+            client = self._get_http_client()
+            response = await client.get(self.server_url)
+            return response.status_code in (200, 404, 405)
         except (httpx.HTTPError, OSError):
             return False
 
@@ -84,6 +93,14 @@ class WhisperServerManager:
         return False
 
     async def close(self) -> None:
+        if self._http_client is not None:
+            client = self._http_client
+            self._http_client = None
+            if not client.is_closed:
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass
         if self._process is None:
             return
         if self._process.returncode is None:

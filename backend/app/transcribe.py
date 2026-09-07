@@ -18,6 +18,28 @@ class LocalTranscriptionError(RuntimeError):
 
 
 class LocalWhisperTranscriber:
+    _shared_http_client: httpx.AsyncClient | None = None
+
+    @classmethod
+    def get_shared_http_client(cls) -> httpx.AsyncClient:
+        if cls._shared_http_client is None or cls._shared_http_client.is_closed:
+            cls._shared_http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(15.0, connect=2.0),
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+            )
+        return cls._shared_http_client
+
+    @classmethod
+    async def close_shared_http_client(cls) -> None:
+        if cls._shared_http_client is not None:
+            client = cls._shared_http_client
+            cls._shared_http_client = None
+            if not client.is_closed:
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass
+
     def __init__(
         self,
         model_path: Path | None = None,
@@ -35,6 +57,19 @@ class LocalWhisperTranscriber:
         self.server_url = server_url or os.environ.get(
             "VOICE_OF_LUNA_WHISPER_URL", f"http://{host}:{port}"
         )
+        self._http_client: httpx.AsyncClient | None = None
+
+    def _get_http_client(self) -> httpx.AsyncClient:
+        if self._http_client is not None:
+            if self._http_client.is_closed:
+                self._http_client = self.get_shared_http_client()
+            return self._http_client
+        return self.get_shared_http_client()
+
+    async def aclose(self) -> None:
+        if self._http_client is not None and not self._http_client.is_closed:
+            await self._http_client.aclose()
+            self._http_client = None
 
     async def transcribe(
         self,
@@ -54,19 +89,19 @@ class LocalWhisperTranscriber:
     ) -> str | None:
         url = f"{self.server_url.rstrip('/')}/inference"
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                with open(audio_path, "rb") as audio_file:
-                    files = {"file": (audio_path.name, audio_file, "audio/wav")}
-                    data = {"language": language, "response_format": "json"}
-                    if prompt:
-                        data["prompt"] = prompt
-                    response = await client.post(url, files=files, data=data)
-                if response.status_code == 200:
-                    payload = response.json()
-                    transcript = payload.get("text", "").strip()
-                    if not transcript:
-                        raise LocalTranscriptionError("No speech was detected in this recording")
-                    return transcript
+            client = self._get_http_client()
+            with open(audio_path, "rb") as audio_file:
+                files = {"file": (audio_path.name, audio_file, "audio/wav")}
+                data = {"language": language, "response_format": "json"}
+                if prompt:
+                    data["prompt"] = prompt
+                response = await client.post(url, files=files, data=data)
+            if response.status_code == 200:
+                payload = response.json()
+                transcript = payload.get("text", "").strip()
+                if not transcript:
+                    raise LocalTranscriptionError("No speech was detected in this recording")
+                return transcript
         except LocalTranscriptionError:
             raise
         except Exception:

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-07
+
+### Added
+- **Modern AudioWorklet Architecture (`pcm-recorder-processor.js`)**: Migrated client microphone capture from deprecated `ScriptProcessorNode` on the main UI thread to a dedicated `AudioWorkletProcessor` on the Web Audio rendering thread, eliminating UI stutter and audio frame drops with graceful fallback.
+- **Binary WebSocket Audio Transport**: Implemented structured binary WebSocket audio frames (`[0x01][header_length][JSON metadata][raw audio bytes]`), cutting payload size by ~33% and eliminating Base64 encode/decode CPU overhead in both backend and frontend.
+- **Persistent HTTP Connection Pooling for Whisper**: Integrated reusable `httpx.AsyncClient` singleton pool across `LocalWhisperTranscriber` and `WhisperServerManager`, reusing keep-alive TCP connections and eliminating per-request handshake latency.
+- **Pipelined 1-Ahead TTS Pre-Synthesis**: Replaced sequential stop-and-wait TTS delivery with an asynchronous pipeline that pre-synthesizes sentence $n+1$ in the background while sentence $n$ is actively streamed and delivered to the browser.
+- **Transport Latency Test Suite (`test_transport_latency.py`)**: Added automated unit and integration tests verifying binary frame encoding, singleton HTTP connection pooling, and pipelined pre-synthesis sequencing.
+
 ## [0.7.0] - 2026-09-07
 
 ### Added

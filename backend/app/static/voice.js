@@ -7,6 +7,8 @@ let audioChunks = [];
 let pcmProcessorNode = null;
 let pcmSamples = [];
 let activePlayer = null;
+let audioWorkletNode = null;
+let audioWorkletModuleLoaded = false;
 let audioContext = null;
 let playbackAudioContext = null;
 let activeScheduledSources = [];
@@ -92,7 +94,7 @@ function encodeWav16k(samples) {
 }
 
 // Audio level visualization & 16kHz PCM capture via Web Audio API
-function initAudioAnalyser(stream) {
+async function initAudioAnalyser(stream) {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
@@ -103,15 +105,39 @@ function initAudioAnalyser(stream) {
     analyserNode.smoothingTimeConstant = 0.5;
     micSourceNode.connect(analyserNode);
 
-    // Setup direct PCM capture
+    // Setup direct PCM capture (prefer AudioWorklet, fallback to ScriptProcessor)
     pcmSamples = [];
-    pcmProcessorNode = audioContext.createScriptProcessor(4096, 1, 1);
-    pcmProcessorNode.onaudioprocess = (event) => {
-      const input = event.inputBuffer.getChannelData(0);
-      pcmSamples.push(new Float32Array(input));
-    };
-    micSourceNode.connect(pcmProcessorNode);
-    pcmProcessorNode.connect(audioContext.destination);
+    let workletInitialized = false;
+
+    if (audioContext.audioWorklet && window.AudioWorkletNode) {
+      try {
+        if (!audioWorkletModuleLoaded) {
+          await audioContext.audioWorklet.addModule("/static/pcm-recorder-processor.js");
+          audioWorkletModuleLoaded = true;
+        }
+        audioWorkletNode = new AudioWorkletNode(audioContext, "pcm-recorder-processor");
+        audioWorkletNode.port.onmessage = (event) => {
+          if (event.data && event.data.type === "pcm_data" && event.data.buffer) {
+            pcmSamples.push(new Float32Array(event.data.buffer));
+          }
+        };
+        micSourceNode.connect(audioWorkletNode);
+        audioWorkletNode.connect(audioContext.destination);
+        workletInitialized = true;
+      } catch (err) {
+        console.warn("// AudioWorklet registration failed, falling back to ScriptProcessor:", err);
+      }
+    }
+
+    if (!workletInitialized) {
+      pcmProcessorNode = audioContext.createScriptProcessor(4096, 1, 1);
+      pcmProcessorNode.onaudioprocess = (event) => {
+        const input = event.inputBuffer.getChannelData(0);
+        pcmSamples.push(new Float32Array(input));
+      };
+      micSourceNode.connect(pcmProcessorNode);
+      pcmProcessorNode.connect(audioContext.destination);
+    }
 
     const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
 
@@ -171,6 +197,13 @@ function stopAudioAnalyser() {
   if (animationFrameId) {
     cancelAnimationFrame(animationFrameId);
     animationFrameId = null;
+  }
+  if (audioWorkletNode) {
+    try {
+      audioWorkletNode.port.postMessage({ command: "stop" });
+      audioWorkletNode.disconnect();
+    } catch (_) {}
+    audioWorkletNode = null;
   }
   if (pcmProcessorNode) {
     try { pcmProcessorNode.disconnect(); } catch (_) {}
@@ -432,12 +465,25 @@ function updateLatencyHud(timing, clientE2eMs) {
   }
 }
 
-async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "audio/wav") {
+async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "audio/wav", rawArrayBuffer = null) {
   const targetEntry = entry || currentStreamingEntry;
   let blobUrl = null;
   let audioBuffer = null;
 
-  if (audioBase64) {
+  if (rawArrayBuffer) {
+    try {
+      const effectiveMime = mimeType || (url && url.endsWith(".mp3") ? "audio/mpeg" : "audio/wav");
+      const blob = new Blob([rawArrayBuffer], { type: effectiveMime });
+      blobUrl = URL.createObjectURL(blob);
+
+      const ctx = getPlaybackContext();
+      if (ctx && ctx.decodeAudioData) {
+        audioBuffer = await ctx.decodeAudioData(rawArrayBuffer.slice(0));
+      }
+    } catch (e) {
+      console.warn("// inline binary audio decode error:", e);
+    }
+  } else if (audioBase64) {
     try {
       const binary = atob(audioBase64);
       const len = binary.length;
@@ -859,6 +905,12 @@ function connectWebSocket() {
           voice: currentVoice,
           model: currentModel,
           effort: currentEffort,
+          binary_audio: true,
+        }));
+      } else {
+        socket.send(JSON.stringify({
+          type: "set_settings",
+          binary_audio: true,
         }));
       }
       if (currentPlugin) {
@@ -891,6 +943,31 @@ function connectWebSocket() {
 }
 
 function handleSocketMessage(event) {
+  if (event.data instanceof ArrayBuffer) {
+    try {
+      const view = new DataView(event.data);
+      const magic = view.getUint8(0);
+      if (magic === 0x01) {
+        // Audio chunk frame: [0x01][2-byte header len L][JSON header bytes][Audio raw bytes]
+        const headerLen = view.getUint16(1, false);
+        const headerBytes = new Uint8Array(event.data, 3, headerLen);
+        const decoder = new TextDecoder("utf-8");
+        const meta = JSON.parse(decoder.decode(headerBytes));
+        const audioBuffer = event.data.slice(3 + headerLen);
+        enqueueAudioChunk(
+          meta.audio_url || (meta.clip_id ? `/speech/${meta.clip_id}` : null),
+          currentStreamingEntry,
+          null,
+          meta.mime_type || "audio/wav",
+          audioBuffer
+        );
+      }
+    } catch (e) {
+      console.warn("// binary websocket frame parse error:", e);
+    }
+    return;
+  }
+
   let data;
   try {
     data = JSON.parse(event.data);
@@ -1186,7 +1263,7 @@ async function startRecording(recordBtn) {
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    initAudioAnalyser(stream);
+    await initAudioAnalyser(stream);
 
     audioChunks = [];
     speechEndDetectedAt = null;
