@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import os
 import shutil
+import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from . import __version__
+
+logger = logging.getLogger("voice_of_luna.codex")
 
 
 class CodexUnavailable(RuntimeError):
@@ -20,48 +28,286 @@ class RuntimeStatus:
     detail: str
 
 
+_DEFAULT_BASE_INSTRUCTIONS = (
+    "You are the voice of a personal conversation app named Luna. "
+    "Reply naturally and conversationally, suitable for spoken dialogue. "
+    "Start your reply directly with a short, natural opening phrase or clause (3-6 words) before providing full details, so spoken dialogue begins without delay. "
+    "Give informative, well-rounded answers in 2-4 sentences (or a short coherent paragraph) so the user gets full context without being overwhelmed. "
+    "Avoid overly terse one-liners as complete answers unless the user explicitly asks for a quick confirmation or yes/no. "
+    "Do not use markdown formatting (such as **bold** or *italics*) in conversational speech; speak in clean, natural plain text. "
+    "Never mention or include raw URLs or web link syntax inside conversational sentences. "
+    "Never attach citation links directly to the end of a sentence. "
+    "If citing sources, websites, or repositories, ALWAYS place them at the very end in a separate section "
+    "starting on a new line with 'Источники:' using markdown link list format (e.g. - [Title](https://...)). "
+    "Do not use tools, access files, or describe internal reasoning."
+)
+DEFAULT_BASE_INSTRUCTIONS = _DEFAULT_BASE_INSTRUCTIONS
+
+FALLBACK_MODELS: list[dict[str, Any]] = [
+    {
+        "id": "gpt-5.6-luna",
+        "displayName": "GPT-5.6-Luna",
+        "description": "Fast and responsive personal voice companion",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "low", "description": "Fast responses with lighter reasoning"},
+            {"reasoningEffort": "medium", "description": "Balances speed and reasoning depth"},
+            {"reasoningEffort": "high", "description": "Greater reasoning depth"},
+            {"reasoningEffort": "xhigh", "description": "Extra high reasoning depth"},
+        ],
+    },
+    {
+        "id": "gpt-5.6-sol",
+        "displayName": "GPT-5.6-Sol",
+        "description": "Reliable everyday agentic workhorse",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "low", "description": "Fast responses with lighter reasoning"},
+            {"reasoningEffort": "medium", "description": "Balances speed and reasoning depth"},
+            {"reasoningEffort": "high", "description": "Greater reasoning depth"},
+            {"reasoningEffort": "xhigh", "description": "Extra high reasoning depth"},
+        ],
+    },
+    {
+        "id": "gpt-5.6-terra",
+        "displayName": "GPT-5.6-Terra",
+        "description": "Balanced agentic model for deep technical tasks",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "low", "description": "Fast responses with lighter reasoning"},
+            {"reasoningEffort": "medium", "description": "Balances speed and reasoning depth"},
+            {"reasoningEffort": "high", "description": "Greater reasoning depth"},
+            {"reasoningEffort": "xhigh", "description": "Extra high reasoning depth"},
+        ],
+    },
+    {
+        "id": "gpt-6-astra",
+        "displayName": "GPT-6-Astra",
+        "description": "Flagship high intelligence model",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "low", "description": "Fast responses with lighter reasoning"},
+            {"reasoningEffort": "medium", "description": "Balances speed and reasoning depth"},
+            {"reasoningEffort": "high", "description": "Greater reasoning depth"},
+            {"reasoningEffort": "xhigh", "description": "Extra high reasoning depth"},
+        ],
+    },
+    {
+        "id": "gpt-5.5",
+        "displayName": "GPT-5.5",
+        "description": "Proven general purpose model",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "low", "description": "Fast responses with lighter reasoning"},
+            {"reasoningEffort": "medium", "description": "Balances speed and reasoning depth"},
+            {"reasoningEffort": "high", "description": "Greater reasoning depth"},
+        ],
+    },
+    {
+        "id": "gpt-5.4-mini",
+        "displayName": "GPT-5.4-Mini",
+        "description": "Legacy lightweight model",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "low", "description": "Fast responses with lighter reasoning"},
+            {"reasoningEffort": "medium", "description": "Balances speed and reasoning depth"},
+            {"reasoningEffort": "high", "description": "Greater reasoning depth"},
+        ],
+    },
+]
+
+_STATUS_CACHE: tuple[float, RuntimeStatus] | None = None
+_STATUS_CACHE_TTL = 60.0  # seconds
+
+
+_GLOBAL_MODELS_CACHE: tuple[float, list[dict[str, Any]]] | None = None
+
+
 class CodexAppServer:
     """One local Codex process and ephemeral thread for one conversation.
 
-    The process inherits the operator's existing Codex login. This class never
-    reads, stores, or returns credential files or tokens.
+    Features a background JSON-RPC reader loop dispatcher for multiplexing
+    concurrent requests (like interrupt) and streaming turn events.
     """
 
-    def __init__(self, *, command: str = "codex", workdir: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        command: str = "codex",
+        workdir: Path | None = None,
+        base_instructions: str | None = None,
+    ) -> None:
         self.command = command
         self.workdir = workdir or Path("/tmp")
+        self.base_instructions = base_instructions or _DEFAULT_BASE_INSTRUCTIONS
         self._process: asyncio.subprocess.Process | None = None
         self._thread_id: str | None = None
+        self._active_turn_id: str | None = None
         self._next_id = 1
+        self._reader_task: asyncio.Task[None] | None = None
+        self._pending_requests: dict[int, asyncio.Future[dict[str, Any]]] = {}
+        self._turn_listeners: dict[str, asyncio.Queue[dict[str, Any] | None]] = {}
+        # app-server may emit a notification immediately after replying to
+        # turn/start. Keep it until _stream_answer has registered its queue.
+        self._buffered_turn_events: dict[str, list[dict[str, Any]]] = {}
+        self._lock: asyncio.Lock | None = None
 
-    async def status(self) -> RuntimeStatus:
+    @property
+    def lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
+
+    async def status(self, use_cache: bool = True) -> RuntimeStatus:
+        global _STATUS_CACHE
+        now = time.monotonic()
+        if use_cache and _STATUS_CACHE is not None:
+            cached_at, cached_status = _STATUS_CACHE
+            if now - cached_at < _STATUS_CACHE_TTL:
+                return cached_status
+
         if shutil.which(self.command) is None:
-            return RuntimeStatus(False, "Codex CLI is not installed")
-        process = await asyncio.create_subprocess_exec(
-            self.command,
-            "login",
-            "status",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        output, _ = await process.communicate()
-        text = output.decode("utf-8", errors="replace").strip()
-        if process.returncode == 0 and "Logged in" in text:
-            return RuntimeStatus(True, "Local Codex is connected")
-        return RuntimeStatus(False, "Sign in to Codex locally before starting a conversation")
+            st = RuntimeStatus(False, "Codex CLI is not installed")
+            _STATUS_CACHE = (now, st)
+            return st
+        try:
+            process = await asyncio.create_subprocess_exec(
+                self.command,
+                "login",
+                "status",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            output, _ = await process.communicate()
+            text = output.decode("utf-8", errors="replace").strip()
+            if process.returncode == 0 and "Logged in" in text:
+                st = RuntimeStatus(True, "Local Codex is connected")
+            else:
+                st = RuntimeStatus(False, "Sign in to Codex locally before starting a conversation")
+        except Exception as exc:
+            st = RuntimeStatus(False, f"Codex login check failed: {exc}")
+        _STATUS_CACHE = (now, st)
+        return st
 
-    async def reply(self, text: str) -> str:
+    async def prewarm(self) -> str:
+        """Eagerly launch app-server and start thread before first user turn."""
+        return await self._ensure_thread()
+
+    async def list_models(self) -> list[dict[str, Any]]:
+        """Fetch available models and supported reasoning efforts via model/list RPC."""
+        global _GLOBAL_MODELS_CACHE
+        now = time.monotonic()
+        if _GLOBAL_MODELS_CACHE is not None:
+            cached_at, models = _GLOBAL_MODELS_CACHE
+            if now - cached_at < 300.0:
+                return models
+
+        runtime = await self.status()
+        if not runtime.available:
+            return FALLBACK_MODELS
+
+        try:
+            await self._ensure_thread()
+            result = await self._request("model/list", {}, timeout=3.0)
+            data = result.get("data", [])
+            models: list[dict[str, Any]] = []
+            for item in data:
+                efforts = item.get("supportedReasoningEfforts") or [
+                    {"reasoningEffort": "low", "description": "Fast responses"},
+                    {"reasoningEffort": "medium", "description": "Balanced"},
+                    {"reasoningEffort": "high", "description": "High reasoning"},
+                ]
+                models.append({
+                    "id": item.get("id") or item.get("model"),
+                    "displayName": item.get("displayName") or item.get("id"),
+                    "description": item.get("description", ""),
+                    "defaultReasoningEffort": item.get("defaultReasoningEffort", "low"),
+                    "supportedReasoningEfforts": efforts,
+                })
+            if models:
+                _GLOBAL_MODELS_CACHE = (now, models)
+                return models
+        except Exception as exc:
+            logger.debug("model/list RPC failed, falling back to presets: %s", exc)
+
+        _GLOBAL_MODELS_CACHE = (now, FALLBACK_MODELS)
+        return FALLBACK_MODELS
+
+    async def set_base_instructions(self, base_instructions: str) -> None:
+        """Update base instructions. If a thread is running, closes it so next turn uses new instructions."""
+        if self.base_instructions != base_instructions:
+            self.base_instructions = base_instructions
+            await self.close()
+
+    async def reply(
+        self,
+        text: str,
+        *,
+        context_prompt: str | None = None,
+        model: str | None = None,
+        effort: str | None = None,
+    ) -> str:
         if not text.strip():
             raise ValueError("Message must not be empty")
-        return await self._reply_with_input([{"type": "text", "text": text}])
+        turn_text = (
+            f"[CONTEXT]\n{context_prompt.strip()}\n\n[USER MESSAGE]\n{text}"
+            if context_prompt and context_prompt.strip()
+            else text
+        )
+        return await self._reply_with_input(
+            [{"type": "text", "text": turn_text}],
+            model=model,
+            effort=effort,
+        )
 
-    async def _reply_with_input(self, input_items: list[dict[str, str]]) -> str:
-        thread_id = await self._ensure_thread()
+    async def reply_stream(
+        self,
+        text: str,
+        *,
+        context_prompt: str | None = None,
+        model: str | None = None,
+        effort: str | None = None,
+    ) -> AsyncIterator[str]:
+        if not text.strip():
+            raise ValueError("Message must not be empty")
+        turn_text = (
+            f"[CONTEXT]\n{context_prompt.strip()}\n\n[USER MESSAGE]\n{text}"
+            if context_prompt and context_prompt.strip()
+            else text
+        )
+        async for chunk in self._stream_with_input(
+            [{"type": "text", "text": turn_text}],
+            model=model,
+            effort=effort,
+        ):
+            yield chunk
+
+    async def interrupt(self, turn_id: str | None = None) -> bool:
+        """Interrupt an in-flight turn via turn/interrupt RPC."""
+        target_turn = turn_id or self._active_turn_id
+        if not self._thread_id or not target_turn or self._process is None:
+            return False
         try:
-            turn = await self._request(
-                "turn/start",
-                {"threadId": thread_id, "input": input_items},
+            await self._request(
+                "turn/interrupt",
+                {"threadId": self._thread_id, "turnId": target_turn},
+                timeout=3.0,
             )
+            logger.info("Codex turn interrupted: %s", target_turn)
+            return True
+        except Exception as exc:
+            logger.warning("Failed to interrupt turn %s: %s", target_turn, exc)
+            return False
+
+    async def _reply_with_input(
+        self,
+        input_items: list[dict[str, str]],
+        model: str | None = None,
+        effort: str | None = None,
+    ) -> str:
+        thread_id = await self._ensure_thread()
+        params: dict[str, Any] = {"threadId": thread_id, "input": input_items}
+        if model:
+            params["model"] = model
+        if effort:
+            params["effort"] = effort
+
+        try:
+            turn = await self._request("turn/start", params)
             turn_id = turn["turn"]["id"]
             return await self._wait_for_answer(thread_id, turn_id)
         except CodexUnavailable:
@@ -71,81 +317,202 @@ class CodexAppServer:
             await self.close()
             raise CodexUnavailable("Codex app-server returned an unexpected response") from error
 
-    async def _ensure_thread(self) -> str:
-        if self._process is not None and self._process.returncode is None and self._thread_id:
-            return self._thread_id
+    async def _stream_with_input(
+        self,
+        input_items: list[dict[str, str]],
+        model: str | None = None,
+        effort: str | None = None,
+    ) -> AsyncIterator[str]:
+        thread_id = await self._ensure_thread()
+        params: dict[str, Any] = {"threadId": thread_id, "input": input_items}
+        if model:
+            params["model"] = model
+        if effort:
+            params["effort"] = effort
 
-        await self.close()
-        runtime = await self.status()
-        if not runtime.available:
-            raise CodexUnavailable(runtime.detail)
-
-        self._process = await asyncio.create_subprocess_exec(
-            self.command,
-            "app-server",
-            "--stdio",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-            cwd=str(self.workdir),
-        )
         try:
-            await self._request(
-                "initialize",
-                {"clientInfo": {"name": "voice-of-luna", "version": "0.1.0"}},
-            )
-            await self._notify("initialized", {})
-            thread = await self._request(
-                "thread/start",
-                {
-                    "cwd": str(self.workdir),
-                    "ephemeral": True,
-                    "approvalPolicy": "never",
-                    "sandbox": "read-only",
-                    "baseInstructions": (
-                        "You are the voice of a personal conversation app. "
-                        "Reply naturally and concisely. Do not use tools, access files, "
-                        "or describe internal reasoning."
-                    ),
-                },
-            )
-            self._thread_id = thread["thread"]["id"]
-            return self._thread_id
+            turn = await self._request("turn/start", params)
+            turn_id = turn["turn"]["id"]
+            self._active_turn_id = turn_id
+            async for chunk in self._stream_answer(thread_id, turn_id):
+                yield chunk
         except CodexUnavailable:
             await self.close()
             raise
         except (KeyError, TypeError, asyncio.TimeoutError) as error:
             await self.close()
             raise CodexUnavailable("Codex app-server returned an unexpected response") from error
+        finally:
+            self._active_turn_id = None
+
+    async def _ensure_thread(self) -> str:
+        async with self.lock:
+            if self._process is not None and self._process.returncode is None and self._thread_id:
+                self._ensure_reader()
+                return self._thread_id
+
+            if self._process is not None or self._thread_id is not None:
+                await self._close_locked()
+            runtime = await self.status()
+            if not runtime.available:
+                raise CodexUnavailable(runtime.detail)
+
+            self._process = await asyncio.create_subprocess_exec(
+                self.command,
+                "app-server",
+                "--stdio",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                cwd=str(self.workdir),
+            )
+            self._ensure_reader()
+
+            try:
+                await self._request(
+                    "initialize",
+                    {"clientInfo": {"name": "voice-of-luna", "version": __version__}},
+                )
+                await self._notify("initialized", {})
+                thread = await self._request(
+                    "thread/start",
+                    {
+                        "cwd": str(self.workdir),
+                        "ephemeral": True,
+                        "approvalPolicy": "never",
+                        "sandbox": "read-only",
+                        "baseInstructions": self.base_instructions,
+                    },
+                )
+                self._thread_id = thread["thread"]["id"]
+                return self._thread_id
+            except CodexUnavailable:
+                await self._close_locked()
+                raise
+            except (KeyError, TypeError, asyncio.TimeoutError) as error:
+                await self._close_locked()
+                raise CodexUnavailable("Codex app-server returned an unexpected response") from error
+
+    def _ensure_reader(self) -> None:
+        if self._reader_task is None or self._reader_task.done():
+            self._reader_task = asyncio.create_task(self._reader_loop())
+
+    async def _reader_loop(self) -> None:
+        """Background loop reading JSON-RPC messages and dispatching them."""
+        try:
+            while True:
+                try:
+                    message = await self._read_message()
+                except (CodexUnavailable, asyncio.CancelledError, StopIteration):
+                    break
+                except Exception:
+                    break
+
+                if not isinstance(message, dict):
+                    continue
+
+                # 1. Resolve pending request future by message 'id'
+                req_id = message.get("id")
+                if req_id is not None and req_id in self._pending_requests:
+                    fut = self._pending_requests.pop(req_id)
+                    if not fut.done():
+                        if "error" in message:
+                            err_msg = message["error"].get("message", "Codex rejected the request")
+                            fut.set_exception(CodexUnavailable(err_msg))
+                        else:
+                            fut.set_result(message.get("result", {}))
+                    continue
+
+                # 2. Route notification to turn listeners
+                method = message.get("method")
+                params = message.get("params", {})
+                turn_id = None
+                if "turnId" in params:
+                    turn_id = params["turnId"]
+                elif "turn" in params and isinstance(params["turn"], dict) and "id" in params["turn"]:
+                    turn_id = params["turn"]["id"]
+
+                if turn_id and turn_id in self._turn_listeners:
+                    await self._turn_listeners[turn_id].put(message)
+                elif turn_id:
+                    self._buffered_turn_events.setdefault(turn_id, []).append(message)
+                elif self._active_turn_id and self._active_turn_id in self._turn_listeners:
+                    await self._turn_listeners[self._active_turn_id].put(message)
+
+        finally:
+            # Clean up pending futures on disconnect
+            for fut in list(self._pending_requests.values()):
+                if not fut.done():
+                    fut.set_exception(CodexUnavailable("Codex app-server stopped unexpectedly"))
+            self._pending_requests.clear()
+
+            # Signal EOF to turn listeners
+            for queue in list(self._turn_listeners.values()):
+                await queue.put(None)
 
     async def _wait_for_answer(self, thread_id: str, turn_id: str) -> str:
-        messages: list[str] = []
-        while True:
-            message = await self._read_message()
-            if message.get("method") == "item/completed":
-                params = message.get("params", {})
-                item = params.get("item", {})
-                if params.get("threadId") == thread_id and item.get("type") == "agentMessage":
-                    messages.append(item.get("text", ""))
-            if message.get("method") == "turn/completed":
-                params = message.get("params", {})
-                if params.get("threadId") == thread_id and params.get("turn", {}).get("id") == turn_id:
-                    response = "\n".join(part for part in messages if part).strip()
-                    if response:
-                        return response
-                    raise CodexUnavailable("Codex finished without a spoken response")
+        chunks: list[str] = []
+        async for chunk in self._stream_answer(thread_id, turn_id):
+            chunks.append(chunk)
+        response = "".join(chunks).strip()
+        if response:
+            return response
+        raise CodexUnavailable("Codex finished without a spoken response")
 
-    async def _request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    async def _stream_answer(self, thread_id: str, turn_id: str) -> AsyncIterator[str]:
+        queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+        self._turn_listeners[turn_id] = queue
+        for message in self._buffered_turn_events.pop(turn_id, []):
+            queue.put_nowait(message)
+        yielded_deltas = False
+        fallback_messages: list[str] = []
+
+        try:
+            while True:
+                message = await queue.get()
+                if message is None:
+                    break
+
+                method = message.get("method")
+                params = message.get("params", {})
+                if method == "item/agentMessage/delta":
+                    if params.get("threadId") == thread_id and params.get("turnId") == turn_id:
+                        delta = params.get("delta", "")
+                        if delta:
+                            yielded_deltas = True
+                            yield delta
+                elif method == "item/completed":
+                    item = params.get("item", {})
+                    if params.get("threadId") == thread_id and item.get("type") == "agentMessage":
+                        text = item.get("text", "")
+                        if text:
+                            fallback_messages.append(text)
+                elif method == "turn/completed":
+                    if params.get("threadId") == thread_id and params.get("turn", {}).get("id") == turn_id:
+                        if not yielded_deltas:
+                            for text in fallback_messages:
+                                yield text
+                        return
+        finally:
+            self._turn_listeners.pop(turn_id, None)
+
+    async def _request(self, method: str, params: dict[str, Any], timeout: float = 60.0) -> dict[str, Any]:
+        self._ensure_reader()
         request_id = self._next_id
         self._next_id += 1
-        await self._write({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
-        while True:
-            message = await self._read_message()
-            if message.get("id") != request_id:
-                continue
-            if "error" in message:
-                raise CodexUnavailable(message["error"].get("message", "Codex rejected the request"))
-            return message["result"]
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[dict[str, Any]] = loop.create_future()
+        self._pending_requests[request_id] = fut
+
+        try:
+            await self._write({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
+            return await asyncio.wait_for(fut, timeout=timeout)
+        except asyncio.TimeoutError as err:
+            self._pending_requests.pop(request_id, None)
+            raise CodexUnavailable(f"Codex request '{method}' timed out") from err
+        except BaseException:
+            self._pending_requests.pop(request_id, None)
+            raise
 
     async def _notify(self, method: str, params: dict[str, Any]) -> None:
         await self._write({"jsonrpc": "2.0", "method": method, "params": params})
@@ -165,15 +532,40 @@ class CodexAppServer:
         return json.loads(raw)
 
     async def close(self) -> None:
-        if self._process is None:
-            return
-        if self._process.returncode is None:
-            self._process.terminate()
-            try:
-                await asyncio.wait_for(self._process.wait(), timeout=3)
-            except asyncio.TimeoutError:
-                self._process.kill()
-                await self._process.wait()
-        self._process = None
+        async with self.lock:
+            await self._close_locked()
+
+    async def _close_locked(self) -> None:
+        if self._reader_task is not None:
+            self._reader_task.cancel()
+            self._reader_task = None
+
+        for fut in list(self._pending_requests.values()):
+            if not fut.done():
+                fut.set_exception(CodexUnavailable("Codex app-server closed"))
+        self._pending_requests.clear()
+        self._turn_listeners.clear()
+        self._buffered_turn_events.clear()
+
+        if self._process is not None:
+            stdin = getattr(self._process, "stdin", None)
+            if stdin is not None:
+                try:
+                    stdin.close()
+                except Exception:
+                    pass
+            if self._process.returncode is None:
+                self._process.terminate()
+                try:
+                    await asyncio.wait_for(self._process.wait(), timeout=1.5)
+                except (asyncio.TimeoutError, Exception):
+                    try:
+                        self._process.kill()
+                        await self._process.wait()
+                    except Exception:
+                        pass
+            self._process = None
+
         self._thread_id = None
+        self._active_turn_id = None
         self._next_id = 1
