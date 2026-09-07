@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-07
+
+### Added
+- **Language-Neutral Core & Multi-Locale Architecture**: Introduced first-class `locale` support (`ru-RU`, `en-US`, `auto`) across `Conversation`, cookies (`voice_of_luna_locale`), REST `/api/settings`, `/api/locale`, and WebSocket messages (`set_locale`, `locale_updated`).
+- **English Edge TTS Voices**: Registered high-quality Microsoft Edge Neural English voices: `Jenny (Neural · Edge)`, `Guy (Neural · Edge)`, and `Aria (Neural · Edge)` in speech synthesis.
+- **Locale-Aware Voice Defaults**: Implemented `get_default_voice_for_locale(locale)` to automatically switch to the most appropriate high-quality voice when a language or locale changes (e.g. `Jenny` for `en-US`, `Milena` / `Svetlana` for `ru-RU`).
+- **Localized Codex Instructions**: Added `get_base_instructions(locale)` configuring model responses and sources section (`Sources:` vs `Источники:`) according to the active locale.
+- **UI Locale Selector**: Added terminal header `LANG:` selector chip for switching active session language with live client synchronization.
+- **Locale-Aware STT**: Whisper transcription automatically adapts language hints to session locale (`en` or `ru`).
+
+### Changed
+- **Silero Isolation**: Silero offline neural TTS strictly enforces Cyrillic text (`supported_locales={"ru"}`) and no longer attempts to phonetically transliterate pure English sentences.
+- **Smart Latin Transliteration**: Phonetical Latin transliteration is now strictly scoped to isolated loanwords inside primarily Cyrillic sentences.
+
 ## [0.6.2] - 2026-09-07
 
 ### Fixed

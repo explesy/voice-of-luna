@@ -28,20 +28,28 @@ class RuntimeStatus:
     detail: str
 
 
-_DEFAULT_BASE_INSTRUCTIONS = (
-    "You are the voice of a personal conversation app named Luna. "
-    "Reply naturally and conversationally, suitable for spoken dialogue. "
-    "Start your reply directly with a short, natural opening phrase or clause (3-6 words) before providing full details, so spoken dialogue begins without delay. "
-    "Give informative, well-rounded answers in 2-4 sentences (or a short coherent paragraph) so the user gets full context without being overwhelmed. "
-    "Avoid overly terse one-liners as complete answers unless the user explicitly asks for a quick confirmation or yes/no. "
-    "Do not use markdown formatting (such as **bold** or *italics*) in conversational speech; speak in clean, natural plain text. "
-    "Never mention or include raw URLs or web link syntax inside conversational sentences. "
-    "Never attach citation links directly to the end of a sentence. "
-    "If citing sources, websites, or repositories, ALWAYS place them at the very end in a separate section "
-    "starting on a new line with 'Источники:' using markdown link list format (e.g. - [Title](https://...)). "
-    "Do not use tools, access files, or describe internal reasoning."
-)
-DEFAULT_BASE_INSTRUCTIONS = _DEFAULT_BASE_INSTRUCTIONS
+def get_base_instructions(locale: str = "ru-RU") -> str:
+    norm = (locale or "").lower().replace("_", "-")
+    is_en = norm.startswith("en")
+    lang_rule = "Always reply in English." if is_en else "Always reply in Russian."
+    sources_header = "Sources:" if is_en else "Источники:"
+
+    return (
+        f"You are the voice of a personal conversation app named Luna. {lang_rule} "
+        "Reply naturally and conversationally, suitable for spoken dialogue. "
+        "Start your reply directly with a short, natural opening phrase or clause (3-6 words) before providing full details, so spoken dialogue begins without delay. "
+        "Give informative, well-rounded answers in 2-4 sentences (or a short coherent paragraph) so the user gets full context without being overwhelmed. "
+        "Avoid overly terse one-liners as complete answers unless the user explicitly asks for a quick confirmation or yes/no. "
+        "Do not use markdown formatting (such as **bold** or *italics*) in conversational speech; speak in clean, natural plain text. "
+        "Never mention or include raw URLs or web link syntax inside conversational sentences. "
+        "Never attach citation links directly to the end of a sentence. "
+        f"If citing sources, websites, or repositories, ALWAYS place them at the very end in a separate section "
+        f"starting on a new line with '{sources_header}' using markdown link list format (e.g. - [Title](https://...)). "
+        "Do not use tools, access files, or describe internal reasoning."
+    )
+
+
+DEFAULT_BASE_INSTRUCTIONS = get_base_instructions("ru-RU")
 
 FALLBACK_MODELS: list[dict[str, Any]] = [
     {
@@ -133,7 +141,7 @@ class CodexAppServer:
     ) -> None:
         self.command = command
         self.workdir = workdir or Path("/tmp")
-        self.base_instructions = base_instructions or _DEFAULT_BASE_INSTRUCTIONS
+        self.base_instructions = base_instructions or DEFAULT_BASE_INSTRUCTIONS
         self._process: asyncio.subprocess.Process | None = None
         self._thread_id: str | None = None
         self._active_turn_id: str | None = None

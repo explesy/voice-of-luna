@@ -36,13 +36,19 @@ from markupsafe import Markup, escape
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 from . import __version__
-from .codex import DEFAULT_BASE_INSTRUCTIONS, CodexAppServer, CodexUnavailable
+from .codex import (
+    DEFAULT_BASE_INSTRUCTIONS,
+    CodexAppServer,
+    CodexUnavailable,
+    get_base_instructions,
+)
 from .plugins import PluginTurnResult, TurnContext, plugin_manager
 from .speak import (
     LocalMacOsSpeaker,
     LocalSpeechError,
     get_active_voice,
     get_default_voice,
+    get_default_voice_for_locale,
     get_installed_voices,
     get_voice_for_locale,
     prewarm_voice,
@@ -214,6 +220,7 @@ class Conversation:
     turns: list[dict[str, str]] = field(default_factory=list)
     model: CodexAppServer = field(default_factory=CodexAppServer)
     voice: str = field(default_factory=get_active_voice)
+    locale: str = "ru-RU"
     model_name: str | None = None
     reasoning_effort: str = "low"
     plugin_id: str = "neutral"
@@ -366,21 +373,32 @@ async def _apply_plugin_to_conversation(
         elif plugin_id == "neutral":
             conversation.voice = get_active_voice()
         plugin_sys = await plugin_manager.get_system_prompt(plugin_id, conversation.id)
-        base_instructions = DEFAULT_BASE_INSTRUCTIONS
+        base_instructions = get_base_instructions(conversation.locale)
         if plugin_sys.strip():
-            base_instructions = f"{DEFAULT_BASE_INSTRUCTIONS}\n\n{plugin_sys.strip()}"
+            base_instructions = f"{base_instructions}\n\n{plugin_sys.strip()}"
         await conversation.model.set_base_instructions(base_instructions)
     else:
         conversation.plugin_mode = mode
 
 
 async def _get_view_context(request: Request, conversation: Conversation | None = None) -> dict[str, object]:
+    cookie_locale = request.cookies.get("voice_of_luna_locale")
+    if cookie_locale:
+        cookie_locale = cookie_locale.strip('"')
+        if conversation:
+            conversation.locale = cookie_locale
+    active_locale = (conversation.locale if conversation and conversation.locale else None) or (cookie_locale if cookie_locale else "ru-RU")
+    if conversation:
+        conversation.locale = active_locale
+
     cookie_voice = request.cookies.get("voice_of_luna_voice")
     if cookie_voice:
         cookie_voice = cookie_voice.strip('"')
         if conversation:
             conversation.voice = cookie_voice
-    active_voice = (conversation.voice if conversation and conversation.voice else None) or get_active_voice()
+    elif cookie_locale and conversation:
+        conversation.voice = get_default_voice_for_locale(active_locale)
+    active_voice = (conversation.voice if conversation and conversation.voice else None) or (get_default_voice_for_locale(active_locale) if cookie_locale else get_active_voice())
     if conversation:
         conversation.voice = active_voice
 
@@ -403,7 +421,7 @@ async def _get_view_context(request: Request, conversation: Conversation | None 
     all_voices = [v.to_dict() for v in get_installed_voices()]
     russian_voices = [v for v in all_voices if v["is_russian"]]
     other_voices = [v for v in all_voices if not v["is_russian"]]
-    edge_voices = [v for v in russian_voices if v.get("engine") == "edge"]
+    edge_voices = [v for v in all_voices if v.get("engine") == "edge"]
     silero_voices = [v for v in russian_voices if v.get("engine") == "silero"]
     local_russian_voices = [v for v in russian_voices if v.get("engine") not in ("edge", "silero")]
 
@@ -435,6 +453,7 @@ async def _get_view_context(request: Request, conversation: Conversation | None 
     active_plugin_mode = conversation.plugin_mode if conversation else "default"
 
     return {
+        "active_locale": active_locale,
         "active_voice": active_voice,
         "russian_voice": active_voice,
         "russian_voices": russian_voices,
@@ -711,6 +730,15 @@ async def create_audio_turn_fragment(
         t_wav = time.perf_counter()
         stt_lang = plugin_manager.get_stt_language(conversation.plugin_id)
         stt_prompt = plugin_manager.get_stt_prompt(conversation.plugin_id)
+        if not stt_lang:
+            if conversation.locale.startswith("en"):
+                stt_lang = "en"
+            elif conversation.locale.startswith("ru"):
+                stt_lang = "ru"
+            else:
+                stt_lang = "auto"
+        if conversation.locale.startswith("en") and not plugin_manager.get_stt_prompt(conversation.plugin_id):
+            stt_prompt = ""
         transcript = await LocalWhisperTranscriber(
             language=stt_lang, prompt=stt_prompt
         ).transcribe(wav_path)
@@ -804,6 +832,7 @@ class SettingsInput(BaseModel):
     model: str | None = None
     effort: str | None = None
     voice: str | None = None
+    locale: str | None = None
     remote_warmup: bool | None = None
 
 
@@ -813,6 +842,14 @@ async def update_settings(body: SettingsInput, response: Response) -> dict[str, 
         response.set_cookie(
             key="voice_of_luna_voice",
             value=body.voice,
+            max_age=365 * 24 * 3600,
+            httponly=False,
+            samesite="lax",
+        )
+    if body.locale:
+        response.set_cookie(
+            key="voice_of_luna_locale",
+            value=body.locale,
             max_age=365 * 24 * 3600,
             httponly=False,
             samesite="lax",
@@ -850,9 +887,27 @@ async def update_settings(body: SettingsInput, response: Response) -> dict[str, 
         "model": body.model,
         "effort": body.effort,
         "voice": body.voice or get_active_voice(),
+        "locale": body.locale,
         "remote_warmup": remote_warmup_enabled,
         "remote_warmup_status": warmup_status,
     }
+
+
+class LocaleSelectInput(BaseModel):
+    locale: str = Field(min_length=2)
+
+
+@app.post("/api/locale")
+async def select_locale(body: LocaleSelectInput, response: Response) -> dict[str, object]:
+    response.set_cookie(
+        key="voice_of_luna_locale",
+        value=body.locale,
+        max_age=365 * 24 * 3600,
+        httponly=False,
+        samesite="lax",
+    )
+    recommended_voice = get_default_voice_for_locale(body.locale)
+    return {"ok": True, "active_locale": body.locale, "recommended_voice": recommended_voice}
 
 
 class VoiceSelectInput(BaseModel):
@@ -874,10 +929,17 @@ async def select_voice(body: VoiceSelectInput, response: Response) -> dict[str, 
 @app.post("/api/conversations", status_code=status.HTTP_201_CREATED)
 async def create_conversation(request: Request) -> dict[str, str]:
     conversation = Conversation(id=str(uuid4()))
+    cookie_locale = request.cookies.get("voice_of_luna_locale")
+    if cookie_locale:
+        conversation.locale = cookie_locale.strip('"')
     cookie_voice = request.cookies.get("voice_of_luna_voice")
     if cookie_voice:
         conversation.voice = cookie_voice.strip('"')
+    elif cookie_locale:
+        conversation.voice = get_default_voice_for_locale(conversation.locale)
     conversations[conversation.id] = conversation
+    base_instructions = get_base_instructions(conversation.locale)
+    await conversation.model.set_base_instructions(base_instructions)
     _prewarm_conversation(conversation)
     return {"id": conversation.id}
 
@@ -1295,6 +1357,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
         "model": conversation.model_name,
         "effort": conversation.reasoning_effort,
         "voice": conversation.voice,
+        "locale": conversation.locale,
     })
 
     active_turn_task: asyncio.Task[None] | None = None
@@ -1331,6 +1394,15 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                             wav_path = await _convert_to_wav(temporary_path)
                         stt_lang = plugin_manager.get_stt_language(conversation.plugin_id)
                         stt_prompt = plugin_manager.get_stt_prompt(conversation.plugin_id)
+                        if not stt_lang:
+                            if conversation.locale.startswith("en"):
+                                stt_lang = "en"
+                            elif conversation.locale.startswith("ru"):
+                                stt_lang = "ru"
+                            else:
+                                stt_lang = "auto"
+                        if conversation.locale.startswith("en") and not plugin_manager.get_stt_prompt(conversation.plugin_id):
+                            stt_prompt = ""
                         transcript = await LocalWhisperTranscriber(
                             language=stt_lang, prompt=stt_prompt
                         ).transcribe(wav_path)
@@ -1382,6 +1454,23 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                             "type": "voice_updated",
                             "voice": new_voice,
                         })
+                elif msg_type == "set_locale":
+                    new_locale = payload.get("locale", "").strip()
+                    if new_locale:
+                        conversation.locale = new_locale
+                        new_voice = get_default_voice_for_locale(new_locale)
+                        conversation.voice = new_voice
+                        _safe_background_task(prewarm_voice(new_voice), name=f"prewarm-voice-{conversation.id}")
+                        base_instructions = get_base_instructions(new_locale)
+                        plugin_sys = await plugin_manager.get_system_prompt(conversation.plugin_id, conversation.id)
+                        if plugin_sys.strip():
+                            base_instructions = f"{base_instructions}\n\n{plugin_sys.strip()}"
+                        await conversation.model.set_base_instructions(base_instructions)
+                        await websocket.send_json({
+                            "type": "locale_updated",
+                            "locale": new_locale,
+                            "voice": new_voice,
+                        })
                 elif msg_type == "set_settings":
                     if "model" in payload and payload["model"]:
                         conversation.model_name = payload["model"]
@@ -1390,6 +1479,13 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                     if "voice" in payload and payload["voice"]:
                         conversation.voice = payload["voice"]
                         _safe_background_task(prewarm_voice(conversation.voice), name=f"prewarm-voice-{conversation.id}")
+                    if "locale" in payload and payload["locale"]:
+                        conversation.locale = payload["locale"]
+                        base_instructions = get_base_instructions(conversation.locale)
+                        plugin_sys = await plugin_manager.get_system_prompt(conversation.plugin_id, conversation.id)
+                        if plugin_sys.strip():
+                            base_instructions = f"{base_instructions}\n\n{plugin_sys.strip()}"
+                        await conversation.model.set_base_instructions(base_instructions)
                     warmup_status = "off"
                     if payload.get("remote_warmup") is True:
                         warmup_status = _schedule_conversation_warmup(
@@ -1406,6 +1502,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         "model": conversation.model_name,
                         "effort": conversation.reasoning_effort,
                         "voice": conversation.voice,
+                        "locale": conversation.locale,
                         "remote_warmup_status": warmup_status,
                     })
                 elif msg_type == "set_plugin":

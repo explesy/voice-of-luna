@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="{{ 'en' if active_locale and active_locale.startswith('en') else 'ru' }}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -27,6 +27,15 @@
           <span class="sys-chip {{ 'chip-online' if runtime.available else 'chip-offline' }}" title="{{ runtime.detail }}">
             <span class="chip-led"></span>CODEX:{{ 'ONLINE' if runtime.available else 'OFFLINE' }}
           </span>
+          <div class="sys-chip locale-selector-chip" title="Выбор языка сессии (Session Locale / Language)">
+            <span class="chip-led chip-led-locale"></span>
+            <label for="locale-select" class="voice-chip-label">LANG:</label>
+            <select id="locale-select" class="voice-select" aria-label="Выбор языка">
+              <option value="ru-RU" {% if not active_locale or active_locale == 'ru-RU' %}selected{% endif %}>RU (Русский)</option>
+              <option value="en-US" {% if active_locale == 'en-US' %}selected{% endif %}>EN (English)</option>
+              <option value="auto" {% if active_locale == 'auto' %}selected{% endif %}>AUTO (Авто)</option>
+            </select>
+          </div>
           <div class="sys-chip model-selector-chip" title="Выбор модели Codex">
             <span class="chip-led chip-led-model"></span>
             <label for="model-select" class="voice-chip-label">MODEL:</label>

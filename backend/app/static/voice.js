@@ -899,6 +899,11 @@ function handleSocketMessage(event) {
   }
 
   if (data.type === "ready") {
+    if (data.locale) {
+      const localeSelect = document.querySelector("#locale-select");
+      if (localeSelect) localeSelect.value = data.locale;
+      document.documentElement.lang = data.locale.startsWith("en") ? "en" : "ru";
+    }
     if (data.model) {
       const modelSelect = document.querySelector("#model-select");
       if (modelSelect) modelSelect.value = data.model;
@@ -914,7 +919,26 @@ function handleSocketMessage(event) {
         updateVoiceAttributes(data.voice);
       }
     }
+  } else if (data.type === "locale_updated") {
+    if (data.locale) {
+      const localeSelect = document.querySelector("#locale-select");
+      if (localeSelect) localeSelect.value = data.locale;
+      document.documentElement.lang = data.locale.startsWith("en") ? "en" : "ru";
+      localStorage.setItem("voice_of_luna_locale", data.locale);
+    }
+    if (data.voice) {
+      const voiceSelect = document.querySelector("#voice-select");
+      if (voiceSelect) {
+        voiceSelect.value = data.voice;
+        updateVoiceAttributes(data.voice);
+      }
+    }
   } else if (data.type === "settings_updated") {
+    if (data.locale) {
+      const localeSelect = document.querySelector("#locale-select");
+      if (localeSelect) localeSelect.value = data.locale;
+      document.documentElement.lang = data.locale.startsWith("en") ? "en" : "ru";
+    }
     if (data.model) {
       const modelSelect = document.querySelector("#model-select");
       if (modelSelect) modelSelect.value = data.model;
@@ -1892,11 +1916,59 @@ function sendPluginUpdate(pluginId, mode = "default") {
   }
 }
 
+function sendLocaleUpdate(locale) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "set_locale", locale }));
+  } else {
+    fetch("/api/locale", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locale }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.recommended_voice) {
+          const voiceSelect = document.querySelector("#voice-select");
+          if (voiceSelect) {
+            expandOtherVoices(data.recommended_voice);
+            voiceSelect.value = data.recommended_voice;
+            voiceSelect.dataset.lastVoice = data.recommended_voice;
+            updateVoiceAttributes(data.recommended_voice);
+          }
+        }
+      })
+      .catch((err) => console.warn("// locale sync error:", err));
+  }
+}
+
+function initLocaleSelector() {
+  const select = document.querySelector("#locale-select");
+  if (!select) return;
+
+  const saved = localStorage.getItem("voice_of_luna_locale");
+  if (saved && Array.from(select.options).some((opt) => opt.value === saved)) {
+    if (select.value !== saved) {
+      select.value = saved;
+      document.documentElement.lang = saved.startsWith("en") ? "en" : "ru";
+    }
+  }
+
+  select.addEventListener("change", (e) => {
+    const chosenLocale = e.target.value;
+    localStorage.setItem("voice_of_luna_locale", chosenLocale);
+    document.cookie = `voice_of_luna_locale=${encodeURIComponent(chosenLocale)}; path=/; max-age=31536000; SameSite=Lax`;
+    document.documentElement.lang = chosenLocale.startsWith("en") ? "en" : "ru";
+    sendLocaleUpdate(chosenLocale);
+    showToast(`// LOCALE: ${chosenLocale.toUpperCase()}`);
+  });
+}
+
 // Initialize on page load
 document.addEventListener("DOMContentLoaded", () => {
   if (window.speechSynthesis) {
     populateVoices();
   }
+  initLocaleSelector();
   initVoiceSelector();
   initSettingsSelectors();
   initPluginSelector();

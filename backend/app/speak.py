@@ -35,6 +35,9 @@ class VoiceInfo:
 EDGE_VOICES: dict[str, str] = {
     "Svetlana (Neural · Edge)": "ru-RU-SvetlanaNeural",
     "Dmitry (Neural · Edge)": "ru-RU-DmitryNeural",
+    "Jenny (Neural · Edge)": "en-US-JennyNeural",
+    "Guy (Neural · Edge)": "en-US-GuyNeural",
+    "Aria (Neural · Edge)": "en-US-AriaNeural",
 }
 
 SILERO_VOICES: dict[str, str] = {
@@ -64,6 +67,8 @@ def resolve_edge_voice(voice_name: str) -> str:
             return v
         if k.lower() in voice_name.lower() or voice_name.lower() in k.lower():
             return v
+    if any(n in voice_name.lower() for n in ("jenny", "guy", "aria", "samantha", "alex")):
+        return "en-US-JennyNeural"
     return "ru-RU-SvetlanaNeural"
 
 
@@ -249,6 +254,8 @@ def transliterate_latin_word(word: str) -> str:
 
 def transliterate_latin_for_speech(text: str) -> str:
     """Convert Latin script words into Cyrillic phonetic equivalents for Russian TTS models."""
+    if not re.search(r"[\u0400-\u052f]", text):
+        return text
     if not re.search(r"[A-Za-z]", text):
         return text
     return re.sub(r"[A-Za-z]+", lambda m: transliterate_latin_word(m.group(0)), text)
@@ -448,7 +455,34 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
         ),
     ]
 
-    _cached_installed_voices = edge_ru_voices + silero_ru_voices + ru_voices + other_voices
+    edge_en_voices = [
+        VoiceInfo(
+            name="Jenny (Neural · Edge)",
+            locale="en_US",
+            sample="Hello! My name is Jenny.",
+            is_russian=False,
+            is_enhanced=True,
+            engine="edge",
+        ),
+        VoiceInfo(
+            name="Guy (Neural · Edge)",
+            locale="en_US",
+            sample="Hello! My name is Guy.",
+            is_russian=False,
+            is_enhanced=True,
+            engine="edge",
+        ),
+        VoiceInfo(
+            name="Aria (Neural · Edge)",
+            locale="en_US",
+            sample="Hello! My name is Aria.",
+            is_russian=False,
+            is_enhanced=True,
+            engine="edge",
+        ),
+    ]
+
+    _cached_installed_voices = edge_ru_voices + silero_ru_voices + ru_voices + edge_en_voices + other_voices
     return _cached_installed_voices
 
 
@@ -462,6 +496,29 @@ def get_default_voice() -> str:
         if v.name == "Milena (Enhanced)":
             return "Milena (Enhanced)"
     return "Milena"
+
+
+def get_default_voice_for_locale(locale: str) -> str:
+    """Find the best default voice for a given locale (e.g. 'en-US' -> 'Jenny (Neural · Edge)')."""
+    norm = (locale or "").lower().replace("_", "-")
+    voices = get_installed_voices()
+    if norm.startswith("en"):
+        for v in voices:
+            if v.name == "Jenny (Neural · Edge)":
+                return v.name
+        for v in voices:
+            if v.locale.lower().startswith("en") and "samantha" in v.name.lower():
+                return v.name
+        for v in voices:
+            if v.locale.lower().startswith("en"):
+                return v.name
+        return "Jenny (Neural · Edge)"
+    elif norm.startswith("es"):
+        for v in voices:
+            if v.locale.lower().startswith("es"):
+                return v.name
+        return "Mónica"
+    return get_default_voice()
 
 
 def get_active_voice() -> str:
@@ -664,7 +721,7 @@ class LocalMacOsSpeaker:
                 return None
 
         if shutil.which("say") is None:
-            raise LocalSpeechError("macOS say is required for local Russian speech")
+            raise LocalSpeechError("macOS say is required for local speech")
 
         descriptor, raw_wav = tempfile.mkstemp(prefix="voice-of-luna-speech-", suffix=".wav")
         os.close(descriptor)
@@ -700,6 +757,9 @@ class LocalMacOsSpeaker:
             raise
 
     async def _synthesize_silero(self, clean_text: str, voice_name: str) -> Path:
+        if not re.search(r"[\u0400-\u052f]", clean_text):
+            raise LocalSpeechError(f"Silero TTS only supports Cyrillic/Russian text: '{clean_text[:40]}'")
+
         import wave
         import torch
 
@@ -741,18 +801,21 @@ class LocalMacOsSpeaker:
                 return await self._synthesize_edge(clean_text, active_voice)
             except Exception as exc:
                 logger.warning(
-                    "Edge TTS failed for voice '%s' (%s), falling back to local macOS say",
+                    "Edge TTS failed for voice '%s' (%s), falling back to local voice",
                     active_voice,
                     exc,
                 )
-                active_voice = get_default_voice()
+                if any(n in active_voice.lower() for n in ("jenny", "guy", "aria")) or not re.search(r"[\u0400-\u052f]", clean_text):
+                    active_voice = get_voice_for_locale("en") or "Samantha"
+                else:
+                    active_voice = get_default_voice()
 
         if is_silero_voice(active_voice):
             try:
                 return await self._synthesize_silero(clean_text, active_voice)
             except Exception as exc:
                 logger.warning(
-                    "Silero TTS failed for voice '%s' (%s), falling back to local macOS say",
+                    "Silero TTS failed for voice '%s' (%s), falling back to local voice",
                     active_voice,
                     exc,
                 )

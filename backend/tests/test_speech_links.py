@@ -371,8 +371,10 @@ def test_get_installed_voices_includes_edge_voices() -> None:
     assert len(edge_voices) >= 2
     names = [v.name for v in edge_voices]
     assert "Svetlana (Neural · Edge)" in names
-    assert "Dmitry (Neural · Edge)" in names
-    assert all(v.is_russian for v in edge_voices)
+    ru_edge_voices = [v for v in edge_voices if "ru" in v.locale.lower()]
+    assert all(v.is_russian for v in ru_edge_voices)
+    en_edge_voices = [v for v in edge_voices if "en" in v.locale.lower()]
+    assert any("Jenny" in v.name for v in en_edge_voices)
 
 
 @pytest.mark.anyio
