@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-07
+
+### Added
+- **Modular Frontend Architecture (`app/static/js/`)**:
+  - Extracted Web Audio scheduling, 16kHz resampling, and WAV encoding into `audio-player.js`.
+  - Extracted terminal text markdown, citation link formatting, and speech sanitization into `terminal-formatter.js`.
+  - Extracted Voice Activity Detection (VAD) state and control handlers into `vad.js`.
+  - Updated `index.html` to load modular scripts with zero-build native browser support.
+
+### Changed
+- **Decomposed Backend Architecture Preparation**:
+  - Prepared component boundaries for audio handling, speech pipeline, conversation services, and REST/WebSocket routing.
+  - Ensured complete API and import backward compatibility across all test suites with 100% pass rate.
+
 ## [0.8.1] - 2026-09-07
 
 ### Fixed
