@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-07
+
+### Added
+- **True AUTO Locale Dynamic Turn Resolution**:
+  - Added `detect_effective_turn_locale()` detecting Cyrillic (`ru-RU`) vs Latin (`en-US`) in user utterances and LLM responses.
+  - Implemented dynamic per-turn voice resolution for AUTO locale in `_stream_and_synthesize` and `_append_assistant_turn`.
+  - Added base instruction guidance for AUTO mode: `"Reply in the same language as the user's message"`.
+  - Added `effective_locale`, `voice`, and `tts_engine` fields to WebSocket `turn_completed` payload.
+- **Dynamic TTS Engine Status in UI Footer**:
+  - Implemented `_get_tts_engine()` helper exposing active engine (`EDGE_TTS`, `PIPER_OFFLINE`, `SILERO_OFFLINE`, `MACOS_SAY`).
+  - Added `tts_engine` attribute to `ready`, `voice_updated`, `locale_updated`, `settings_updated`, `plugin_updated`, and `turn_completed` WebSocket events.
+  - Dynamic UI footer element `<span data-footer-meta>` updated via `updateFooterStatus()` in `voice.js`.
+- **AudioWorklet Sample Buffering & Single Exclusive Pipeline**:
+  - Implemented 1024-sample frame buffering with ring buffer and flush-on-stop in `pcm-recorder-processor.js`, cutting AudioWorklet message overhead by 8x.
+  - Prevented dual recorder contention (`MediaRecorder` running alongside `AudioWorklet`) via `window.isDirectPcmActive` guard flag.
+
 ## [0.10.3] - 2026-09-07
 
 ### Added

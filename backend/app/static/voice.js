@@ -3,6 +3,8 @@
  */
 
 let recorder = null;
+let isRecordingActive = false;
+let activeRecordingStream = null;
 let audioChunks = [];
 let pcmProcessorNode = null;
 let pcmSamples = [];
@@ -59,15 +61,22 @@ async function initAudioAnalyser(stream) {
       }
     }
 
-    if (!workletInitialized) {
-      pcmProcessorNode = audioContext.createScriptProcessor(4096, 1, 1);
-      pcmProcessorNode.onaudioprocess = (event) => {
-        const input = event.inputBuffer.getChannelData(0);
-        pcmSamples.push(new Float32Array(input));
-      };
-      micSourceNode.connect(pcmProcessorNode);
-      pcmProcessorNode.connect(audioContext.destination);
+    if (!workletInitialized && audioContext.createScriptProcessor) {
+      try {
+        pcmProcessorNode = audioContext.createScriptProcessor(4096, 1, 1);
+        pcmProcessorNode.onaudioprocess = (event) => {
+          const input = event.inputBuffer.getChannelData(0);
+          pcmSamples.push(new Float32Array(input));
+        };
+        micSourceNode.connect(pcmProcessorNode);
+        pcmProcessorNode.connect(audioContext.destination);
+        workletInitialized = true;
+      } catch (err) {
+        console.warn("// ScriptProcessor failed, falling back to MediaRecorder:", err);
+      }
     }
+
+    window.isDirectPcmActive = workletInitialized;
 
     const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
 
@@ -87,7 +96,7 @@ async function initAudioAnalyser(stream) {
       }
 
       // VAD (Voice Activity Detection) during active recording
-      if (window.vadEnabled && recorder && recorder.state === "recording") {
+      if (window.vadEnabled && isRecordingActive) {
         const now = performance.now();
         const threshold = window.VAD_VOLUME_THRESHOLD || 0.055;
         const minDuration = window.VAD_MIN_SPEECH_DURATION_MS || 350;
@@ -212,6 +221,14 @@ function setVoiceState(state, statusMessage, modeLabel) {
       btn.classList.remove("is-active");
     }
   });
+}
+
+function updateFooterStatus(ttsEngine) {
+  if (!ttsEngine) return;
+  const footerEl = document.querySelector("[data-footer-meta]");
+  if (footerEl) {
+    footerEl.textContent = `100% LOCAL // WHISPER_CPP // ${ttsEngine} // CODEX_STDIO`;
+  }
 }
 
 function showToast(message) {
@@ -550,6 +567,20 @@ function handleSocketMessage(event) {
         updateVoiceAttributes(data.voice);
       }
     }
+    if (data.tts_engine) {
+      updateFooterStatus(data.tts_engine);
+    }
+  } else if (data.type === "voice_updated") {
+    if (data.voice) {
+      const voiceSelect = document.querySelector("#voice-select");
+      if (voiceSelect) {
+        voiceSelect.value = data.voice;
+        updateVoiceAttributes(data.voice);
+      }
+    }
+    if (data.tts_engine) {
+      updateFooterStatus(data.tts_engine);
+    }
   } else if (data.type === "locale_updated") {
     if (data.locale) {
       const localeSelect = document.querySelector("#locale-select");
@@ -563,6 +594,9 @@ function handleSocketMessage(event) {
         voiceSelect.value = data.voice;
         updateVoiceAttributes(data.voice);
       }
+    }
+    if (data.tts_engine) {
+      updateFooterStatus(data.tts_engine);
     }
   } else if (data.type === "settings_updated") {
     if (data.locale) {
@@ -585,6 +619,9 @@ function handleSocketMessage(event) {
         updateVoiceAttributes(data.voice);
       }
     }
+    if (data.tts_engine) {
+      updateFooterStatus(data.tts_engine);
+    }
   } else if (data.type === "plugin_updated") {
     if (data.plugin_id) {
       document.querySelectorAll(".plugin-select, #plugin-select, #session-plugin-select").forEach((el) => {
@@ -601,6 +638,9 @@ function handleSocketMessage(event) {
         voiceSelect.value = data.voice;
         updateVoiceAttributes(data.voice);
       }
+    }
+    if (data.tts_engine) {
+      updateFooterStatus(data.tts_engine);
     }
   } else if (data.type === "status") {
     setVoiceState(data.state, data.message, data.mode_label);
@@ -619,6 +659,9 @@ function handleSocketMessage(event) {
   } else if (data.type === "audio_chunk") {
     enqueueAudioChunk(data.audio_url, currentStreamingEntry, data.audio_base64, data.mime_type);
   } else if (data.type === "turn_completed") {
+    if (data.tts_engine) {
+      updateFooterStatus(data.tts_engine);
+    }
     if (data.timing) {
       latestTiming = data.timing;
       const clientE2e = firstAudioPlayTime && lastSpeechEndTime ? Math.round(firstAudioPlayTime - lastSpeechEndTime) : null;
@@ -817,66 +860,82 @@ async function startRecording(recordBtn) {
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    activeRecordingStream = stream;
     await initAudioAnalyser(stream);
 
     audioChunks = [];
     speechEndDetectedAt = null;
-    recorder = new MediaRecorder(stream);
+    isRecordingActive = true;
 
-    recorder.addEventListener("dataavailable", (event) => {
-      if (event.data.size) audioChunks.push(event.data);
-    });
-
-    recorder.addEventListener("stop", async () => {
-      const recordingStoppedAt = performance.now();
-      const speechEndedAt = speechEndDetectedAt || recordingStoppedAt;
-      lastSpeechEndTime = speechEndedAt;
-      firstAudioPlayTime = null;
-      const sampleRate = audioContext?.sampleRate || 44100;
-      const rawPcm = pcmSamples;
-      stopAudioAnalyser();
-      stream.getTracks().forEach((track) => track.stop());
-
-      setVoiceState("thinking", "Processing via local whisper.cpp...", "PROCESSING // STT");
-      const audioUrl = recordBtn.dataset.audioUrl || document.querySelector("[data-record]")?.dataset.audioUrl;
-
-      let audioBlob = null;
-      if (rawPcm.length > 0) {
-        try {
-          const merged = mergeBuffers(rawPcm);
-          const resampled = resampleTo16k(merged, sampleRate);
-          audioBlob = encodeWav16k(resampled);
-        } catch (e) {
-          console.warn("PCM WAV encoding fallback to MediaRecorder blob:", e);
-        }
-      }
-      if (!audioBlob) {
-        audioBlob = new Blob(audioChunks, { type: recorder.mimeType || "audio/webm" });
-      }
-
-      await sendRecording(audioUrl, audioBlob, {
-        endpoint_delay_ms: Math.round(recordingStoppedAt - speechEndedAt),
+    if (!window.isDirectPcmActive) {
+      recorder = new MediaRecorder(stream);
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data.size) audioChunks.push(event.data);
       });
-    });
+      recorder.addEventListener("stop", async () => {
+        await finishRecording(stream, recordBtn);
+      });
+      recorder.start();
+    }
 
-    recorder.start();
     const msg = window.vadEnabled
       ? "Listening... (auto-stop on silence)"
       : "Listening... Press [Space] or click to finish";
     setVoiceState("listening", msg, "LISTENING // MIC");
   } catch (error) {
+    isRecordingActive = false;
     stopAudioAnalyser();
     setVoiceState("idle", `Mic access denied: ${error.message}`, "ERR // MIC_DENIED");
     showToast(`// mic error: ${error.message}`);
   }
 }
 
-async function stopRecording() {
+async function finishRecording(stream, recordBtn) {
+  const recordingStoppedAt = performance.now();
+  const speechEndedAt = speechEndDetectedAt || recordingStoppedAt;
+  lastSpeechEndTime = speechEndedAt;
+  firstAudioPlayTime = null;
+  const sampleRate = audioContext?.sampleRate || 44100;
+  const rawPcm = pcmSamples;
+  stopAudioAnalyser();
+  if (stream && stream.getTracks) {
+    stream.getTracks().forEach((track) => track.stop());
+  }
+
+  setVoiceState("thinking", "Processing via local whisper.cpp...", "PROCESSING // STT");
+  const audioUrl = recordBtn?.dataset?.audioUrl || document.querySelector("[data-record]")?.dataset.audioUrl;
+
+  let audioBlob = null;
+  if (rawPcm.length > 0) {
+    try {
+      const merged = mergeBuffers(rawPcm);
+      const resampled = resampleTo16k(merged, sampleRate);
+      audioBlob = encodeWav16k(resampled);
+    } catch (e) {
+      console.warn("PCM WAV encoding fallback to MediaRecorder blob:", e);
+    }
+  }
+  if (!audioBlob) {
+    audioBlob = new Blob(audioChunks, { type: recorder?.mimeType || "audio/webm" });
+  }
+
+  await sendRecording(audioUrl, audioBlob, {
+    endpoint_delay_ms: Math.round(recordingStoppedAt - speechEndedAt),
+  });
+}
+
+async function stopRecording(recordBtn) {
+  if (!isRecordingActive) return;
+  isRecordingActive = false;
   window.vadSpeechDetected = false;
   window.vadSilenceStartTime = null;
   window.speechStartTime = null;
+
   if (recorder && recorder.state === "recording") {
     recorder.stop();
+  } else {
+    // Direct AudioWorklet / ScriptProcessor exclusive pipeline
+    await finishRecording(activeRecordingStream, recordBtn);
   }
 }
 
@@ -954,8 +1013,8 @@ document.addEventListener("click", (event) => {
   // Record Trigger (Main mic button or Radar)
   const recordTrigger = event.target.closest("[data-record]");
   if (recordTrigger) {
-    if (recorder?.state === "recording") {
-      stopRecording();
+    if (isRecordingActive) {
+      stopRecording(recordTrigger);
     } else {
       startRecording(recordTrigger);
     }
@@ -996,7 +1055,7 @@ async function resetChat(resetBtn) {
     resetBtn.style.opacity = "0.5";
   }
   stopSpeaking();
-  if (recorder && recorder.state === "recording") {
+  if (isRecordingActive) {
     try {
       await stopRecording();
     } catch (_) {}
@@ -1085,7 +1144,7 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     const recordBtn = document.querySelector("[data-record]");
     if (recordBtn) {
-      if (recorder?.state === "recording") {
+      if (isRecordingActive) {
         stopRecording();
       } else {
         startRecording(recordBtn);
@@ -1097,7 +1156,7 @@ document.addEventListener("keydown", (event) => {
 // HTMX Lifecycle Hooks
 document.body.addEventListener("htmx:beforeRequest", (event) => {
   stopSpeaking();
-  if (recorder && recorder.state === "recording") {
+  if (isRecordingActive) {
     stopRecording();
   }
   if (event.detail.elt.tagName === "FORM") {

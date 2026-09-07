@@ -163,7 +163,7 @@
           <span><kbd>ENTER</kbd> exec</span>
         </div>
         <div class="footer-meta">
-          <span>100% LOCAL // WHISPER_CPP // MACOS_SAY // CODEX_STDIO</span>
+          <span data-footer-meta>100% LOCAL // WHISPER_CPP // {{ 'EDGE_TTS' if active_voice and 'edge' in active_voice.lower() else ('PIPER_OFFLINE' if active_voice and 'piper' in active_voice.lower() else ('SILERO_OFFLINE' if active_voice and 'silero' in active_voice.lower() else 'MACOS_SAY')) }} // CODEX_STDIO</span>
         </div>
       </footer>
     </div>

@@ -52,6 +52,9 @@ from .speak import (
     get_default_voice_for_locale,
     get_installed_voices,
     get_voice_for_locale,
+    is_edge_voice,
+    is_piper_voice,
+    is_silero_voice,
     prewarm_voice,
     sanitize_for_speech,
 )
@@ -364,13 +367,37 @@ async def _await_conversation_warmup(conversation: Conversation) -> None:
         await asyncio.gather(task, return_exceptions=True)
 
 
+def detect_effective_turn_locale(text: str, fallback_locale: str = "ru-RU") -> str:
+    """Detect turn locale based on text content (Cyrillic -> ru-RU, else en-US)."""
+    if re.search(r"[\u0400-\u04FF]", text):
+        return "ru-RU"
+    # If no Cyrillic and contains Latin letters, prefer English
+    if re.search(r"[a-zA-Z]", text):
+        return "en-US"
+    return fallback_locale if fallback_locale != "auto" else "ru-RU"
+
+
+def _get_tts_engine(voice_name: str) -> str:
+    """Return canonical uppercase engine name for dynamic footer status."""
+    if is_edge_voice(voice_name):
+        return "EDGE_TTS"
+    if is_piper_voice(voice_name):
+        return "PIPER_OFFLINE"
+    if is_silero_voice(voice_name):
+        return "SILERO_OFFLINE"
+    return "MACOS_SAY"
+
+
 async def _refresh_conversation_base_instructions(
     conversation: Conversation, override_locale: str | None = None
 ) -> str:
     plugin = plugin_manager.get(conversation.plugin_id)
     plugin_override = getattr(plugin, "response_locale_override", None)
-    effective_locale = plugin_override or override_locale or conversation.locale
-    base_instructions = get_base_instructions(effective_locale)
+    target_locale = plugin_override or override_locale or conversation.locale
+    if target_locale == "auto":
+        base_instructions = get_base_instructions("auto")
+    else:
+        base_instructions = get_base_instructions(target_locale)
     plugin_sys = await plugin_manager.get_system_prompt(conversation.plugin_id, conversation.id)
     if plugin_sys.strip():
         base_instructions = f"{base_instructions}\n\n{plugin_sys.strip()}"
@@ -1256,7 +1283,14 @@ async def _stream_and_synthesize(
     client_timing: dict[str, int] | None = None,
 ) -> None:
     await _await_conversation_warmup(conversation)
-    speaker = LocalMacOsSpeaker(voice=conversation.voice)
+
+    effective_locale = conversation.locale
+    speaker_voice = conversation.voice
+    if conversation.locale == "auto":
+        effective_locale = detect_effective_turn_locale(prompt_text, fallback_locale="ru-RU")
+        speaker_voice = get_default_voice_for_locale(effective_locale)
+
+    speaker = LocalMacOsSpeaker(voice=speaker_voice)
     full_reply_parts: list[str] = []
     current_sentence = ""
     in_sources_mode = False
@@ -1427,6 +1461,9 @@ async def _stream_and_synthesize(
             "type": "turn_completed",
             "turn": turn,
             "timing": timing,
+            "effective_locale": effective_locale,
+            "voice": speaker_voice,
+            "tts_engine": _get_tts_engine(speaker_voice),
         })
         await websocket.send_json({
             "type": "status",
@@ -1476,6 +1513,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
         "effort": conversation.reasoning_effort,
         "voice": conversation.voice,
         "locale": conversation.locale,
+        "tts_engine": _get_tts_engine(conversation.voice),
     })
 
     active_turn_task: asyncio.Task[None] | None = None
@@ -1571,6 +1609,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         await websocket.send_json({
                             "type": "voice_updated",
                             "voice": new_voice,
+                            "tts_engine": _get_tts_engine(new_voice),
                         })
                 elif msg_type == "set_locale":
                     new_locale = payload.get("locale", "").strip()
@@ -1584,6 +1623,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                             "type": "locale_updated",
                             "locale": new_locale,
                             "voice": new_voice,
+                            "tts_engine": _get_tts_engine(new_voice),
                         })
                 elif msg_type == "set_settings":
                     if "model" in payload and payload["model"]:
@@ -1615,6 +1655,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         "effort": conversation.reasoning_effort,
                         "voice": conversation.voice,
                         "locale": conversation.locale,
+                        "tts_engine": _get_tts_engine(conversation.voice),
                         "remote_warmup_status": warmup_status,
                     })
                 elif msg_type == "set_plugin":
@@ -1626,6 +1667,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         "plugin_id": conversation.plugin_id,
                         "mode": conversation.plugin_mode,
                         "voice": conversation.voice,
+                        "tts_engine": _get_tts_engine(conversation.voice),
                     })
                 elif msg_type == "stop_speaking":
                     if active_turn_task and not active_turn_task.done():
@@ -1678,8 +1720,12 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
 
 async def _append_assistant_turn(conversation: Conversation, text: str) -> str | None:
     turn = {"role": "assistant", "text": text}
+    voice_to_use = conversation.voice
+    if conversation.locale == "auto":
+        effective_locale = detect_effective_turn_locale(text, fallback_locale="ru-RU")
+        voice_to_use = get_default_voice_for_locale(effective_locale)
     try:
-        speech_path = await LocalMacOsSpeaker(voice=conversation.voice).synthesize(text)
+        speech_path = await LocalMacOsSpeaker(voice=voice_to_use).synthesize(text)
     except LocalSpeechError as exception:
         conversation.turns.append(turn)
         return str(exception)

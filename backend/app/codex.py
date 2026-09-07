@@ -36,6 +36,9 @@ def get_base_instructions(locale: str = "ru-RU") -> str:
     elif norm.startswith("en"):
         lang_rule = "Always reply in English."
         sources_header = "Sources:"
+    elif norm == "auto":
+        lang_rule = "Reply in the same language as the user's message (e.g. English if the user speaks English, Russian if the user speaks Russian)."
+        sources_header = "Sources / Источники:"
     else:
         lang_rule = "Always reply in Russian."
         sources_header = "Источники:"

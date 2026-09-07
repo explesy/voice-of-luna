@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.codex import get_base_instructions
-from app.main import app, conversations
+from app.main import _get_tts_engine, app, conversations, detect_effective_turn_locale
 from app.speak import (
     LocalMacOsSpeaker,
     LocalSpeechError,
@@ -160,4 +160,60 @@ async def test_edge_tts_fallback_to_local_english_voice(monkeypatch) -> None:
     # Voice used for macOS say must NOT be the Edge voice name
     assert "Edge" not in synth_calls[0]
     assert synth_calls[0] == "Samantha" or "Samantha" in synth_calls[0] or "en" in synth_calls[0].lower()
+
+
+def test_detect_effective_turn_locale() -> None:
+    assert detect_effective_turn_locale("Привет, как дела?") == "ru-RU"
+    assert detect_effective_turn_locale("Hello, how are you?") == "en-US"
+    assert detect_effective_turn_locale("Mixed текст с кириллицей") == "ru-RU"
+    assert detect_effective_turn_locale("12345 !?", fallback_locale="ru-RU") == "ru-RU"
+    assert detect_effective_turn_locale("12345 !?", fallback_locale="en-US") == "en-US"
+
+
+def test_get_tts_engine_helper() -> None:
+    assert _get_tts_engine("Jenny (Neural · Edge)") == "EDGE_TTS"
+    assert _get_tts_engine("Svetlana (Neural · Edge)") == "EDGE_TTS"
+    assert _get_tts_engine("Ksenia (Silero Neural · Offline)") == "SILERO_OFFLINE"
+    assert _get_tts_engine("Dmitri (Piper Neural · Offline)") == "PIPER_OFFLINE"
+    assert _get_tts_engine("Milena") == "MACOS_SAY"
+    assert _get_tts_engine("Samantha") == "MACOS_SAY"
+
+
+def test_websocket_auto_locale_and_tts_engine(monkeypatch) -> None:
+    import asyncio
+    from app.main import _call_reply_stream
+
+    async def fake_reply_stream(model, prompt, **kwargs):
+        yield "Hello there! This is a test response."
+
+    monkeypatch.setattr("app.main._call_reply_stream", fake_reply_stream)
+    monkeypatch.setattr("app.main.LocalMacOsSpeaker.synthesize", lambda self, text: asyncio.sleep(0, result=None))
+
+    with client.websocket_connect("/ws/conversations/test-auto-conv") as ws:
+        ready = ws.receive_json()
+        assert ready["type"] == "ready"
+        assert "tts_engine" in ready
+
+        # Switch to AUTO locale
+        ws.send_json({"type": "set_locale", "locale": "auto"})
+        loc_reply = ws.receive_json()
+        assert loc_reply["type"] == "locale_updated"
+        assert loc_reply["locale"] == "auto"
+        assert "tts_engine" in loc_reply
+
+        # Send an English message and verify effective turn locale & engine
+        ws.send_json({"type": "text", "text": "What is the weather today?"})
+
+        msgs = []
+        while True:
+            msg = ws.receive_json()
+            msgs.append(msg)
+            if msg.get("type") == "turn_completed":
+                break
+
+        completed = msgs[-1]
+        assert completed["type"] == "turn_completed"
+        assert completed["effective_locale"] == "en-US"
+        assert any(x in completed["voice"].lower() for x in ("jenny", "samantha", "aria", "guy", "alex"))
+        assert completed["tts_engine"] in ("EDGE_TTS", "MACOS_SAY")
 
