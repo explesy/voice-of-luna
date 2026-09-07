@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-08
+
+### Added
+- **AI & Sound Model Test Matrix Suite**:
+  - Implemented comprehensive multi-dimensional test matrix in `backend/tests/test_model_matrix.py` covering:
+    - **6 AI LLM Models** (`gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-6-astra`, `gpt-5.5`, `gpt-5.4-mini`) with all supported reasoning efforts (`low`, `medium`, `high`, `xhigh`).
+    - **4 TTS Engines** (Piper ONNX, Silero PyTorch, Microsoft Edge TTS, macOS System Say) across 10 key voices with format, suffix, and MIME type validation.
+    - **STT Whisper Models** across 4 language profiles (`ru`, `en`, `es`, `auto`) in both HTTP server and local CLI fallback modes.
+    - **Cross-Model WebSocket Turns**: end-to-end turn execution combining various AI models with different TTS engines, validating binary PCM/MP3 frames and streaming JSON audio chunks.
+- **Model Matrix Evaluation CLI & Makefile Target**:
+  - Added `backend/scripts/run_model_matrix.py` to evaluate model availability, speaker routing, STT profiles, and latency benchmarks.
+  - Added `make matrix` command for quick terminal inspection of cross-model compatibility.
+
 ## [0.11.0] - 2026-09-07
 
 ### Added
