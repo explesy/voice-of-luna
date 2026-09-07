@@ -64,7 +64,55 @@ function encodeWav16k(samples) {
 
   return new Blob([view], { type: "audio/wav" });
 }
+let playbackAudioContext = null;
+let audioQueue = [];
+let activeScheduledSources = [];
+let nextAudioChunkStartTime = 0;
+let isAudioQueuePlaying = false;
+let currentAudioElement = null;
+let activePlayer = null;
+let currentStreamingEntry = null;
+let firstAudioPlayTime = null;
+let lastSpeechEndTime = null;
+let latestTiming = null;
 
+function notifyVoiceState(state, message, modeLabel) {
+  if (typeof setVoiceState === "function") {
+    setVoiceState(state, message, modeLabel);
+  } else if (typeof window.setVoiceState === "function") {
+    window.setVoiceState(state, message, modeLabel);
+  }
+}
+
+function notifyLatencyHud(timing, clientE2e) {
+  if (typeof updateLatencyHud === "function") {
+    updateLatencyHud(timing, clientE2e);
+  } else if (typeof window.updateLatencyHud === "function") {
+    window.updateLatencyHud(timing, clientE2e);
+  }
+}
+
+function stopAudioPlayback() {
+  audioQueue = [];
+  isAudioQueuePlaying = false;
+  nextAudioChunkStartTime = 0;
+
+  activeScheduledSources.forEach((src) => {
+    try {
+      src.stop();
+      src.disconnect();
+    } catch (_) {}
+  });
+  activeScheduledSources = [];
+
+  if (currentAudioElement) {
+    try {
+      currentAudioElement.pause();
+      currentAudioElement.currentTime = 0;
+    } catch (_) {}
+    currentAudioElement = null;
+  }
+}
 
 function getPlaybackContext() {
   if (!playbackAudioContext || playbackAudioContext.state === "closed") {
@@ -129,7 +177,7 @@ function scheduleAudioPlayback() {
     if (ctx && item.audioBuffer) {
       audioQueue.shift();
       isAudioQueuePlaying = true;
-      setVoiceState("speaking", "Luna responding... Press [Esc] to stop", "SPEAKING // STREAM");
+      notifyVoiceState("speaking", "Luna responding... Press [Esc] to stop", "SPEAKING // STREAM");
 
       const now = ctx.currentTime;
       const startTime = Math.max(now + 0.005, nextAudioChunkStartTime);
@@ -143,7 +191,7 @@ function scheduleAudioPlayback() {
       if (!firstAudioPlayTime && lastSpeechEndTime) {
         firstAudioPlayTime = performance.now();
         const clientE2e = Math.round(firstAudioPlayTime - lastSpeechEndTime);
-        updateLatencyHud(latestTiming, clientE2e);
+        notifyLatencyHud(latestTiming, clientE2e);
       }
 
       if (item.entry && item.blobUrl) {
@@ -160,7 +208,7 @@ function scheduleAudioPlayback() {
           } else {
             isAudioQueuePlaying = false;
             nextAudioChunkStartTime = 0;
-            setVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
+            notifyVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
           }
         }
       };
@@ -178,7 +226,7 @@ async function playNextAudioChunkFallback() {
     if (activeScheduledSources.length === 0) {
       isAudioQueuePlaying = false;
       currentAudioElement = null;
-      setVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
+      notifyVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
     }
     return;
   }
@@ -210,13 +258,13 @@ async function playNextAudioChunkFallback() {
   const audio = new Audio(playUrl);
   currentAudioElement = audio;
   activePlayer = audio;
-  setVoiceState("speaking", "Luna responding... Press [Esc] to stop", "SPEAKING // STREAM");
+  notifyVoiceState("speaking", "Luna responding... Press [Esc] to stop", "SPEAKING // STREAM");
 
   audio.addEventListener("play", () => {
     if (!firstAudioPlayTime && lastSpeechEndTime) {
       firstAudioPlayTime = performance.now();
       const clientE2e = Math.round(firstAudioPlayTime - lastSpeechEndTime);
-      updateLatencyHud(latestTiming, clientE2e);
+      notifyLatencyHud(latestTiming, clientE2e);
     }
   }, { once: true });
 
@@ -228,7 +276,7 @@ async function playNextAudioChunkFallback() {
       scheduleAudioPlayback();
     } else if (activeScheduledSources.length === 0) {
       nextAudioChunkStartTime = 0;
-      setVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
+      notifyVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
     }
   }
 
@@ -242,15 +290,19 @@ async function playNextAudioChunkFallback() {
 
 function playAudioQueue(urls) {
   if (!urls || urls.length === 0) return;
-  stopSpeaking();
-  setVoiceState("speaking", "Replaying audio output...", "SPEAKING // REPLAY");
+  if (typeof stopSpeaking === "function") {
+    stopSpeaking();
+  } else {
+    stopAudioPlayback();
+  }
+  notifyVoiceState("speaking", "Replaying audio output...", "SPEAKING // REPLAY");
 
   let index = 0;
   function playNext() {
     if (index >= urls.length) {
       activePlayer = null;
       currentAudioElement = null;
-      setVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
+      notifyVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
       return;
     }
     const url = urls[index++];
@@ -275,6 +327,7 @@ function playAudioQueue(urls) {
 }
 
 
+window.stopAudioPlayback = stopAudioPlayback;
 window.mergeBuffers = mergeBuffers;
 window.resampleTo16k = resampleTo16k;
 window.encodeWav16k = encodeWav16k;

@@ -1321,6 +1321,11 @@ async def _stream_and_synthesize(
                 synthesis_jobs.task_done()
 
     consumer_task = asyncio.create_task(_synthesis_consumer())
+    synth_semaphore = asyncio.Semaphore(2)
+
+    async def _bounded_synthesize(text: str) -> Path | None:
+        async with synth_semaphore:
+            return await speaker.synthesize(text)
 
     async def _queue_sentence(sentence_to_deliver: str) -> None:
         nonlocal t_first_sentence_queued
@@ -1328,7 +1333,7 @@ async def _stream_and_synthesize(
         if clean_text:
             if t_first_sentence_queued is None:
                 t_first_sentence_queued = time.perf_counter()
-            synth_task = asyncio.create_task(speaker.synthesize(clean_text))
+            synth_task = asyncio.create_task(_bounded_synthesize(clean_text))
             await synthesis_jobs.put((clean_text, synth_task))
 
     turn_ctx = TurnContext(

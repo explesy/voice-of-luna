@@ -156,3 +156,42 @@ async def test_pipelined_synthesis_prewarms_next_sentence() -> None:
             assert "Первое предложение!" in texts
             assert "Второе предложение!" in texts
             assert "Третье предложение завершено." in texts
+
+
+@pytest.mark.anyio
+async def test_bounded_synthesis_concurrency_limit() -> None:
+    current_concurrent = 0
+    max_concurrent = 0
+
+    async def tracking_synthesize(text: str) -> Path | None:
+        nonlocal current_concurrent, max_concurrent
+        current_concurrent += 1
+        max_concurrent = max(max_concurrent, current_concurrent)
+        await asyncio.sleep(0.04)
+        current_concurrent -= 1
+        return None
+
+    with patch("app.main.LocalMacOsSpeaker.synthesize", side_effect=tracking_synthesize):
+        conv_id = "test-ws-bounded-concurrency"
+        with client.websocket_connect(f"/ws/conversations/{conv_id}") as ws:
+            ws.receive_json()  # ready
+
+            async def fast_multi_sentence_stream(*args, **kwargs):
+                for i in range(6):
+                    yield f"Предложение номер {i + 1}! "
+
+            with patch("app.main._call_reply_stream", side_effect=fast_multi_sentence_stream):
+                ws.send_json({"type": "text", "text": "тест лимита параллелизма"})
+
+                for _ in range(50):
+                    msg = ws.receive()
+                    if "text" in msg and msg["text"]:
+                        data = json.loads(msg["text"])
+                        if data.get("type") == "turn_completed":
+                            break
+                else:
+                    pytest.fail("WebSocket did not receive turn_completed within 50 messages")
+
+            assert max_concurrent <= 2
+            assert max_concurrent >= 1
+

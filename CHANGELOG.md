@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-09-07
+
+### Added
+- **Bounded Concurrent Speech Synthesis**:
+  - Implemented `asyncio.Semaphore(2)` in `app.main` for pipelined TTS chunks, preventing connection/thread exhaustion when handling rapid LLM sentence token streams.
+  - Added unit test `test_bounded_synthesis_concurrency_limit` in `test_transport_latency.py` verifying semaphore compliance.
+
+### Changed
+- **Frontend Architecture Deduplication**:
+  - Removed ~550 lines of duplicate code from `static/voice.js` by delegating directly to modular components:
+    - Audio playback & scheduling to `AudioPlayer` (`static/js/audio-player.js`).
+    - WAV encoding and audio buffer handling to `AudioBufferUtils` (`static/js/audio-player.js`).
+    - VAD status UI and toggles to `VADModule` (`static/js/vad.js`).
+    - Terminal formatting, ANSI stripping, and latency metrics to `TerminalFormatter` (`static/js/terminal-formatter.js`).
+  - Added `stopAudioPlayback()` method and safe metric wrappers to `AudioPlayer`.
+
 ## [0.10.2] - 2026-09-07
 
 ### Fixed

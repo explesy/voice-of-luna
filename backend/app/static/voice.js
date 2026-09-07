@@ -21,77 +21,7 @@ let firstAudioPlayTime = null;
 let latestTiming = null;
 let speechEndDetectedAt = null;
 
-// VAD (Voice Activity Detection) state
-let vadEnabled = localStorage.getItem("voice_of_luna_vad") !== "false";
-let vadSpeechDetected = false;
-let vadSilenceStartTime = null;
-let speechStartTime = null;
-const VAD_VOLUME_THRESHOLD = 0.055;
-const VAD_SILENCE_TIMEOUT_MS = 450;
-const VAD_MIN_SPEECH_DURATION_MS = 350;
-
-function mergeBuffers(buffers) {
-  let totalLength = 0;
-  for (let i = 0; i < buffers.length; i++) {
-    totalLength += buffers[i].length;
-  }
-  const result = new Float32Array(totalLength);
-  let offset = 0;
-  for (let i = 0; i < buffers.length; i++) {
-    result.set(buffers[i], offset);
-    offset += buffers[i].length;
-  }
-  return result;
-}
-
-function resampleTo16k(audioBuffer, sourceSampleRate) {
-  if (sourceSampleRate === 16000) return audioBuffer;
-  const ratio = sourceSampleRate / 16000;
-  const newLength = Math.round(audioBuffer.length / ratio);
-  const result = new Float32Array(newLength);
-  for (let i = 0; i < newLength; i++) {
-    const index = i * ratio;
-    const low = Math.floor(index);
-    const high = Math.min(low + 1, audioBuffer.length - 1);
-    const weight = index - low;
-    result[i] = audioBuffer[low] * (1 - weight) + audioBuffer[high] * weight;
-  }
-  return result;
-}
-
-function encodeWav16k(samples) {
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buffer);
-
-  function writeString(offset, str) {
-    for (let i = 0; i < str.length; i++) {
-      view.setUint8(offset + i, str.charCodeAt(i));
-    }
-  }
-
-  writeString(0, "RIFF");
-  view.setUint32(4, 36 + samples.length * 2, true);
-  writeString(8, "WAVE");
-  writeString(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, 16000, true);
-  view.setUint32(28, 32000, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeString(36, "data");
-  view.setUint32(40, samples.length * 2, true);
-
-  let offset = 44;
-  for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-    offset += 2;
-  }
-
-  return new Blob([view], { type: "audio/wav" });
-}
+// Audio processing and VAD state are provided by audio-player.js and vad.js
 
 // Audio level visualization & 16kHz PCM capture via Web Audio API
 async function initAudioAnalyser(stream) {
@@ -157,24 +87,28 @@ async function initAudioAnalyser(stream) {
       }
 
       // VAD (Voice Activity Detection) during active recording
-      if (vadEnabled && recorder && recorder.state === "recording") {
+      if (window.vadEnabled && recorder && recorder.state === "recording") {
         const now = performance.now();
-        if (normalizedVolume >= VAD_VOLUME_THRESHOLD) {
-          if (!vadSpeechDetected) {
-            vadSpeechDetected = true;
-            speechStartTime = now;
+        const threshold = window.VAD_VOLUME_THRESHOLD || 0.055;
+        const minDuration = window.VAD_MIN_SPEECH_DURATION_MS || 350;
+        const silenceTimeout = window.VAD_SILENCE_TIMEOUT_MS || 450;
+
+        if (normalizedVolume >= threshold) {
+          if (!window.vadSpeechDetected) {
+            window.vadSpeechDetected = true;
+            window.speechStartTime = now;
           }
-          vadSilenceStartTime = null;
+          window.vadSilenceStartTime = null;
           speechEndDetectedAt = null;
-        } else if (vadSpeechDetected && speechStartTime && (now - speechStartTime) >= VAD_MIN_SPEECH_DURATION_MS) {
-          if (!vadSilenceStartTime) {
-            vadSilenceStartTime = now;
+        } else if (window.vadSpeechDetected && window.speechStartTime && (now - window.speechStartTime) >= minDuration) {
+          if (!window.vadSilenceStartTime) {
+            window.vadSilenceStartTime = now;
             speechEndDetectedAt = now;
-          } else if (now - vadSilenceStartTime >= VAD_SILENCE_TIMEOUT_MS) {
-            console.log("// VAD auto-stop: silence detected for", Math.round(now - vadSilenceStartTime), "ms");
-            vadSpeechDetected = false;
-            vadSilenceStartTime = null;
-            speechStartTime = null;
+          } else if (now - window.vadSilenceStartTime >= silenceTimeout) {
+            console.log("// VAD auto-stop: silence detected for", Math.round(now - window.vadSilenceStartTime), "ms");
+            window.vadSpeechDetected = false;
+            window.vadSilenceStartTime = null;
+            window.speechStartTime = null;
             stopRecording();
             return;
           }
@@ -191,9 +125,9 @@ async function initAudioAnalyser(stream) {
 }
 
 function stopAudioAnalyser() {
-  vadSpeechDetected = false;
-  vadSilenceStartTime = null;
-  speechStartTime = null;
+  window.vadSpeechDetected = false;
+  window.vadSilenceStartTime = null;
+  window.speechStartTime = null;
   if (animationFrameId) {
     cancelAnimationFrame(animationFrameId);
     animationFrameId = null;
@@ -386,46 +320,16 @@ function voiceFor(language) {
 }
 
 let socket = null;
-let audioQueue = [];
-let isAudioQueuePlaying = false;
-let currentAudioElement = null;
 let currentStreamingEntry = null;
-
-function getPlaybackContext() {
-  if (!playbackAudioContext || playbackAudioContext.state === "closed") {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (AudioCtx) {
-      playbackAudioContext = new AudioCtx();
-    }
-  }
-  if (playbackAudioContext && playbackAudioContext.state === "suspended") {
-    playbackAudioContext.resume().catch(() => {});
-  }
-  return playbackAudioContext;
-}
 
 function stopSpeaking() {
   if (window.speechSynthesis) {
     window.speechSynthesis.cancel();
   }
-  audioQueue = [];
-  isAudioQueuePlaying = false;
-  nextAudioChunkStartTime = 0;
-
-  activeScheduledSources.forEach((src) => {
-    try {
-      src.stop();
-      src.disconnect();
-    } catch (_) {}
-  });
-  activeScheduledSources = [];
-
-  if (currentAudioElement) {
-    try {
-      currentAudioElement.pause();
-      currentAudioElement.currentTime = 0;
-    } catch (_) {}
-    currentAudioElement = null;
+  if (typeof stopAudioPlayback === "function") {
+    stopAudioPlayback();
+  } else if (typeof window.stopAudioPlayback === "function") {
+    window.stopAudioPlayback();
   }
   if (activePlayer) {
     try {
@@ -463,356 +367,6 @@ function updateLatencyHud(timing, clientE2eMs) {
     val.textContent = parts.join(" | ");
     hud.style.display = "inline-flex";
   }
-}
-
-async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "audio/wav", rawArrayBuffer = null) {
-  const targetEntry = entry || currentStreamingEntry;
-  let blobUrl = null;
-  let audioBuffer = null;
-
-  if (rawArrayBuffer) {
-    try {
-      const effectiveMime = mimeType || (url && url.endsWith(".mp3") ? "audio/mpeg" : "audio/wav");
-      const blob = new Blob([rawArrayBuffer], { type: effectiveMime });
-      blobUrl = URL.createObjectURL(blob);
-
-      const ctx = getPlaybackContext();
-      if (ctx && ctx.decodeAudioData) {
-        audioBuffer = await ctx.decodeAudioData(rawArrayBuffer.slice(0));
-      }
-    } catch (e) {
-      console.warn("// inline binary audio decode error:", e);
-    }
-  } else if (audioBase64) {
-    try {
-      const binary = atob(audioBase64);
-      const len = binary.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      const effectiveMime = mimeType || (url && url.endsWith(".mp3") ? "audio/mpeg" : "audio/wav");
-      const blob = new Blob([bytes], { type: effectiveMime });
-      blobUrl = URL.createObjectURL(blob);
-
-      const ctx = getPlaybackContext();
-      if (ctx && ctx.decodeAudioData) {
-        audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
-      }
-    } catch (e) {
-      console.warn("// inline audio decode error:", e);
-    }
-  }
-
-  audioQueue.push({ url, blobUrl, audioBuffer, entry: targetEntry });
-  scheduleAudioPlayback();
-}
-
-function scheduleAudioPlayback() {
-  const ctx = getPlaybackContext();
-
-  while (audioQueue.length > 0) {
-    const item = audioQueue[0];
-    if (ctx && item.audioBuffer) {
-      audioQueue.shift();
-      isAudioQueuePlaying = true;
-      setVoiceState("speaking", "Luna responding... Press [Esc] to stop", "SPEAKING // STREAM");
-
-      const now = ctx.currentTime;
-      const startTime = Math.max(now + 0.005, nextAudioChunkStartTime);
-      const source = ctx.createBufferSource();
-      source.buffer = item.audioBuffer;
-      source.connect(ctx.destination);
-      source.start(startTime);
-      activeScheduledSources.push(source);
-      nextAudioChunkStartTime = startTime + item.audioBuffer.duration;
-
-      if (!firstAudioPlayTime && lastSpeechEndTime) {
-        firstAudioPlayTime = performance.now();
-        const clientE2e = Math.round(firstAudioPlayTime - lastSpeechEndTime);
-        updateLatencyHud(latestTiming, clientE2e);
-      }
-
-      if (item.entry && item.blobUrl) {
-        if (!item.entry._audioUrls) item.entry._audioUrls = [];
-        item.entry._audioUrls.push(item.blobUrl);
-      }
-
-      source.onended = () => {
-        const idx = activeScheduledSources.indexOf(source);
-        if (idx !== -1) activeScheduledSources.splice(idx, 1);
-        if (activeScheduledSources.length === 0) {
-          if (audioQueue.length > 0) {
-            scheduleAudioPlayback();
-          } else {
-            isAudioQueuePlaying = false;
-            nextAudioChunkStartTime = 0;
-            setVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
-          }
-        }
-      };
-    } else {
-      if (!isAudioQueuePlaying && activeScheduledSources.length === 0) {
-        playNextAudioChunkFallback();
-      }
-      break;
-    }
-  }
-}
-
-async function playNextAudioChunkFallback() {
-  if (audioQueue.length === 0) {
-    if (activeScheduledSources.length === 0) {
-      isAudioQueuePlaying = false;
-      currentAudioElement = null;
-      setVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
-    }
-    return;
-  }
-
-  isAudioQueuePlaying = true;
-  const item = audioQueue.shift();
-  const url = item.url;
-  const blobUrl = item.blobUrl;
-  const entry = item.entry;
-
-  let playUrl = blobUrl;
-  if (!playUrl && url) {
-    try {
-      const res = await fetch(url);
-      if (res.ok) {
-        const blob = await res.blob();
-        playUrl = URL.createObjectURL(blob);
-      }
-    } catch (_) {
-      playUrl = url;
-    }
-  }
-
-  if (entry && playUrl) {
-    if (!entry._audioUrls) entry._audioUrls = [];
-    entry._audioUrls.push(playUrl);
-  }
-
-  const audio = new Audio(playUrl);
-  currentAudioElement = audio;
-  activePlayer = audio;
-  setVoiceState("speaking", "Luna responding... Press [Esc] to stop", "SPEAKING // STREAM");
-
-  audio.addEventListener("play", () => {
-    if (!firstAudioPlayTime && lastSpeechEndTime) {
-      firstAudioPlayTime = performance.now();
-      const clientE2e = Math.round(firstAudioPlayTime - lastSpeechEndTime);
-      updateLatencyHud(latestTiming, clientE2e);
-    }
-  }, { once: true });
-
-  function onChunkFinished() {
-    isAudioQueuePlaying = false;
-    currentAudioElement = null;
-    activePlayer = null;
-    if (audioQueue.length > 0) {
-      scheduleAudioPlayback();
-    } else if (activeScheduledSources.length === 0) {
-      nextAudioChunkStartTime = 0;
-      setVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
-    }
-  }
-
-  audio.addEventListener("ended", onChunkFinished, { once: true });
-  audio.addEventListener("error", onChunkFinished, { once: true });
-
-  audio.play().catch(() => {
-    onChunkFinished();
-  });
-}
-
-function playAudioQueue(urls) {
-  if (!urls || urls.length === 0) return;
-  stopSpeaking();
-  setVoiceState("speaking", "Replaying audio output...", "SPEAKING // REPLAY");
-
-  let index = 0;
-  function playNext() {
-    if (index >= urls.length) {
-      activePlayer = null;
-      currentAudioElement = null;
-      setVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
-      return;
-    }
-    const url = urls[index++];
-    const audio = new Audio(url);
-    activePlayer = audio;
-    currentAudioElement = audio;
-
-    audio.addEventListener("ended", () => {
-      playNext();
-    }, { once: true });
-
-    audio.addEventListener("error", () => {
-      playNext();
-    }, { once: true });
-
-    audio.play().catch(() => {
-      playNext();
-    });
-  }
-
-  playNext();
-}
-
-function formatTerminalText(element) {
-  if (!element) return;
-  const rawText = element.dataset.rawText || element.textContent || "";
-  if (!rawText) return;
-  element.dataset.rawText = rawText;
-
-  let escaped = rawText
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-
-  const links = [];
-  escaped = escaped.replace(/\[([^\]]+)\]\(((?:https?:\/\/)[^)\s]+)\)/g, (match, title, url) => {
-    const idx = links.length;
-    links.push(`<a href="${url}" target="_blank" rel="noopener noreferrer" class="term-link">${title}&nbsp;<span class="ext-glyph">↗</span></a>`);
-    return `@@@LINK_${idx}@@@`;
-  });
-
-  escaped = escaped.replace(/(https?:\/\/[^\s<)]+)/g, (url) => {
-    const idx = links.length;
-    links.push(`<a href="${url}" target="_blank" rel="noopener noreferrer" class="term-link">${url}&nbsp;<span class="ext-glyph">↗</span></a>`);
-    return `@@@LINK_${idx}@@@`;
-  });
-
-  let sourcesPart = "";
-  const sourcesPlaceholderRegex = /(?:(?:\n|^)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?[\s\S]*$|(?<=[.!?…\n])\s*(?:(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?\s*)?(?:(?:[-*•·]|\d+\.)?\s*[\(\[]?\s*@@@LINK_\d+@@@[\)\]]?\s*[,;•·–—\-/\n\s]*)+$)/i;
-  const sourcesMatch = sourcesPlaceholderRegex.exec(escaped);
-  if (sourcesMatch) {
-    const before = escaped.slice(0, sourcesMatch.index).trim();
-    const rawSources = escaped.slice(sourcesMatch.index).trim();
-    const headerMatch = /^\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?/i.exec(rawSources);
-    let header = "источники";
-    let body = rawSources;
-    if (headerMatch) {
-      header = headerMatch[0].trim().replace(/^[#/*_~-\s]+/, "").replace(/:$/, "");
-      body = rawSources.slice(headerMatch[0].length).trim();
-    }
-    if (body.startsWith("(") && body.endsWith(")")) {
-      body = body.slice(1, -1).trim();
-    }
-    sourcesPart = `<div class="log-sources"><div class="sources-tag">// ${header.toUpperCase()}:</div><div class="sources-body">${body}</div></div>`;
-    escaped = before;
-  }
-
-  // 1. Unescape escaped markdown characters if present
-  escaped = escaped.replace(/\\([*_`~[\]])/g, "$1");
-
-  // 2. Extract inline code
-  const codeSnippets = [];
-  escaped = escaped.replace(/`([^`\n]+)`/g, (match, code) => {
-    const idx = codeSnippets.length;
-    codeSnippets.push(`<code>${code}</code>`);
-    return `@@@CODE_${idx}@@@`;
-  });
-
-  // 3. Bold (**...** or __...__)
-  escaped = escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  escaped = escaped.replace(/__(.+?)__/g, "<strong>$1</strong>");
-
-  // 4. Strikethrough (~~...~~)
-  escaped = escaped.replace(/~~(.+?)~~/g, "<del>$1</del>");
-
-  // 5. Italics (*...* or _..._)
-  escaped = escaped.replace(/(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)/g, "<em>$1</em>");
-  escaped = escaped.replace(/(?:\b|(?<=\s)|^)_(?!\s)(.+?)(?<!\s)_(?:\b|(?=\s)|$)/g, "<em>$1</em>");
-
-  // 6. Clean any remaining stray backslashes
-  escaped = escaped.replace(/\\+/g, "");
-
-  // 7. Restore code snippets
-  codeSnippets.forEach((html, idx) => {
-    escaped = escaped.replace(`@@@CODE_${idx}@@@`, html);
-  });
-
-  // 8. Restore links
-  links.forEach((html, idx) => {
-    escaped = escaped.replace(`@@@LINK_${idx}@@@`, html);
-    if (sourcesPart) {
-      sourcesPart = sourcesPart.replace(`@@@LINK_${idx}@@@`, html);
-    }
-  });
-
-  if (sourcesPart) {
-    escaped += sourcesPart;
-  }
-
-  element.innerHTML = escaped;
-}
-
-function isPureCitation(text) {
-  if (!text) return true;
-  let stripped = text.replace(/\[[^\]]+\]\([^)]+\)/g, "");
-  stripped = stripped.replace(/https?:\/\/\S+/g, "");
-  stripped = stripped.replace(/[-*•·\d.,;:/\\|()\[\]\s–—\"'«»“”„!?>#~`]/g, "");
-  return stripped.trim().length === 0;
-}
-
-function stripCitationParens(s) {
-  const result = [];
-  let i = 0;
-  const n = s.length;
-  while (i < n) {
-    if (s[i] === "(" && (i === 0 || s[i - 1] !== "]")) {
-      let depth = 1;
-      let j = i + 1;
-      while (j < n && depth > 0) {
-        if (s[j] === "(") depth++;
-        else if (s[j] === ")") depth--;
-        j++;
-      }
-      const parenContent = s.slice(i, j);
-      const lower = parenContent.toLowerCase();
-      if (
-        parenContent.includes("http://") ||
-        parenContent.includes("https://") ||
-        lower.includes("источник") ||
-        lower.includes("ссылк")
-      ) {
-        while (result.length && (result[result.length - 1] === " " || result[result.length - 1] === "\t")) {
-          result.pop();
-        }
-        i = j;
-        continue;
-      } else {
-        result.push(parenContent);
-        i = j;
-        continue;
-      }
-    }
-    result.push(s[i]);
-    i++;
-  }
-  return result.join("");
-}
-
-function sanitizeForSpeech(text) {
-  if (!text) return "";
-  if (isPureCitation(text)) return "";
-
-  let clean = text.split(/(?:\n|^)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?/i)[0];
-  const trailingRegex = /(?<=[.!?…\n])\s*(?:(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?\s*)?(?:(?:[-*•·]|\d+\.)?\s*[\(\[]?\s*(?:\[[^\]]+\]\((?:https?:\/\/)[^)\s]+\)|https?:\/\/\S+)[\)\]]?\s*[,;•·–—\-/\n\s]*)+$/i;
-  clean = clean.replace(trailingRegex, "");
-  clean = stripCitationParens(clean);
-  clean = clean.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-  clean = clean.replace(/https?:\/\/\S+/g, "");
-  clean = clean.replace(/\\+/g, "");
-  clean = clean.replace(/[«»“”„]/g, '"');
-  clean = clean.replace(/[*_`#~>]/g, "");
-  clean = clean.replace(/^[ \t]*[-*•·][ \t]+/gm, "");
-  return clean.replace(/\s+([.,;:!?])/g, "$1").replace(/[ \t]+/g, " ").trim();
 }
 
 function appendMessageToFeed(role, text) {
@@ -1306,7 +860,7 @@ async function startRecording(recordBtn) {
     });
 
     recorder.start();
-    const msg = vadEnabled
+    const msg = window.vadEnabled
       ? "Listening... (auto-stop on silence)"
       : "Listening... Press [Space] or click to finish";
     setVoiceState("listening", msg, "LISTENING // MIC");
@@ -1318,9 +872,9 @@ async function startRecording(recordBtn) {
 }
 
 async function stopRecording() {
-  vadSpeechDetected = false;
-  vadSilenceStartTime = null;
-  speechStartTime = null;
+  window.vadSpeechDetected = false;
+  window.vadSilenceStartTime = null;
+  window.speechStartTime = null;
   if (recorder && recorder.state === "recording") {
     recorder.stop();
   }
@@ -1590,57 +1144,6 @@ document.addEventListener("submit", (event) => {
   }
 });
 
-// VAD Toggle & Persistence
-function initVadToggle() {
-  const btn = document.querySelector("#vad-toggle");
-  if (!btn) return;
-
-  function updateVadUi() {
-    const textEl = btn.querySelector(".vad-state-text");
-    if (vadEnabled) {
-      btn.classList.add("is-auto");
-      btn.classList.remove("is-manual");
-      if (textEl) textEl.textContent = "AUTO";
-      btn.setAttribute("title", "Voice Activity Detection: AUTO (Click or press [V] to toggle) [V]");
-    } else {
-      btn.classList.remove("is-auto");
-      btn.classList.add("is-manual");
-      if (textEl) textEl.textContent = "MANUAL";
-      btn.setAttribute("title", "Voice Activity Detection: MANUAL (Click or press [V] to toggle) [V]");
-    }
-  }
-
-  updateVadUi();
-
-  if (btn.dataset.initialized) return;
-  btn.dataset.initialized = "true";
-
-  btn.addEventListener("click", () => {
-    toggleVad();
-  });
-}
-
-function toggleVad() {
-  vadEnabled = !vadEnabled;
-  localStorage.setItem("voice_of_luna_vad", vadEnabled ? "true" : "false");
-  const btn = document.querySelector("#vad-toggle");
-  if (btn) {
-    const textEl = btn.querySelector(".vad-state-text");
-    if (vadEnabled) {
-      btn.classList.add("is-auto");
-      btn.classList.remove("is-manual");
-      if (textEl) textEl.textContent = "AUTO";
-      btn.setAttribute("title", "Voice Activity Detection: AUTO (Click or press [V] to toggle) [V]");
-      showToast("// VAD: AUTO (auto-stop on silence)");
-    } else {
-      btn.classList.remove("is-auto");
-      btn.classList.add("is-manual");
-      if (textEl) textEl.textContent = "MANUAL";
-      btn.setAttribute("title", "Voice Activity Detection: MANUAL (Click or press [V] to toggle) [V]");
-      showToast("// VAD: MANUAL (push-to-talk)");
-    }
-  }
-}
 
 function initRemoteWarmupToggle() {
   const btn = document.querySelector("#remote-warmup-toggle");
