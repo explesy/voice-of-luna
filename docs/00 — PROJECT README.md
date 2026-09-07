@@ -31,6 +31,7 @@ Voice-first: во время разговора пользователь не о
 02 — Technical Architecture: web stack, поток аудио, local Codex bridge, plugin boundary и deployment.
 03 — Conversation Protocol: нейтральное ядро turn-taking, паузы, barge-in и plugin hooks.
 04 — MVP & Implementation Plan: порядок реализации, критерии готовности и последующие этапы.
+05 — Latency & Performance Benchmarks: замеры задержки (TTFT, TTFA), пропускной способности моделей и матрица скорости TTS.
 
 # Граница с проектом Relationship
 
