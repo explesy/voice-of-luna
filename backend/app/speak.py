@@ -371,6 +371,30 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
                 is_enhanced=False,
                 engine="macos",
             ),
+            VoiceInfo(
+                name="Sara",
+                locale="da_DK",
+                sample="Goddag! Mit navn er Sara.",
+                is_russian=False,
+                is_enhanced=False,
+                engine="macos",
+            ),
+            VoiceInfo(
+                name="Samantha",
+                locale="en_US",
+                sample="Hello! My name is Samantha.",
+                is_russian=False,
+                is_enhanced=False,
+                engine="macos",
+            ),
+            VoiceInfo(
+                name="Mónica",
+                locale="es_ES",
+                sample="¡Hola! Me llamo Mónica.",
+                is_russian=False,
+                is_enhanced=False,
+                engine="macos",
+            ),
         ]
 
     ru_voices = [v for v in voices if v.is_russian]

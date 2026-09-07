@@ -10,9 +10,11 @@ import shutil
 import tempfile
 import time
 import wave
+from collections.abc import Coroutine
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from fastapi import (
@@ -228,10 +230,55 @@ class SpeechClip:
     path: Path
 
 
+_background_tasks: set[asyncio.Task[Any]] = set()
+
+
+def _safe_background_task(
+    coro: Coroutine[Any, Any, Any], name: str | None = None
+) -> asyncio.Task[Any]:
+    """Schedule a background task, retaining a strong reference and logging unexpected errors."""
+    task = asyncio.create_task(coro, name=name)
+    _background_tasks.add(task)
+
+    def _on_done(t: asyncio.Task[Any]) -> None:
+        _background_tasks.discard(t)
+        try:
+            exc = t.exception()
+            if exc and not isinstance(exc, asyncio.CancelledError):
+                logger.debug(
+                    "Background task %s finished with exception: %s",
+                    t.get_name(),
+                    exc,
+                )
+        except asyncio.CancelledError:
+            pass
+        except Exception as ex:
+            logger.debug(
+                "Error checking background task %s exception: %s",
+                t.get_name(),
+                ex,
+            )
+
+    task.add_done_callback(_on_done)
+    return task
+
+
 def _prewarm_conversation(conversation: Conversation) -> None:
     """Start optional local runtimes before the first user turn."""
-    asyncio.create_task(conversation.model.prewarm())
-    asyncio.create_task(prewarm_voice(conversation.voice))
+    async def _safe_model_prewarm() -> None:
+        try:
+            await conversation.model.prewarm()
+        except Exception as exc:
+            logger.debug("Model prewarm skipped or failed for %s: %s", conversation.id, exc)
+
+    async def _safe_voice_prewarm() -> None:
+        try:
+            await prewarm_voice(conversation.voice)
+        except Exception as exc:
+            logger.debug("Voice prewarm skipped or failed for %s: %s", conversation.id, exc)
+
+    _safe_background_task(_safe_model_prewarm(), name=f"prewarm-model-{conversation.id}")
+    _safe_background_task(_safe_voice_prewarm(), name=f"prewarm-voice-{conversation.id}")
 
 
 def _touch_conversation(conversation: Conversation) -> None:
@@ -1182,10 +1229,11 @@ async def _stream_and_synthesize(
 
         turn = {"role": "assistant", "text": full_reply}
         conversation.turns.append(turn)
-        asyncio.create_task(
+        _safe_background_task(
             plugin_manager.execute_after_turn(
                 conversation.plugin_id, turn_ctx, full_reply
-            )
+            ),
+            name=f"after-turn-{conversation.id}",
         )
 
         t_turn_completed = time.perf_counter()
@@ -1329,7 +1377,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                     new_voice = payload.get("voice", "").strip()
                     if new_voice:
                         conversation.voice = new_voice
-                        asyncio.create_task(prewarm_voice(new_voice))
+                        _safe_background_task(prewarm_voice(new_voice), name=f"prewarm-voice-{conversation.id}")
                         await websocket.send_json({
                             "type": "voice_updated",
                             "voice": new_voice,
@@ -1341,7 +1389,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         conversation.reasoning_effort = payload["effort"]
                     if "voice" in payload and payload["voice"]:
                         conversation.voice = payload["voice"]
-                        asyncio.create_task(prewarm_voice(conversation.voice))
+                        _safe_background_task(prewarm_voice(conversation.voice), name=f"prewarm-voice-{conversation.id}")
                     warmup_status = "off"
                     if payload.get("remote_warmup") is True:
                         warmup_status = _schedule_conversation_warmup(

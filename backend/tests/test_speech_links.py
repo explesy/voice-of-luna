@@ -316,11 +316,12 @@ def test_websocket_streaming_speaks_all_bullet_items(monkeypatch, tmp_path) -> N
 
 @pytest.mark.anyio
 async def test_speaker_synthesizes_spanish_with_fallback() -> None:
+    import shutil
     from app.speak import get_voice_for_locale
 
     # Verify helper finds Spanish voice if installed
     es_voice = get_voice_for_locale("es")
-    if es_voice:
+    if es_voice and shutil.which("say") is not None:
         speaker = LocalMacOsSpeaker(voice="Milena")
         wav = await speaker.synthesize("¡Hola, qué tal! ¿Cómo estás hoy?")
         assert wav is not None

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-07
+
+### Fixed
+- **CI Stability on Linux**: Added cross-platform fallback voices for non-macOS environments so that UI voice selectors, templates, and Spanish language fallback tests pass reliably in headless Linux CI where macOS `say` is unavailable.
+- **Safe Background Tasks**: Introduced `_safe_background_task()` wrapper to track async background jobs and prevent unretrieved exceptions from fire-and-forget `prewarm` tasks when Codex CLI is absent.
+- **Runtime Dependency Packaging**: Moved `httpx` from `dev` dependencies into core `dependencies` in `pyproject.toml` so clean production installations no longer fail on runtime imports in `transcribe.py` and `whisper_server.py`.
+
 ## [0.6.1] - 2026-09-07
 
 ### Changed

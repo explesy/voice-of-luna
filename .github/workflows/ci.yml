@@ -23,6 +23,12 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
         working-directory: backend
+      - name: Smoke test production install
+        run: |
+          uv sync --no-dev
+          uv run python -c "import app.transcribe, app.whisper_server, app.speak, app.main; print('Production import OK')"
+          uv sync --group dev
+        working-directory: backend
       - name: Run tests
         run: uv run pytest -q
         working-directory: backend
