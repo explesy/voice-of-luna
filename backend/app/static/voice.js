@@ -1764,6 +1764,21 @@ function initVoiceSelector() {
     }
   }
 
+  // Resume tracking for any active model downloads
+  fetch("/api/tts/models")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      if (data && data.models) {
+        for (const m of data.models) {
+          if (m.status === "downloading") {
+            const vName = m.voices && m.voices.length > 0 ? m.voices[0] : m.name;
+            pollModelStatus(m.id, vName);
+          }
+        }
+      }
+    })
+    .catch(() => {});
+
   select.addEventListener("change", (e) => {
     const chosenVal = e.target.value;
     const last = select.dataset.lastVoice || select.dataset.russianVoice || select.options[0]?.value;
@@ -1805,6 +1820,132 @@ function updateVoiceAttributes(voiceName) {
   document.body.dataset.russianVoice = voiceName;
 }
 
+function getOrCreateDownloadCard(modelId) {
+  const container = document.getElementById("toast-container");
+  if (!container) return null;
+  let card = document.getElementById(`tts-download-card-${modelId}`);
+  if (!card) {
+    card = document.createElement("div");
+    card.id = `tts-download-card-${modelId}`;
+    card.className = "toast-progress";
+    card.innerHTML = `
+      <div class="toast-progress-header">
+        <span class="toast-title"><span class="tts-spinner">⟳</span> ЗАГРУЗКА МОДЕЛИ...</span>
+        <span class="toast-pct">0%</span>
+      </div>
+      <div class="toast-progress-bar-bg">
+        <div class="toast-progress-bar-fill"></div>
+      </div>
+      <div class="toast-progress-meta">
+        <span class="toast-size">0.0 / 60.0 МБ</span>
+        <span class="toast-eta">соединение...</span>
+      </div>
+    `;
+    container.appendChild(card);
+  }
+  return card;
+}
+
+function updateDownloadUI(modelId, voiceName, status) {
+  const chip = document.querySelector(".voice-selector-chip");
+  const card = getOrCreateDownloadCard(modelId);
+  const select = document.querySelector("#voice-select");
+  const opt = select ? select.querySelector(`option[value="${CSS.escape(voiceName)}"]`) : null;
+
+  if (status.status === "downloading") {
+    if (chip) chip.classList.add("is-downloading");
+    const pct = status.progress_percent || 0;
+    const downloaded = status.downloaded_mb != null ? Number(status.downloaded_mb).toFixed(1) : "0.0";
+    const total = status.total_mb != null ? Number(status.total_mb).toFixed(1) : "60.0";
+    const speed = status.speed_kbps ? `${Math.round(status.speed_kbps)} КБ/с` : "загрузка...";
+    const eta = status.eta_seconds ? `~${status.eta_seconds} сек` : "вычисление времени...";
+
+    if (card) {
+      const titleEl = card.querySelector(".toast-title");
+      const pctEl = card.querySelector(".toast-pct");
+      const fillEl = card.querySelector(".toast-progress-bar-fill");
+      const sizeEl = card.querySelector(".toast-size");
+      const etaEl = card.querySelector(".toast-eta");
+
+      if (titleEl) titleEl.innerHTML = `<span class="tts-spinner">⟳</span> СКАЧИВАНИЕ: ${(status.name || modelId).toUpperCase()}`;
+      if (pctEl) pctEl.textContent = `${pct}%`;
+      if (fillEl) fillEl.style.width = `${pct}%`;
+      if (sizeEl) sizeEl.textContent = `${downloaded} / ${total} МБ (${speed})`;
+      if (etaEl) etaEl.textContent = `осталось ${eta}`;
+    }
+
+    if (opt && (opt.textContent.includes("[↓") || opt.textContent.includes("[⟳"))) {
+      opt.textContent = `${voiceName} [⟳ ${pct}%]`;
+    }
+  } else if (status.status === "ready") {
+    if (chip) chip.classList.remove("is-downloading");
+    if (card) {
+      card.classList.add("is-complete");
+      const titleEl = card.querySelector(".toast-title");
+      const pctEl = card.querySelector(".toast-pct");
+      const fillEl = card.querySelector(".toast-progress-bar-fill");
+      const sizeEl = card.querySelector(".toast-size");
+      const etaEl = card.querySelector(".toast-eta");
+
+      if (titleEl) titleEl.innerHTML = `✔ МОДЕЛЬ ГОТОВА: ${(status.name || modelId).toUpperCase()}`;
+      if (pctEl) pctEl.textContent = `100%`;
+      if (fillEl) fillEl.style.width = `100%`;
+      if (sizeEl) sizeEl.textContent = `${status.total_mb || 60} МБ установлено`;
+      if (etaEl) etaEl.textContent = `голос активен`;
+
+      setTimeout(() => {
+        card.style.transition = "opacity 0.5s ease, transform 0.5s ease";
+        card.style.opacity = "0";
+        card.style.transform = "translateY(-10px)";
+        setTimeout(() => card.remove(), 500);
+      }, 3500);
+    }
+
+    if (opt) {
+      opt.dataset.installed = "true";
+      opt.textContent = `${voiceName} ★`;
+    }
+  } else if (status.status === "error") {
+    if (chip) chip.classList.remove("is-downloading");
+    if (card) {
+      card.classList.add("is-error");
+      const titleEl = card.querySelector(".toast-title");
+      const sizeEl = card.querySelector(".toast-size");
+      const etaEl = card.querySelector(".toast-eta");
+
+      if (titleEl) titleEl.innerHTML = `✖ ОШИБКА: ${modelId.toUpperCase()}`;
+      if (sizeEl) sizeEl.textContent = status.error || "Сбой загрузки";
+      if (etaEl) etaEl.textContent = "повторите попытку";
+      setTimeout(() => {
+        card.remove();
+      }, 6000);
+    }
+  }
+}
+
+function pollModelStatus(modelId, voiceName) {
+  updateDownloadUI(modelId, voiceName, {
+    status: "downloading",
+    progress_percent: 1,
+    downloaded_mb: 0,
+    total_mb: 60,
+  });
+
+  const interval = setInterval(() => {
+    fetch(`/api/tts/models/${encodeURIComponent(modelId)}/status`)
+      .then((r) => r.json())
+      .then((status) => {
+        updateDownloadUI(modelId, voiceName, status);
+        if (status.status === "ready" || status.status === "error") {
+          clearInterval(interval);
+        }
+      })
+      .catch((err) => {
+        console.warn("// status poll error:", err);
+      });
+  }, 1000);
+}
+
 function sendVoiceUpdate(voiceName) {
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "set_voice", voice: voiceName }));
@@ -1817,38 +1958,10 @@ function sendVoiceUpdate(voiceName) {
     .then((res) => (res.ok ? res.json() : null))
     .then((data) => {
       if (data && data.auto_downloading && data.model_id) {
-        showToast(`// DOWNLOADING MODEL: ${data.model_id.toUpperCase()}...`);
         pollModelStatus(data.model_id, voiceName);
       }
     })
     .catch((err) => console.warn("// voice sync error:", err));
-}
-
-function pollModelStatus(modelId, voiceName) {
-  const interval = setInterval(() => {
-    fetch(`/api/tts/models/${encodeURIComponent(modelId)}/status`)
-      .then((r) => r.json())
-      .then((status) => {
-        if (status.status === "ready") {
-          clearInterval(interval);
-          showToast(`// MODEL READY: ${modelId.toUpperCase()}`);
-          const select = document.querySelector("#voice-select");
-          if (select) {
-            const opt = select.querySelector(`option[value="${CSS.escape(voiceName)}"]`);
-            if (opt) {
-              opt.dataset.installed = "true";
-              if (opt.textContent.includes("[↓")) {
-                opt.textContent = voiceName + " ★";
-              }
-            }
-          }
-        } else if (status.status === "error") {
-          clearInterval(interval);
-          showToast(`// MODEL DOWNLOAD FAILED: ${status.error || "unknown"}`);
-        }
-      })
-      .catch(() => clearInterval(interval));
-  }, 2000);
 }
 
 // Model & Reasoning Effort selection & persistence

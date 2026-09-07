@@ -1064,6 +1064,99 @@ kbd {
   to { opacity: 0; transform: translateY(-8px); }
 }
 
+/* Persistent Download Progress Card */
+.toast-progress {
+  padding: 10px 14px;
+  border-radius: 4px;
+  background: var(--term-surface-elevated, #131722);
+  border: 1px solid var(--term-cyan, #00f0ff);
+  color: var(--text-main, #e0e6ed);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+  animation: toastIn 0.2s ease;
+  min-width: 320px;
+  max-width: 400px;
+  pointer-events: auto;
+  font-family: var(--font-mono, monospace);
+  margin-bottom: 8px;
+}
+
+.toast-progress.is-complete {
+  border-color: var(--term-green, #00ff88);
+}
+
+.toast-progress.is-error {
+  border-color: #ff3366;
+}
+
+.toast-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--term-cyan, #00f0ff);
+  letter-spacing: 0.5px;
+}
+
+.toast-progress.is-complete .toast-progress-header {
+  color: var(--term-green, #00ff88);
+}
+
+.toast-progress.is-error .toast-progress-header {
+  color: #ff3366;
+}
+
+.toast-progress-header .tts-spinner {
+  display: inline-block;
+  animation: ttsSpin 1s linear infinite;
+  margin-right: 6px;
+}
+
+@keyframes ttsSpin {
+  100% { transform: rotate(360deg); }
+}
+
+.toast-progress-bar-bg {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.toast-progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--term-cyan, #00f0ff), var(--term-green, #00ff88));
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 3px;
+}
+
+.toast-progress.is-error .toast-progress-bar-fill {
+  background: #ff3366;
+}
+
+.toast-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-dim, #8892b0);
+  font-weight: 600;
+}
+
+.voice-selector-chip.is-downloading .chip-led-voice {
+  animation: ttsLedPulse 0.8s ease-in-out infinite alternate;
+  background-color: var(--term-cyan, #00f0ff);
+  box-shadow: 0 0 8px var(--term-cyan, #00f0ff);
+}
+
+@keyframes ttsLedPulse {
+  0% { opacity: 0.3; transform: scale(0.9); }
+  100% { opacity: 1; transform: scale(1.2); }
+}
+
 /* Custom Slim Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

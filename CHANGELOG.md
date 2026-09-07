@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-09-07
+
+### Added
+- **Live TTS Download Progress UI**:
+  - Implemented persistent cyber-terminal progress card (`.toast-progress`) showing real-time percentage, downloaded megabytes, download speed (KB/s), and estimated time remaining (ETA).
+  - Added live text updates directly on the voice selector option (e.g. `[⟳ 45%]`).
+  - Added pulsing status LED animation on the `VOICE:` chip during downloads.
+  - Added download session auto-resumption on page load via `/api/tts/models`.
+
+### Changed
+- **Detailed Model Manager Metrics (`app/tts_manager.py`)**:
+  - Expanded `get_status()` to return `downloaded_mb`, `total_mb`, `speed_kbps`, and `eta_seconds`.
+
 ## [0.10.0] - 2026-09-07
 
 ### Added

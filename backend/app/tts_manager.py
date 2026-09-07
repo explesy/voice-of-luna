@@ -13,6 +13,7 @@ import shutil
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+import time
 import urllib.request
 import urllib.error
 
@@ -197,6 +198,7 @@ class TTSModelManager:
     def __init__(self) -> None:
         self._downloads: dict[str, asyncio.Task[None]] = {}
         self._progress: dict[str, int] = {}
+        self._stats: dict[str, dict[str, object]] = {}
         self._errors: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
@@ -240,7 +242,12 @@ class TTSModelManager:
 
         status = "ready" if installed else ("downloading" if is_downloading else ("error" if err else "not_installed"))
         data = defn.to_dict(installed=installed, status=status)
-        data["progress_percent"] = self._progress.get(model_id, 100 if installed else 0)
+        stats = self._stats.get(model_id, {})
+        data["progress_percent"] = stats.get("progress_percent", 100 if installed else 0)
+        data["downloaded_mb"] = stats.get("downloaded_mb", defn.size_mb if installed else 0.0)
+        data["total_mb"] = stats.get("total_mb", defn.size_mb)
+        data["speed_kbps"] = stats.get("speed_kbps", 0.0)
+        data["eta_seconds"] = stats.get("eta_seconds", 0)
         data["error"] = err
         return data
 
@@ -275,8 +282,18 @@ class TTSModelManager:
 
     async def _do_download(self, defn: TTSModelDefinition) -> None:
         target_dir = get_model_storage_dir()
+        start_time = time.time()
         self._progress[defn.id] = 0
         self._errors.pop(defn.id, None)
+        self._stats[defn.id] = {
+            "progress_percent": 0,
+            "downloaded_bytes": 0,
+            "total_bytes": int(defn.size_mb * 1024 * 1024),
+            "downloaded_mb": 0.0,
+            "total_mb": defn.size_mb,
+            "speed_kbps": 0.0,
+            "eta_seconds": 0,
+        }
 
         def _sync_download_file(url: str, dest_path: Path, current_idx: int, total_files: int) -> None:
             part_path = dest_path.with_suffix(dest_path.suffix + ".part")
@@ -287,16 +304,31 @@ class TTSModelManager:
                 )
                 with urllib.request.urlopen(req, timeout=120) as resp, open(part_path, "wb") as f:
                     content_length = resp.headers.get("Content-Length")
-                    total_bytes = int(content_length) if content_length and content_length.isdigit() else 0
+                    file_total_bytes = int(content_length) if content_length and content_length.isdigit() else int(defn.size_mb * 1024 * 1024)
                     downloaded_bytes = 0
 
-                    while chunk := resp.read(1024 * 256):
+                    while chunk := resp.read(1024 * 128):
                         f.write(chunk)
                         downloaded_bytes += len(chunk)
-                        if total_bytes > 0:
-                            file_pct = downloaded_bytes / total_bytes
+                        elapsed = max(0.1, time.time() - start_time)
+                        speed_kbps = round((downloaded_bytes / elapsed) / 1024, 1)
+
+                        if file_total_bytes > 0:
+                            file_pct = downloaded_bytes / file_total_bytes
                             overall_pct = int(((current_idx + file_pct) / total_files) * 100)
-                            self._progress[defn.id] = min(99, max(1, overall_pct))
+                            progress = min(99, max(1, overall_pct))
+                            self._progress[defn.id] = progress
+                            remaining = max(0, file_total_bytes - downloaded_bytes)
+                            eta = int(remaining / (speed_kbps * 1024)) if speed_kbps > 5 else 0
+                            self._stats[defn.id] = {
+                                "progress_percent": progress,
+                                "downloaded_bytes": downloaded_bytes,
+                                "total_bytes": file_total_bytes,
+                                "downloaded_mb": round(downloaded_bytes / (1024 * 1024), 1),
+                                "total_mb": round(file_total_bytes / (1024 * 1024), 1),
+                                "speed_kbps": speed_kbps,
+                                "eta_seconds": eta,
+                            }
 
                 part_path.replace(dest_path)
             except Exception as e:
@@ -313,6 +345,13 @@ class TTSModelManager:
                 await asyncio.to_thread(_sync_download_file, file_spec.url, dest, idx, total_files)
 
             self._progress[defn.id] = 100
+            self._stats[defn.id] = {
+                "progress_percent": 100,
+                "downloaded_mb": defn.size_mb,
+                "total_mb": defn.size_mb,
+                "speed_kbps": 0.0,
+                "eta_seconds": 0,
+            }
             logger.info("Successfully downloaded all files for model '%s'", defn.id)
         except Exception as exc:
             logger.exception("Failed to download model '%s'", defn.id)

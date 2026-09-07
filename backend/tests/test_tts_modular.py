@@ -89,6 +89,10 @@ def test_api_get_tts_model_status() -> None:
     assert data["engine"] == "piper"
     assert "installed" in data
     assert "status" in data
+    assert "downloaded_mb" in data
+    assert "total_mb" in data
+    assert "speed_kbps" in data
+    assert "eta_seconds" in data
 
     bad_resp = client.get("/api/tts/models/nonexistent_model/status")
     assert bad_resp.status_code == 404
