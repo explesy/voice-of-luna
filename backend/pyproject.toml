@@ -1,12 +1,15 @@
 [project]
 name = "voice-of-luna-backend"
-version = "0.1.0"
+version = "0.6.1"
 description = "Local-first conversation bridge for Voice of Luna"
 requires-python = ">=3.12"
 dependencies = [
+  "edge-tts>=7.2.8",
   "fastapi>=0.115,<1",
   "jinja2>=3.1,<4",
+  "numpy>=2.5.3",
   "python-multipart>=0.0.20,<1",
+  "torch>=2.14.0",
   "uvicorn[standard]>=0.30,<1",
 ]
 
