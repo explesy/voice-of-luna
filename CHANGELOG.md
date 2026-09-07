@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.10.1] - 2026-09-07
+## [0.10.2] - 2026-09-07
+
+### Fixed
+- **CI Test Suite Deadlock Prevention (P0)**:
+  - Mocked `_call_reply_stream` in `test_transport_latency.py::test_binary_audio_frame_transport_via_websocket`, preventing infinite WebSocket receive loop in CI runners without local Codex.
+  - Added bounded loop guard to WebSocket reception in transport tests.
+  - Added automatic guard in `tests/conftest.py` against unmocked live Codex subprocess execution during tests (satisfies Rule 5 of `AGENTS.md`).
+- **Engine-Aware TTS Voice Fallback**:
+  - Added `allowed_engines` and `excluded_engines` parameters to `get_voice_for_locale()`.
+  - Fixed edge case where failure of English Edge TTS (`Jenny`) fell back to the same Edge voice, crashing macOS `say`. Fallback now strictly queries local engines (`allowed_engines={"macos"}`).
+- **Eliminated Spanish Buddy & Base Instruction Prompt Conflicts**:
+  - Added `response_locale_override` to `Plugin` base class and assigned `"es-ES"` to `SpanishBuddyPlugin`.
+  - Added Spanish support to `get_base_instructions()` (`"Always reply in Spanish."`, `"Fuentes:"`).
+  - Added centralized `_refresh_conversation_base_instructions()` helper in `app.main` ensuring plugins with locale overrides don't receive conflicting "Always reply in Russian/English" directives.
+
 
 ### Added
 - **Live TTS Download Progress UI**:

@@ -388,3 +388,17 @@ async def test_spanish_buddy_instructions_enforce_spanish():
     assert "INSTRUCCIÓN DE TUTOR" in res.prompt_context
     assert "El diálogo principal es en español" in res.prompt_context
 
+
+@pytest.mark.anyio
+async def test_spanish_buddy_response_locale_override_sets_spanish_base_instructions():
+    from app.main import Conversation, _refresh_conversation_base_instructions
+
+    conv = Conversation(id="conv-es-override", locale="ru-RU", plugin_id="spanish_buddy")
+    instructions = await _refresh_conversation_base_instructions(conv)
+
+    assert "Always reply in Spanish." in instructions
+    assert "Fuentes:" in instructions
+    assert "Always reply in Russian." not in instructions
+    assert "Always reply in English." not in instructions
+
+

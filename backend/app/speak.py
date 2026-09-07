@@ -656,13 +656,25 @@ def set_active_voice(voice: str) -> None:
     _active_voice = voice
 
 
-def get_voice_for_locale(locale_prefix: str) -> str | None:
-    """Find the best installed voice for a locale prefix (e.g. 'es' -> 'Mónica')."""
+def get_voice_for_locale(
+    locale_prefix: str,
+    allowed_engines: set[str] | None = None,
+    excluded_engines: set[str] | None = None,
+) -> str | None:
+    """Find the best installed voice for a locale prefix (e.g. 'es' -> 'Mónica').
+
+    Can optionally filter by allowed_engines or excluded_engines.
+    """
     prefix = locale_prefix.lower()
     voices = get_installed_voices()
+    if allowed_engines is not None:
+        voices = [v for v in voices if v.engine in allowed_engines]
+    if excluded_engines is not None:
+        voices = [v for v in voices if v.engine not in excluded_engines]
+
     for v in voices:
         if v.locale.lower().startswith(prefix):
-            if v.is_enhanced or any(preferred in v.name.lower() for preferred in ("mónica", "monica", "paulina")):
+            if v.is_enhanced or any(preferred in v.name.lower() for preferred in ("mónica", "monica", "paulina", "samantha")):
                 return v.name
     for v in voices:
         if v.locale.lower().startswith(prefix):
@@ -954,7 +966,7 @@ class LocalMacOsSpeaker:
                     exc,
                 )
                 if any(n in active_voice.lower() for n in ("jenny", "guy", "aria")) or not re.search(r"[\u0400-\u052f]", clean_text):
-                    active_voice = get_voice_for_locale("en") or "Samantha"
+                    active_voice = get_voice_for_locale("en", allowed_engines={"macos"}) or "Samantha"
                 else:
                     active_voice = get_default_voice()
 

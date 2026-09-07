@@ -39,6 +39,7 @@ class Plugin(ABC):
     stt_language: str | None = None
     stt_prompt: str | None = None
     preferred_voice_locale: str | None = None
+    response_locale_override: str | None = None
 
     async def system_prompt(self, conversation_id: str) -> str:
         """Static instructions to append to the base LLM prompt when initializing a thread."""

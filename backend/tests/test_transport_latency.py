@@ -31,8 +31,13 @@ def test_binary_audio_frame_transport_via_websocket() -> None:
         settings = ws.receive_json()
         assert settings["type"] == "settings_updated"
 
-        # Mock speaker synthesize to return a dummy wav file
-        with patch("app.main.LocalMacOsSpeaker.synthesize") as mock_synth:
+        async def fake_reply_stream(*args, **kwargs):
+            yield "Тестовый ответ модели. "
+            yield "Проверка бинарного аудио."
+
+        # Mock speaker synthesize to return a dummy wav file and mock model reply stream
+        with patch("app.main.LocalMacOsSpeaker.synthesize") as mock_synth, \
+             patch("app.main._call_reply_stream", side_effect=fake_reply_stream):
             dummy_wav = Path(__file__).parent / "dummy_test_audio.wav"
             dummy_wav.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80>\x00\x00\x00}\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00")
             try:
@@ -56,7 +61,7 @@ def test_binary_audio_frame_transport_via_websocket() -> None:
                 binary_frames = []
                 json_messages = []
 
-                while True:
+                for _ in range(50):
                     raw_msg = ws.receive()
                     if "bytes" in raw_msg and raw_msg["bytes"]:
                         binary_frames.append(raw_msg["bytes"])
@@ -65,6 +70,8 @@ def test_binary_audio_frame_transport_via_websocket() -> None:
                         json_messages.append(data)
                         if data.get("type") == "turn_completed":
                             break
+                else:
+                    pytest.fail("WebSocket did not receive turn_completed within 50 messages")
 
                 assert len(binary_frames) >= 1
                 frame = binary_frames[0]

@@ -30,9 +30,15 @@ class RuntimeStatus:
 
 def get_base_instructions(locale: str = "ru-RU") -> str:
     norm = (locale or "").lower().replace("_", "-")
-    is_en = norm.startswith("en")
-    lang_rule = "Always reply in English." if is_en else "Always reply in Russian."
-    sources_header = "Sources:" if is_en else "Источники:"
+    if norm.startswith("es"):
+        lang_rule = "Always reply in Spanish."
+        sources_header = "Fuentes:"
+    elif norm.startswith("en"):
+        lang_rule = "Always reply in English."
+        sources_header = "Sources:"
+    else:
+        lang_rule = "Always reply in Russian."
+        sources_header = "Источники:"
 
     return (
         f"You are the voice of a personal conversation app named Luna. {lang_rule} "

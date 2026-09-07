@@ -364,6 +364,20 @@ async def _await_conversation_warmup(conversation: Conversation) -> None:
         await asyncio.gather(task, return_exceptions=True)
 
 
+async def _refresh_conversation_base_instructions(
+    conversation: Conversation, override_locale: str | None = None
+) -> str:
+    plugin = plugin_manager.get(conversation.plugin_id)
+    plugin_override = getattr(plugin, "response_locale_override", None)
+    effective_locale = plugin_override or override_locale or conversation.locale
+    base_instructions = get_base_instructions(effective_locale)
+    plugin_sys = await plugin_manager.get_system_prompt(conversation.plugin_id, conversation.id)
+    if plugin_sys.strip():
+        base_instructions = f"{base_instructions}\n\n{plugin_sys.strip()}"
+    await conversation.model.set_base_instructions(base_instructions)
+    return base_instructions
+
+
 async def _apply_plugin_to_conversation(
     conversation: Conversation, plugin_id: str, mode: str = "default"
 ) -> None:
@@ -377,11 +391,7 @@ async def _apply_plugin_to_conversation(
                 conversation.voice = matching_voice
         elif plugin_id == "neutral":
             conversation.voice = get_active_voice()
-        plugin_sys = await plugin_manager.get_system_prompt(plugin_id, conversation.id)
-        base_instructions = get_base_instructions(conversation.locale)
-        if plugin_sys.strip():
-            base_instructions = f"{base_instructions}\n\n{plugin_sys.strip()}"
-        await conversation.model.set_base_instructions(base_instructions)
+        await _refresh_conversation_base_instructions(conversation)
     else:
         conversation.plugin_mode = mode
 
@@ -1011,8 +1021,7 @@ async def create_conversation(request: Request) -> dict[str, str]:
     elif cookie_locale:
         conversation.voice = get_default_voice_for_locale(conversation.locale)
     conversations[conversation.id] = conversation
-    base_instructions = get_base_instructions(conversation.locale)
-    await conversation.model.set_base_instructions(base_instructions)
+    await _refresh_conversation_base_instructions(conversation)
     _prewarm_conversation(conversation)
     return {"id": conversation.id}
 
@@ -1565,11 +1574,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         new_voice = get_default_voice_for_locale(new_locale)
                         conversation.voice = new_voice
                         _safe_background_task(prewarm_voice(new_voice), name=f"prewarm-voice-{conversation.id}")
-                        base_instructions = get_base_instructions(new_locale)
-                        plugin_sys = await plugin_manager.get_system_prompt(conversation.plugin_id, conversation.id)
-                        if plugin_sys.strip():
-                            base_instructions = f"{base_instructions}\n\n{plugin_sys.strip()}"
-                        await conversation.model.set_base_instructions(base_instructions)
+                        base_instructions = await _refresh_conversation_base_instructions(conversation, override_locale=new_locale)
                         await websocket.send_json({
                             "type": "locale_updated",
                             "locale": new_locale,
@@ -1585,11 +1590,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         _safe_background_task(prewarm_voice(conversation.voice), name=f"prewarm-voice-{conversation.id}")
                     if "locale" in payload and payload["locale"]:
                         conversation.locale = payload["locale"]
-                        base_instructions = get_base_instructions(conversation.locale)
-                        plugin_sys = await plugin_manager.get_system_prompt(conversation.plugin_id, conversation.id)
-                        if plugin_sys.strip():
-                            base_instructions = f"{base_instructions}\n\n{plugin_sys.strip()}"
-                        await conversation.model.set_base_instructions(base_instructions)
+                        await _refresh_conversation_base_instructions(conversation)
                     if "binary_audio" in payload:
                         conversation.binary_audio = bool(payload["binary_audio"])
                     warmup_status = "off"

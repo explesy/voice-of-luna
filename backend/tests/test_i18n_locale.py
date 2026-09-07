@@ -8,6 +8,7 @@ from app.speak import (
     LocalSpeechError,
     get_default_voice_for_locale,
     get_installed_voices,
+    get_voice_for_locale,
     resolve_edge_voice,
     transliterate_latin_for_speech,
 )
@@ -124,3 +125,39 @@ async def test_silero_rejects_pure_english_text() -> None:
     speaker = LocalMacOsSpeaker(voice="Ksenia (Silero Neural · Offline)")
     with pytest.raises(LocalSpeechError, match="Silero TTS only supports Cyrillic"):
         await speaker._synthesize_silero("This is a pure English utterance that cannot be spoken by Silero.", "Ksenia")
+
+
+def test_get_voice_for_locale_engine_filtering() -> None:
+    # When excluding edge, Jenny should not be returned
+    local_en_voice = get_voice_for_locale("en", excluded_engines={"edge"})
+    if local_en_voice:
+        assert "Edge" not in local_en_voice
+
+    # When allowing only edge, an Edge voice should be returned
+    edge_en_voice = get_voice_for_locale("en", allowed_engines={"edge"})
+    assert edge_en_voice is not None
+    assert "Edge" in edge_en_voice
+
+
+@pytest.mark.anyio
+async def test_edge_tts_fallback_to_local_english_voice(monkeypatch) -> None:
+    speaker = LocalMacOsSpeaker(voice="Jenny (Neural · Edge)")
+
+    async def fake_synthesize_edge(text, voice):
+        raise RuntimeError("Edge service disconnected")
+
+    synth_calls = []
+    async def fake_synthesize_macos(text, voice):
+        synth_calls.append(voice)
+        from pathlib import Path
+        return Path("/tmp/fake_fallback.wav")
+
+    monkeypatch.setattr(speaker, "_synthesize_edge", fake_synthesize_edge)
+    monkeypatch.setattr(speaker, "_synthesize_macos", fake_synthesize_macos)
+
+    res = await speaker.synthesize("Hello world, this is a test fallback.")
+    assert len(synth_calls) == 1
+    # Voice used for macOS say must NOT be the Edge voice name
+    assert "Edge" not in synth_calls[0]
+    assert synth_calls[0] == "Samantha" or "Samantha" in synth_calls[0] or "en" in synth_calls[0].lower()
+

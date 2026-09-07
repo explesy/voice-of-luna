@@ -12,6 +12,7 @@ class SpanishBuddyPlugin(Plugin):
     stt_language = "auto"
     stt_prompt = "Hola, ¿qué tal? Buenos días. Hablamos en español y ruso. Как сказать по-испански, я забыл слово."
     preferred_voice_locale = "es"
+    response_locale_override = "es-ES"
 
     def get_modes(self) -> list[dict[str, str]]:
         return [
