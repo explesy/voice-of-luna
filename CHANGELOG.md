@@ -18,7 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **Cross-Model WebSocket Turns**: end-to-end turn execution combining various AI models with different TTS engines, validating binary PCM/MP3 frames and streaming JSON audio chunks.
 - **Model Matrix Evaluation CLI & Makefile Target**:
   - Added `backend/scripts/run_model_matrix.py` to evaluate model availability, speaker routing, STT profiles, and latency benchmarks.
-  - Added `make matrix` command for quick terminal inspection of cross-model compatibility.
+  - Implemented live hardware benchmarks measuring real synthesis latency for Piper ONNX, Silero v4, macOS Say, and Edge TTS, as well as Whisper STT transcription.
+  - Calculated end-to-end TTFA (Time To First Audio) and Total Turn Duration across all combinations of AI models and sound models.
+  - Updated `docs/05 — Latency & Performance Benchmarks.md` with Piper ONNX measurements (167-225 ms TTFA) and 2026 latency benchmarks.
+  - Added `make matrix` command for quick terminal inspection of cross-model compatibility and latencies.
 
 ## [0.11.0] - 2026-09-07
 

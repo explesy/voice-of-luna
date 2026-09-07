@@ -377,6 +377,12 @@ def test_cross_model_websocket_matrix(
                     turn_completed = True
                     assert data.get("voice") == voice_name
                     assert data.get("tts_engine") == _get_tts_engine(voice_name)
+                    assert "timing" in data
+                    timing = data["timing"]
+                    assert "backend_total_ms" in timing
+                    assert timing["backend_total_ms"] >= 0
+                    if "backend_first_audio_ms" in timing:
+                        assert timing["backend_first_audio_ms"] <= timing["backend_total_ms"]
                     break
 
         assert turn_completed is True
