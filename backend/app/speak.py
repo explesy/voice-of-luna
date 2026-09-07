@@ -27,6 +27,9 @@ class VoiceInfo:
     is_russian: bool = False
     is_enhanced: bool = False
     engine: str = "macos"
+    is_downloaded: bool = True
+    model_id: str | None = None
+    size_mb: float = 0.0
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -44,6 +47,12 @@ SILERO_VOICES: dict[str, str] = {
     "Ksenia (Silero Neural · Offline)": "xenia",
     "Baya (Silero Neural · Offline)": "baya",
     "Aidar (Silero Neural · Offline)": "aidar",
+    "Eugene (Silero Neural · Offline)": "eugene",
+}
+
+PIPER_VOICES: dict[str, str] = {
+    "Dmitri (Piper Neural · Offline)": "ru_RU-dmitri-medium",
+    "Irina (Piper Neural · Offline)": "ru_RU-irina-medium",
 }
 
 
@@ -54,7 +63,7 @@ def is_edge_voice(voice_name: str) -> bool:
     return (
         voice_name in EDGE_VOICES
         or "edge" in voice_name.lower()
-        or ("neural" in voice_name.lower() and "silero" not in voice_name.lower())
+        or ("neural" in voice_name.lower() and "silero" not in voice_name.lower() and "piper" not in voice_name.lower())
     )
 
 
@@ -79,7 +88,7 @@ def is_silero_voice(voice_name: str) -> bool:
     return (
         voice_name in SILERO_VOICES
         or "silero" in voice_name.lower()
-        or any(k.lower() in voice_name.lower() for k in ("ksenia", "baya", "aidar"))
+        or any(k.lower() in voice_name.lower() for k in ("ksenia", "baya", "aidar", "eugene"))
     )
 
 
@@ -93,6 +102,29 @@ def resolve_silero_speaker(voice_name: str) -> str:
         if k.lower() in voice_name.lower() or voice_name.lower() in k.lower():
             return v
     return "xenia"
+
+
+def is_piper_voice(voice_name: str) -> bool:
+    """Check if the given voice name corresponds to a Piper offline neural voice."""
+    if not voice_name:
+        return False
+    return (
+        voice_name in PIPER_VOICES
+        or "piper" in voice_name.lower()
+        or any(k.lower() in voice_name.lower() for k in ("dmitri", "irina"))
+    )
+
+
+def resolve_piper_model(voice_name: str) -> str:
+    """Resolve human-readable voice name to Piper model filename prefix."""
+    if voice_name in PIPER_VOICES:
+        return PIPER_VOICES[voice_name]
+    for k, v in PIPER_VOICES.items():
+        if v.lower() == voice_name.lower() or voice_name.lower() in k.lower():
+            return v
+    if "irina" in voice_name.lower():
+        return "ru_RU-irina-medium"
+    return "ru_RU-dmitri-medium"
 
 
 # ---------------------------------------------------------------------------
@@ -280,15 +312,20 @@ def _get_silero_model():
     ]
     model_path = next((p for p in candidates if p.is_file()), None)
     if model_path is None:
-        model_path = Path(__file__).resolve().parents[1] / "models" / "silero_v4_ru.pt"
-        model_path.parent.mkdir(parents=True, exist_ok=True)
-        import urllib.request
+        from app.tts_manager import find_model_file, get_model_storage_dir
+        found = find_model_file("silero_v4_ru.pt")
+        if found:
+            model_path = found
+        else:
+            model_path = get_model_storage_dir() / "silero_v4_ru.pt"
+            model_path.parent.mkdir(parents=True, exist_ok=True)
+            import urllib.request
 
-        url = "https://models.silero.ai/models/tts/ru/v4_ru.pt"
-        req = urllib.request.Request(url, headers={"User-Agent": "Voice-Of-Luna"})
-        with urllib.request.urlopen(req, timeout=60) as resp, open(model_path, "wb") as f:
-            while chunk := resp.read(1024 * 1024):
-                f.write(chunk)
+            url = "https://models.silero.ai/models/tts/ru/v4_ru.pt"
+            req = urllib.request.Request(url, headers={"User-Agent": "Voice-Of-Luna"})
+            with urllib.request.urlopen(req, timeout=60) as resp, open(model_path, "wb") as f:
+                while chunk := resp.read(1024 * 1024):
+                    f.write(chunk)
 
     device = torch.device("cpu")
     torch.set_num_threads(4)
@@ -299,23 +336,51 @@ def _get_silero_model():
     return _silero_model
 
 
+_piper_cache: dict[str, object] = {}
+
+
+def _get_piper_voice(model_key: str):
+    """Lazily load and cache a PiperVoice ONNX instance."""
+    global _piper_cache
+    if model_key in _piper_cache:
+        return _piper_cache[model_key]
+
+    from app.tts_manager import find_model_file
+    onnx_file = find_model_file(f"{model_key}.onnx")
+    if not onnx_file:
+        raise LocalSpeechError(f"Piper voice model '{model_key}' is not downloaded yet")
+
+    from piper import PiperVoice
+    config_file = find_model_file(f"{model_key}.onnx.json")
+    voice = PiperVoice.load(str(onnx_file), config_path=str(config_file) if config_file else None)
+    _piper_cache[model_key] = voice
+    return voice
+
+
 async def prewarm_voice(voice_name: str | None) -> None:
     """Load the selected local neural voice before its first spoken reply.
 
     This does not synthesize audio or download a model. A missing optional
-    Silero model remains a normal per-turn fallback rather than making opening
-    a conversation fail or unexpectedly causing network traffic.
+    Silero/Piper model remains a normal per-turn fallback rather than making
+    opening a conversation fail or unexpectedly causing network traffic.
     """
-    if not voice_name or not is_silero_voice(voice_name):
+    if not voice_name:
         return
-    candidates = (
-        Path(__file__).resolve().parents[1] / "models" / "silero_v4_ru.pt",
-        Path("models/silero_v4_ru.pt"),
-        Path.home() / ".cache" / "voice-of-luna" / "models" / "silero_v4_ru.pt",
-    )
-    if not any(path.is_file() for path in candidates):
-        return
-    await asyncio.to_thread(_get_silero_model)
+
+    from app.tts_manager import find_model_file
+
+    if is_silero_voice(voice_name):
+        candidates = (
+            Path(__file__).resolve().parents[1] / "models" / "silero_v4_ru.pt",
+            Path("models/silero_v4_ru.pt"),
+            Path.home() / ".cache" / "voice-of-luna" / "models" / "silero_v4_ru.pt",
+        )
+        if any(path.is_file() for path in candidates) or find_model_file("silero_v4_ru.pt"):
+            await asyncio.to_thread(_get_silero_model)
+    elif is_piper_voice(voice_name):
+        model_key = resolve_piper_model(voice_name)
+        if find_model_file(f"{model_key}.onnx"):
+            await asyncio.to_thread(_get_piper_voice, model_key)
 
 
 _cached_installed_voices: list[VoiceInfo] | None = None
@@ -428,6 +493,9 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
         ),
     ]
 
+    from app.tts_manager import tts_model_manager
+
+    silero_installed = tts_model_manager.is_installed("silero_v4_ru")
     silero_ru_voices = [
         VoiceInfo(
             name="Ksenia (Silero Neural · Offline)",
@@ -436,6 +504,9 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
             is_russian=True,
             is_enhanced=True,
             engine="silero",
+            is_downloaded=silero_installed,
+            model_id="silero_v4_ru",
+            size_mb=40.0,
         ),
         VoiceInfo(
             name="Baya (Silero Neural · Offline)",
@@ -444,6 +515,9 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
             is_russian=True,
             is_enhanced=True,
             engine="silero",
+            is_downloaded=silero_installed,
+            model_id="silero_v4_ru",
+            size_mb=40.0,
         ),
         VoiceInfo(
             name="Aidar (Silero Neural · Offline)",
@@ -452,6 +526,47 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
             is_russian=True,
             is_enhanced=True,
             engine="silero",
+            is_downloaded=silero_installed,
+            model_id="silero_v4_ru",
+            size_mb=40.0,
+        ),
+        VoiceInfo(
+            name="Eugene (Silero Neural · Offline)",
+            locale="ru_RU",
+            sample="Здравствуйте! Меня зовут Евгений.",
+            is_russian=True,
+            is_enhanced=True,
+            engine="silero",
+            is_downloaded=silero_installed,
+            model_id="silero_v4_ru",
+            size_mb=40.0,
+        ),
+    ]
+
+    piper_dmitri_installed = tts_model_manager.is_installed("piper_ru_dmitri")
+    piper_irina_installed = tts_model_manager.is_installed("piper_ru_irina")
+    piper_ru_voices = [
+        VoiceInfo(
+            name="Dmitri (Piper Neural · Offline)",
+            locale="ru_RU",
+            sample="Здравствуйте! Меня зовут Дмитрий.",
+            is_russian=True,
+            is_enhanced=True,
+            engine="piper",
+            is_downloaded=piper_dmitri_installed,
+            model_id="piper_ru_dmitri",
+            size_mb=60.0,
+        ),
+        VoiceInfo(
+            name="Irina (Piper Neural · Offline)",
+            locale="ru_RU",
+            sample="Здравствуйте! Меня зовут Ирина.",
+            is_russian=True,
+            is_enhanced=True,
+            engine="piper",
+            is_downloaded=piper_irina_installed,
+            model_id="piper_ru_irina",
+            size_mb=60.0,
         ),
     ]
 
@@ -463,6 +578,8 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
             is_russian=False,
             is_enhanced=True,
             engine="edge",
+            is_downloaded=True,
+            model_id="edge_tts_cloud",
         ),
         VoiceInfo(
             name="Guy (Neural · Edge)",
@@ -471,6 +588,8 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
             is_russian=False,
             is_enhanced=True,
             engine="edge",
+            is_downloaded=True,
+            model_id="edge_tts_cloud",
         ),
         VoiceInfo(
             name="Aria (Neural · Edge)",
@@ -479,10 +598,12 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
             is_russian=False,
             is_enhanced=True,
             engine="edge",
+            is_downloaded=True,
+            model_id="edge_tts_cloud",
         ),
     ]
 
-    _cached_installed_voices = edge_ru_voices + silero_ru_voices + ru_voices + edge_en_voices + other_voices
+    _cached_installed_voices = edge_ru_voices + piper_ru_voices + silero_ru_voices + ru_voices + edge_en_voices + other_voices
     return _cached_installed_voices
 
 
@@ -789,6 +910,33 @@ class LocalMacOsSpeaker:
             destination.unlink(missing_ok=True)
             raise
 
+    async def _synthesize_piper(self, clean_text: str, voice_name: str) -> Path:
+        if not re.search(r"[\u0400-\u052f]", clean_text):
+            raise LocalSpeechError(f"Piper Russian TTS only supports Cyrillic text: '{clean_text[:40]}'")
+
+        import wave
+
+        model_key = resolve_piper_model(voice_name)
+        piper_text = transliterate_latin_for_speech(clean_text)
+        descriptor, raw_wav = tempfile.mkstemp(prefix="voice-of-luna-speech-", suffix=".wav")
+        os.close(descriptor)
+        destination = Path(raw_wav)
+        destination.unlink(missing_ok=True)
+
+        def _generate():
+            voice = _get_piper_voice(model_key)
+            with wave.open(str(destination), "wb") as wav_file:
+                voice.synthesize_wav(piper_text, wav_file)
+
+        try:
+            await asyncio.to_thread(_generate)
+            if not destination.is_file() or destination.stat().st_size == 0:
+                raise LocalSpeechError(f"Piper TTS produced an empty audio clip for '{voice_name}'")
+            return destination
+        except BaseException:
+            destination.unlink(missing_ok=True)
+            raise
+
     async def synthesize(self, text: str, voice: str | None = None) -> Path | None:
         clean_text = sanitize_for_speech(text)
         if not clean_text:
@@ -810,6 +958,17 @@ class LocalMacOsSpeaker:
                 else:
                     active_voice = get_default_voice()
 
+        if is_piper_voice(active_voice):
+            try:
+                return await self._synthesize_piper(clean_text, active_voice)
+            except Exception as exc:
+                logger.warning(
+                    "Piper TTS failed for voice '%s' (%s), falling back to local voice",
+                    active_voice,
+                    exc,
+                )
+                active_voice = get_default_voice()
+
         if is_silero_voice(active_voice):
             try:
                 return await self._synthesize_silero(clean_text, active_voice)
@@ -822,3 +981,4 @@ class LocalMacOsSpeaker:
                 active_voice = get_default_voice()
 
         return await self._synthesize_macos(clean_text, active_voice)
+

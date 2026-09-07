@@ -73,11 +73,20 @@
                 {% endfor %}
               </optgroup>
               {% endif %}
+              {% if piper_voices %}
+              <optgroup label="Локальная нейросеть (Piper ONNX · Offline)">
+                {% for v in piper_voices %}
+                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %} data-engine="{{ v.engine }}" data-installed="{{ 'true' if v.is_downloaded else 'false' }}" data-model-id="{{ v.model_id or '' }}">
+                  {{ v.name }}{% if v.is_downloaded %} ★{% else %} [↓ {{ v.size_mb|int }}MB]{% endif %}
+                </option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
               {% if silero_voices %}
               <optgroup label="Локальная нейросеть (Silero · Offline)">
                 {% for v in silero_voices %}
-                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
-                  {{ v.name }} ★
+                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %} data-engine="{{ v.engine }}" data-installed="{{ 'true' if v.is_downloaded else 'false' }}" data-model-id="{{ v.model_id or '' }}">
+                  {{ v.name }}{% if v.is_downloaded %} ★{% else %} [↓ {{ v.size_mb|int }}MB]{% endif %}
                 </option>
                 {% endfor %}
               </optgroup>

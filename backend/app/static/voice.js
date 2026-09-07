@@ -1813,7 +1813,42 @@ function sendVoiceUpdate(voiceName) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ voice: voiceName }),
-  }).catch((err) => console.warn("// voice sync error:", err));
+  })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      if (data && data.auto_downloading && data.model_id) {
+        showToast(`// DOWNLOADING MODEL: ${data.model_id.toUpperCase()}...`);
+        pollModelStatus(data.model_id, voiceName);
+      }
+    })
+    .catch((err) => console.warn("// voice sync error:", err));
+}
+
+function pollModelStatus(modelId, voiceName) {
+  const interval = setInterval(() => {
+    fetch(`/api/tts/models/${encodeURIComponent(modelId)}/status`)
+      .then((r) => r.json())
+      .then((status) => {
+        if (status.status === "ready") {
+          clearInterval(interval);
+          showToast(`// MODEL READY: ${modelId.toUpperCase()}`);
+          const select = document.querySelector("#voice-select");
+          if (select) {
+            const opt = select.querySelector(`option[value="${CSS.escape(voiceName)}"]`);
+            if (opt) {
+              opt.dataset.installed = "true";
+              if (opt.textContent.includes("[↓")) {
+                opt.textContent = voiceName + " ★";
+              }
+            }
+          }
+        } else if (status.status === "error") {
+          clearInterval(interval);
+          showToast(`// MODEL DOWNLOAD FAILED: ${status.error || "unknown"}`);
+        }
+      })
+      .catch(() => clearInterval(interval));
+  }, 2000);
 }
 
 // Model & Reasoning Effort selection & persistence

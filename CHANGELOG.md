@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-07
+
+### Added
+- **Modular TTS Model Manager (`app/tts_manager.py`)**:
+  - Unified catalog of voice models (`MODEL_CATALOG`) with metadata, download URLs, file specs, and verification.
+  - On-demand, non-blocking asynchronous model downloading with concurrency locks, progress tracking, and atomic file renaming.
+  - CLI management tool: `python -m app.tts_manager [list | download <model_id>]`.
+  - REST API endpoints for model discovery and lifecycle management: `GET /api/tts/models`, `POST /api/tts/models/{model_id}/download`, and `GET /api/tts/models/{model_id}/status`.
+- **Piper TTS Integration (`piper-tts`)**:
+  - Integrated high-performance ONNX neural speech synthesis engine via `piper-tts`.
+  - Added Russian Piper voice models: `Dmitri (Piper Neural · Offline)` and `Irina (Piper Neural · Offline)`.
+  - Cached `PiperVoice` instances in memory for ultra-fast response times.
+  - Automatic fallback to macOS system voices if Piper encounters an error.
+- **Extended Silero TTS Voices**:
+  - Unlocked `Eugene (Silero Neural · Offline)` (`eugene`) voice in the Silero v4 Russian model without additional weights.
+- **On-Demand Web UI Voice Installation**:
+  - Voice selector dropdown now distinguishes installed models (`★`) from downloadable models (`[↓ 60MB]`).
+  - Selecting a voice whose model is not yet downloaded automatically starts background downloading, informs the user via Toast notification, polls status, and switches seamlessly upon completion.
+- **Modular TTS Test Suite (`test_tts_modular.py`)**:
+  - 11 unit and integration tests covering model registry, Piper mock synthesis, error fallbacks, status endpoints, and auto-download triggers.
+
 ## [0.9.0] - 2026-09-07
 
 ### Added

@@ -427,8 +427,9 @@ async def _get_view_context(request: Request, conversation: Conversation | None 
     russian_voices = [v for v in all_voices if v["is_russian"]]
     other_voices = [v for v in all_voices if not v["is_russian"]]
     edge_voices = [v for v in all_voices if v.get("engine") == "edge"]
+    piper_voices = [v for v in russian_voices if v.get("engine") == "piper"]
     silero_voices = [v for v in russian_voices if v.get("engine") == "silero"]
-    local_russian_voices = [v for v in russian_voices if v.get("engine") not in ("edge", "silero")]
+    local_russian_voices = [v for v in russian_voices if v.get("engine") not in ("edge", "silero", "piper")]
 
     models: list[dict[str, object]] = []
     if conversation:
@@ -463,6 +464,7 @@ async def _get_view_context(request: Request, conversation: Conversation | None 
         "russian_voice": active_voice,
         "russian_voices": russian_voices,
         "edge_voices": edge_voices,
+        "piper_voices": piper_voices,
         "silero_voices": silero_voices,
         "local_russian_voices": local_russian_voices,
         "other_voices": other_voices,
@@ -492,13 +494,15 @@ def _get_voice_context(request: Request, conversation: Conversation | None = Non
     all_voices = [v.to_dict() for v in get_installed_voices()]
     russian_voices = [v for v in all_voices if v["is_russian"]]
     edge_voices = [v for v in russian_voices if v.get("engine") == "edge"]
+    piper_voices = [v for v in russian_voices if v.get("engine") == "piper"]
     silero_voices = [v for v in russian_voices if v.get("engine") == "silero"]
-    local_russian_voices = [v for v in russian_voices if v.get("engine") not in ("edge", "silero")]
+    local_russian_voices = [v for v in russian_voices if v.get("engine") not in ("edge", "silero", "piper")]
     return {
         "active_voice": active_voice,
         "russian_voice": active_voice,
         "russian_voices": russian_voices,
         "edge_voices": edge_voices,
+        "piper_voices": piper_voices,
         "silero_voices": silero_voices,
         "local_russian_voices": local_russian_voices,
         "other_voices": [v for v in all_voices if not v["is_russian"]],
@@ -814,6 +818,43 @@ async def list_available_voices(request: Request) -> dict[str, object]:
     }
 
 
+@app.get("/api/tts/models")
+async def list_tts_models() -> dict[str, object]:
+    from app.tts_manager import tts_model_manager
+
+    return {"models": tts_model_manager.list_all_models()}
+
+
+@app.post("/api/tts/models/{model_id}/download")
+async def download_tts_model(model_id: str) -> dict[str, object]:
+    from app.speak import get_installed_voices
+    from app.tts_manager import tts_model_manager
+
+    status = tts_model_manager.get_status(model_id)
+    if "error" in status and status.get("status") == "error" and status.get("error") == "Model not found":
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    async def _bg() -> None:
+        try:
+            await tts_model_manager.download_model(model_id)
+            get_installed_voices(force_refresh=True)
+        except Exception as exc:
+            logger.error("Download failed for TTS model '%s': %s", model_id, exc)
+
+    _safe_background_task(_bg(), name=f"download-tts-model-{model_id}")
+    return {"ok": True, "model_id": model_id, "status": "downloading"}
+
+
+@app.get("/api/tts/models/{model_id}/status")
+async def get_tts_model_status(model_id: str) -> dict[str, object]:
+    from app.tts_manager import tts_model_manager
+
+    status = tts_model_manager.get_status(model_id)
+    if "error" in status and status.get("status") == "error" and status.get("error") == "Model not found":
+        raise HTTPException(status_code=404, detail="Model not found")
+    return status
+
+
 @app.get("/api/models")
 async def list_available_models(request: Request) -> dict[str, object]:
     provider = CodexAppServer()
@@ -923,6 +964,9 @@ class VoiceSelectInput(BaseModel):
 
 @app.post("/api/voice")
 async def select_voice(body: VoiceSelectInput, response: Response) -> dict[str, object]:
+    from app.speak import get_installed_voices
+    from app.tts_manager import tts_model_manager
+
     response.set_cookie(
         key="voice_of_luna_voice",
         value=body.voice,
@@ -930,7 +974,29 @@ async def select_voice(body: VoiceSelectInput, response: Response) -> dict[str, 
         httponly=False,
         samesite="lax",
     )
-    return {"ok": True, "active_voice": body.voice}
+
+    model = tts_model_manager.get_model_for_voice(body.voice)
+    auto_downloading = False
+    if model and not tts_model_manager.is_installed(model.id):
+        auto_downloading = True
+
+        async def _bg() -> None:
+            try:
+                await tts_model_manager.download_model(model.id)
+                get_installed_voices(force_refresh=True)
+            except Exception as e:
+                logger.error("Auto-download failed for '%s': %s", model.id, e)
+
+        _safe_background_task(_bg(), name=f"auto-download-tts-{model.id}")
+
+    res: dict[str, object] = {
+        "ok": True,
+        "active_voice": body.voice,
+    }
+    if auto_downloading:
+        res["auto_downloading"] = True
+        res["model_id"] = model.id if model else None
+    return res
 
 
 @app.post("/api/conversations", status_code=status.HTTP_201_CREATED)
