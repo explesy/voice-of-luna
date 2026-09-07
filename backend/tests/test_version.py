@@ -39,3 +39,18 @@ def test_runtime_endpoint_includes_version(monkeypatch):
     data = response.json()
     assert data["version"] == __version__
     assert data["available"] is True
+
+
+def test_index_page_displays_current_version(monkeypatch):
+    from app.codex import CodexAppServer, RuntimeStatus
+
+    async def fake_status(self, use_cache=True):
+        return RuntimeStatus(available=True, detail="Ready")
+
+    monkeypatch.setattr(CodexAppServer, "status", fake_status)
+
+    client = TestClient(app)
+    response = client.get("/")
+    assert response.status_code == 200
+    assert f'<span class="term-tag">v{__version__}</span>' in response.text
+

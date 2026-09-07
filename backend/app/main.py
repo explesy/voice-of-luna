@@ -210,6 +210,8 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Voice of Luna", version=__version__, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+templates.env.globals["version"] = __version__
+templates.env.globals["app_version"] = __version__
 templates.env.filters["format_terminal_text"] = format_terminal_text
 
 
@@ -473,6 +475,8 @@ async def _get_view_context(request: Request, conversation: Conversation | None 
         "plugins": all_plugins,
         "active_plugin": active_plugin,
         "active_plugin_mode": active_plugin_mode,
+        "version": __version__,
+        "app_version": __version__,
     }
 
 
