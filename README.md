@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Personal, local-first voice bridge to OpenAI Codex via local stdio JSON-RPC</strong><br>
-  <em>Sub-second streaming TTFA, 100% local speech-to-text, multi-tier neural TTS, and instant barge-in.</em>
+  <em>Streaming speech pipeline, local speech-to-text, multi-tier neural TTS, and instant barge-in.</em>
 </p>
 
 <p align="center">
@@ -31,7 +31,7 @@ Unlike traditional cloud voice assistants that upload unencrypted voice recordin
 
 - 🔒 **Zero Audio Leakage & Total Privacy**: Speech recognition runs entirely offline with local Whisper. Your raw voice recordings never leave your machine.
 - 🔑 **No Extra API Keys or Costs**: Communicates directly with your authenticated local Codex session (`codex login`) via stdio JSON-RPC. No pay-per-token API billing or additional third-party subscriptions.
-- ⚡ **Streaming Sentence-Level TTS (<2s TTFA)**: Speech synthesis starts the millisecond the first punctuation mark arrives from the model token stream — you hear the answer before the model finishes generating.
+- ⚡ **Streaming Sentence-Level TTS**: The first completed speech clause is sent to synthesis while the model continues generating the rest of its reply.
 - 🛑 **True Natural Barge-In**: Interrupt Lúna at any moment simply by speaking or pressing `[Space]`. Audio playback stops instantly, queues are flushed, and a new turn begins.
 - 🎙️ **Multi-Tier Voice Engine**: High-fidelity free cloud neural voices (Microsoft Edge TTS), ultra-fast offline neural voices (Silero TTS v4), and native macOS speech with automatic graceful fallback.
 - 🌙 **Cyber-Tarot Dark Aesthetic**: Server-rendered HTMX interface with interactive Radar HUD, dynamic pulse core, millisecond telemetry readouts, and collapsible transcripts.
@@ -81,21 +81,21 @@ flowchart LR
 
 ## ✨ Features
 
-### 1. Ultra-Low Latency Voice Loop (TTFA)
+### 1. Measured Voice Loop (TTFA)
 In conversational interfaces, **Time To First Audio (TTFA)** is what creates the feeling of a genuine dialogue. Voice of Lúna features an early-extraction streaming pipeline:
 - As soon as the model outputs an opening clause (3+ words ending in `,`, `:`, `—`, `.`), it is immediately dispatched to the TTS synthesis queue.
 - You hear the assistant start speaking while subsequent sentences are generated and synthesized in parallel.
-- Benchmarked at **~1.99s TTFA** with lightweight models and **~2.15s TTFA** with everyday workhorse models.
+- The HUD separates VAD endpointing, browser audio encoding, server preparation, STT, first LLM delta, TTS, and browser audio-render start so a slow turn can be diagnosed rather than guessed.
 
 ### 2. Multi-Tier Speech Synthesis (TTS)
 Switch voices on the fly with automatic multi-tier fallback:
 
-| Engine | Tier | Latency (1st Chunk) | Description |
-|:---|:---:|:---:|:---|
-| **Piper TTS ONNX** | 🚀 Offline Neural | **~165 – 225 ms** | Ultra-responsive offline ONNX neural voices (`Dmitri`, `Irina`). Low memory footprint, no PyTorch warmup needed. |
-| **Silero TTS v4** | ⚡ Offline Neural | **50 – 120 ms** | Blazing fast PyTorch neural model (`Eugene`, `Ksenia`, `Baya`). 100% offline with Latin phonetic transliteration. |
-| **Microsoft Edge TTS** | ☁️ Cloud Neural | ~1.5 – 3.5 s | Studio-quality cloud neural voices (`Svetlana`, `Dmitry`, `Jenny`). Free, natural prosody, no API keys required. |
-| **macOS say** | 🍏 Native Offline | ~1.0 s | Zero-dependency macOS native voice (`Milena`, `Samantha`). System-level offline fallback. |
+| Engine | Tier | Description |
+|:---|:---:|:---|
+| **Piper TTS ONNX** | 🚀 Offline Neural | Local ONNX neural voices (`Dmitri`, `Irina`) with a small runtime footprint. |
+| **Silero TTS v4** | ⚡ Offline Neural | Optional PyTorch neural voices (`Eugene`, `Ksenia`, `Baya`), fully offline. |
+| **Microsoft Edge TTS** | ☁️ Cloud Neural | Natural cloud voices (`Svetlana`, `Dmitry`, `Jenny`); network variability is measured separately. |
+| **macOS say** | 🍏 Native Offline | System-level offline fallback (`Milena`, `Samantha`). |
 
 ### 3. Client-Side VAD & Instant Barge-In
 - **Continuous Voice Activity Detection (VAD)** automatically detects when you stop speaking (450ms silence endpointing) and triggers processing without manual clicks.
@@ -104,7 +104,7 @@ Switch voices on the fly with automatic multi-tier fallback:
 ### 4. Live Codex Discovery & Warmup
 - **Dynamic Model Discovery**: Queries `/api/models` directly from your local Codex runtime (`gpt-5.6-sol`, `gpt-5.4-mini`, `gpt-5.6-terra`, `gpt-6-astra`).
 - **Adjustable Reasoning**: Configure reasoning effort (`low`, `medium`, `high`) per session.
-- **Hidden Warmup (`WARM: ON/OFF`)**: Executes an invisible 1-turn background ping when opening a session to eliminate cold-start thread preparation latency.
+- **Hidden Warmup (`WARM: ON/OFF`)**: Executes an invisible one-turn background ping when opening a session. It may reduce first-turn thread latency, but consumes a short Codex turn and does not guarantee a fixed response time.
 
 ### 5. Capability-Isolated Plugins
 Extend Lúna's capabilities without granting plugins access to credentials or raw audio:
@@ -114,22 +114,13 @@ Extend Lúna's capabilities without granting plugins access to credentials or ra
 
 ---
 
-## 📊 Performance Benchmarks
+## 📊 Performance evidence
 
-Measured on Apple Silicon with local `codex app-server` (stdio JSON-RPC) and `reasoning_effort="low"`:
-
-### Time To First Audio (TTFA)
-*Measured from prompt dispatch to first audible frame delivery in browser:*
-
-| Model \ TTS Engine | Silero v4 ⚡ | Piper ONNX 🚀 | macOS say 🍏 | Edge TTS ☁️ |
-|:---|:---:|:---:|:---:|:---:|
-| **GPT-5.4-Mini** *(Lightweight)* | **1.71 – 1.99 s** 🏆 | **1.88 s** ⚡ | 2.97 – 3.00 s | 4.93 – 12.29 s |
-| **GPT-5.6-Sol** *(Everyday Workhorse)* | **2.15 – 2.38 s** 🚀 | **2.52 s** ✨ | 3.16 – 3.64 s | 3.63 – 12.93 s |
-| **GPT-5.6-Terra** *(Balanced Coding)* | **2.47 – 2.85 s** | **2.98 s** | 3.66 – 4.10 s | 3.87 – 13.39 s |
-| **GPT-5.6-Luna** *(Voice Companion)* | **4.42 – 4.95 s** | **5.10 s** | 5.49 – 6.22 s | 6.52 – 15.51 s |
-| **GPT-6-Astra** *(Flagship Reasoning)* | **8.38 – 8.70 s** | **8.86 s** | 9.50 – 9.98 s | 10.37 – 19.27 s |
-
-> 📖 **Full benchmarks**: See [`docs/05 — Latency & Performance Benchmarks.md`](docs/05%20%E2%80%94%20Latency%20&%20Performance%20Benchmarks.md) for TTFT breakdowns, throughput graphs, and detailed audio chunk profiling.
+The canonical methodology and dated results live in
+[`docs/05 — Latency & Performance Benchmarks.md`](docs/05%20%E2%80%94%20Latency%20&%20Performance%20Benchmarks.md).
+It distinguishes reproducible local TTS, opt-in network Edge TTS, private
+real-speech STT, and quota-consuming live Codex observations. Do not treat a
+single machine's snapshot as an SLA or a universal model ranking.
 
 ---
 
@@ -200,7 +191,7 @@ Open your browser at **[http://127.0.0.1:8000](http://127.0.0.1:8000)**.
 | **[Escape]** | Stop playback / reset audio state |
 | **Voice Selector** | Choose between Edge Neural, Silero Offline Neural, or macOS system voices |
 | **Model & Reasoning** | Select Codex model and toggle reasoning effort (`low`, `med`, `high`) |
-| **WARM: ON/OFF** | Enable pre-warming of Codex threads for zero-latency first turn |
+| **WARM: ON/OFF** | Optionally pre-warm a Codex thread; uses one short background turn and may reduce first-turn latency |
 | **Prompt Input Dock** | Fallback text input dock for hybrid typing & voice interaction |
 
 ---
@@ -270,7 +261,7 @@ For in-depth architectural and product specifications, explore the [`docs/`](doc
 - [**02 — Technical Architecture**](docs/02%20%E2%80%94%20Technical%20Architecture.md): Audio pipeline, WebSocket protocol, and process lifecycles.
 - [**03 — Conversation Protocol**](docs/03%20%E2%80%94%20Conversation%20Protocol.md): Turn-taking rules, silence handling, and barge-in guarantees.
 - [**04 — Implementation Plan**](docs/04%20%E2%80%94%20MVP%20&%20Implementation%20Plan.md): Milestone roadmap and quality gates.
-- [**05 — Latency & Performance Benchmarks**](docs/05%20%E2%80%94%20Latency%20&%20Performance%20Benchmarks.md): Extensive TTFT, TTFA, and TTS engine benchmarks.
+- [**05 — Latency & Performance Benchmarks**](docs/05%20%E2%80%94%20Latency%20&%20Performance%20Benchmarks.md): Measurement methodology, dated evidence, and limits.
 
 ---
 

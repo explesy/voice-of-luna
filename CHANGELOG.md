@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.3] - 2026-09-08
+
+### Fixed
+- Replaced obsolete sub-second TTFA and static model/voice latency claims in the README with the canonical evidence methodology and current limitations.
+
 ## [0.16.2] - 2026-09-08
 
 ### Changed
