@@ -11,7 +11,11 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -39,5 +43,11 @@ jobs:
           uv sync --group dev
         working-directory: backend
       - name: Run tests
-        run: uv run pytest -q
+        run: uv run pytest -q --junitxml=pytest-results.xml
         working-directory: backend
+      - name: Upload pytest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-${{ matrix.os }}
+          path: backend/pytest-results.xml

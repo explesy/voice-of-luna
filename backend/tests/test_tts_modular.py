@@ -242,7 +242,9 @@ def test_verify_checksums_logic(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr("app.tts_manager.find_model_file", lambda f: test_file if f == "test-model.onnx" else None)
 
     assert tts_model_manager.verify_checksums("test_model_sha") is True
+    assert tts_model_manager.is_ready("test_model_sha") is True
 
     # Tamper with file
     test_file.write_bytes(b"corrupted-tampered-content")
     assert tts_model_manager.verify_checksums("test_model_sha") is False
+    assert tts_model_manager.is_ready("test_model_sha") is False

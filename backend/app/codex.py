@@ -153,6 +153,7 @@ class CodexAppServer:
         self.base_instructions = base_instructions or DEFAULT_BASE_INSTRUCTIONS
         self._process: asyncio.subprocess.Process | None = None
         self._thread_id: str | None = None
+        self.thread_generation = 0
         self._active_turn_id: str | None = None
         self._next_id = 1
         self._reader_task: asyncio.Task[None] | None = None
@@ -486,6 +487,7 @@ class CodexAppServer:
         commentary_deltas: list[str] = []
         current_item_id: str | None = None
         item_phases: dict[str, str] = {}
+        pending_deltas: dict[str, list[str]] = {}
 
         try:
             while True:
@@ -498,9 +500,20 @@ class CodexAppServer:
                 if method == "item/started":
                     item = params.get("item", {})
                     if params.get("threadId") == thread_id and item.get("id"):
+                        item_id = item["id"]
                         phase = item.get("phase")
                         if phase:
-                            item_phases[item["id"]] = phase
+                            item_phases[item_id] = phase
+                            buffered = pending_deltas.pop(item_id, [])
+                            if phase == "commentary":
+                                commentary_deltas.extend(buffered)
+                            elif phase == "final_answer":
+                                if current_item_id is not None and current_item_id != item_id:
+                                    yield "\n\n"
+                                current_item_id = item_id
+                                for buffered_delta in buffered:
+                                    yielded_deltas = True
+                                    yield buffered_delta
                 elif method == "item/agentMessage/delta":
                     if params.get("threadId") == thread_id and params.get("turnId") == turn_id:
                         delta = params.get("delta", "")
@@ -509,6 +522,8 @@ class CodexAppServer:
                         if delta:
                             if phase == "commentary":
                                 commentary_deltas.append(delta)
+                            elif item_id and phase is None:
+                                pending_deltas.setdefault(item_id, []).append(delta)
                             else:
                                 if current_item_id is not None and item_id and item_id != current_item_id:
                                     yield "\n\n"
@@ -518,12 +533,30 @@ class CodexAppServer:
                 elif method == "item/completed":
                     item = params.get("item", {})
                     if params.get("threadId") == thread_id and item.get("type") == "agentMessage":
-                        phase = item.get("phase") or item_phases.get(item.get("id"))
+                        item_id = item.get("id")
+                        phase = item.get("phase") or item_phases.get(item_id)
+                        if item_id and phase:
+                            item_phases[item_id] = phase
+                            buffered = pending_deltas.pop(item_id, [])
+                            if phase == "commentary":
+                                commentary_deltas.extend(buffered)
+                            elif phase == "final_answer" and not yielded_deltas:
+                                for buffered_delta in buffered:
+                                    yielded_deltas = True
+                                    yield buffered_delta
                         text = item.get("text", "")
                         if text and phase != "commentary":
                             fallback_messages.append(text)
                 elif method == "turn/completed":
                     if params.get("threadId") == thread_id and params.get("turn", {}).get("id") == turn_id:
+                        if not yielded_deltas and not fallback_messages:
+                            for item_id, buffered in pending_deltas.items():
+                                if current_item_id is not None and item_id != current_item_id:
+                                    yield "\n\n"
+                                current_item_id = item_id
+                                for buffered_delta in buffered:
+                                    yielded_deltas = True
+                                    yield buffered_delta
                         if not yielded_deltas:
                             if fallback_messages:
                                 for text in fallback_messages:
@@ -574,6 +607,8 @@ class CodexAppServer:
             await self._close_locked()
 
     async def _close_locked(self) -> None:
+        if self._process is not None or self._thread_id is not None:
+            self.thread_generation += 1
         if self._reader_task is not None:
             self._reader_task.cancel()
             self._reader_task = None

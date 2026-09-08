@@ -259,11 +259,20 @@ class TTSModelManager:
             return False
         return all(find_model_file(spec.filename) is not None for spec in defn.files)
 
+    def is_ready(self, model_id: str) -> bool:
+        """Return whether all model files exist and match their catalog checksums."""
+        defn = MODEL_CATALOG.get(model_id)
+        if not defn:
+            return False
+        if defn.is_cloud or defn.is_builtin:
+            return True
+        return self.is_installed(model_id) and self.verify_checksums(model_id)
+
     def is_voice_installed(self, voice_name: str) -> bool:
         """Check if a specific voice has its required model installed."""
         for model in MODEL_CATALOG.values():
             if voice_name in model.voices:
-                return self.is_installed(model.id)
+                return self.is_ready(model.id)
         return True
 
     def get_model_for_voice(self, voice_name: str) -> TTSModelDefinition | None:
@@ -310,7 +319,7 @@ class TTSModelManager:
         if defn.is_cloud or defn.is_builtin:
             return get_model_storage_dir()
 
-        if self.is_installed(model_id):
+        if self.is_ready(model_id):
             first_file = find_model_file(defn.files[0].filename)
             return first_file.parent if first_file else get_model_storage_dir()
 

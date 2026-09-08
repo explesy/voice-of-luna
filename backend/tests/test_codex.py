@@ -244,6 +244,50 @@ def test_stream_falls_back_to_commentary_if_no_final_answer() -> None:
     asyncio.run(exercise())
 
 
+def test_stream_buffers_deltas_until_item_phase_is_known() -> None:
+    provider = CodexAppServer()
+    provider._buffered_turn_events["turn-reordered"] = [
+        {
+            "method": "item/agentMessage/delta",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-reordered",
+                "itemId": "item-final",
+                "delta": "Ответ ",
+            },
+        },
+        {
+            "method": "item/started",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-reordered",
+                "item": {"id": "item-final", "type": "agentMessage", "phase": "final_answer"},
+            },
+        },
+        {
+            "method": "item/agentMessage/delta",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-reordered",
+                "itemId": "item-final",
+                "delta": "из буфера.",
+            },
+        },
+        {
+            "method": "turn/completed",
+            "params": {"threadId": "thread-1", "turn": {"id": "turn-reordered"}},
+        },
+    ]
+
+    async def exercise() -> None:
+        chunks = []
+        async for chunk in provider._stream_answer("thread-1", "turn-reordered"):
+            chunks.append(chunk)
+        assert chunks == ["Ответ ", "из буфера."]
+
+    asyncio.run(exercise())
+
+
 def test_turn_start_passes_model_and_effort(monkeypatch) -> None:
     provider = CodexAppServer()
     turn_params = []

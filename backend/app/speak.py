@@ -348,21 +348,13 @@ def _get_silero_model():
         Path.home() / ".cache" / "voice-of-luna" / "models" / "silero_v4_ru.pt",
     ]
     model_path = next((p for p in candidates if p.is_file()), None)
-    if model_path is None:
-        from app.tts_manager import find_model_file, get_model_storage_dir
-        found = find_model_file("silero_v4_ru.pt")
-        if found:
-            model_path = found
-        else:
-            model_path = get_model_storage_dir() / "silero_v4_ru.pt"
-            model_path.parent.mkdir(parents=True, exist_ok=True)
-            import urllib.request
-
-            url = "https://models.silero.ai/models/tts/ru/v4_ru.pt"
-            req = urllib.request.Request(url, headers={"User-Agent": "Voice-Of-Luna"})
-            with urllib.request.urlopen(req, timeout=60) as resp, open(model_path, "wb") as f:
-                while chunk := resp.read(1024 * 1024):
-                    f.write(chunk)
+    from app.tts_manager import find_model_file, tts_model_manager
+    model_path = find_model_file("silero_v4_ru.pt")
+    if model_path is None or not tts_model_manager.is_ready("silero_v4_ru"):
+        raise LocalSpeechError(
+            "Silero model is missing or failed checksum verification. "
+            "Download it from the TTS model manager before using this voice."
+        )
 
     device = torch.device("cpu")
     torch.set_num_threads(4)

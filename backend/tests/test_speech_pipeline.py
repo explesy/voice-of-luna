@@ -14,6 +14,65 @@ from app.speech_pipeline import (
 )
 
 
+def test_call_reply_does_not_retry_internal_type_error() -> None:
+    calls = 0
+
+    class Model:
+        async def reply(self, text: str, **kwargs) -> str:
+            nonlocal calls
+            calls += 1
+            raise TypeError("provider failure")
+
+    with pytest.raises(TypeError, match="provider failure"):
+        asyncio.run(call_reply(Model(), "hello", model_name="gpt-test"))
+    assert calls == 1
+
+
+def test_call_reply_stream_does_not_retry_after_partial_output() -> None:
+    calls = 0
+
+    class Model:
+        async def reply_stream(self, text: str, **kwargs):
+            nonlocal calls
+            calls += 1
+            yield "hello"
+            raise TypeError("stream provider failure")
+
+    async def exercise() -> None:
+        chunks = []
+        with pytest.raises(TypeError, match="stream provider failure"):
+            async for chunk in call_reply_stream(Model(), "hello", effort="low"):
+                chunks.append(chunk)
+        assert chunks == ["hello"]
+
+    asyncio.run(exercise())
+    assert calls == 1
+
+
+def test_warmup_is_invalidated_when_base_instructions_change(monkeypatch) -> None:
+    service = ConversationService()
+    conversation = Conversation(id="warmup-generation")
+
+    async def fake_set_base_instructions(instructions: str) -> None:
+        conversation.model.base_instructions = instructions
+
+    async def fake_get_system_prompt(*_args) -> str:
+        return ""
+
+    monkeypatch.setattr(conversation.model, "set_base_instructions", fake_set_base_instructions)
+    monkeypatch.setattr("app.conversation_service.plugin_manager.get_system_prompt", fake_get_system_prompt)
+
+    async def exercise() -> None:
+        await service.refresh_base_instructions(conversation, "en-US")
+        service.schedule_warmup(conversation, "gpt-test", "low")
+        await service.refresh_base_instructions(conversation, "es-ES")
+
+    asyncio.run(exercise())
+    assert conversation.thread_generation == 2
+    assert conversation.remote_warmup_key is None
+    assert conversation.remote_warmup_task is None
+
+
 def test_write_and_remove_temporary_audio(tmp_path: Path) -> None:
     data = b"test audio bytes for pipeline"
     temp_path = write_temporary_audio(data, ".bin")

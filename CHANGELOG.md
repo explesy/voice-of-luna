@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.4] - 2026-09-08
+
+### Fixed
+- Made CI voice and speech tests deterministic across macOS and Linux runners.
+- Prevented Codex reply wrappers from retrying a remote turn after an internal `TypeError`.
+- Invalidated remote warmup state when base instructions recreate the Codex thread.
+- Removed the direct Silero download bypass and require checksum-verified model files.
+- Buffered Codex message deltas until their item phase is known, preserving legacy untagged streams.
+- Added Python 3.12/macOS CI coverage and uploaded pytest reports for failed runs.
+
 ## [0.17.3] - 2026-09-08
 
 ### Fixed

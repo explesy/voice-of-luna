@@ -117,8 +117,9 @@ class Conversation:
     plugin_mode: str = "default"
     last_active_at: float = field(default_factory=time.monotonic)
     active_websockets: int = 0
-    remote_warmup_key: tuple[str, str] | None = None
+    remote_warmup_key: tuple[str, str, int, int] | None = None
     remote_warmup_task: asyncio.Task[None] | None = field(default=None, repr=False)
+    thread_generation: int = 0
     binary_audio: bool = False
 
 
@@ -243,7 +244,12 @@ class ConversationService:
         self, conversation: Conversation, model_name: str, effort: str
     ) -> str:
         """Run at most one invisible warmup per model and effort in a conversation."""
-        key = (model_name, effort)
+        key = (
+            model_name,
+            effort,
+            conversation.thread_generation,
+            getattr(conversation.model, "thread_generation", 0),
+        )
         if conversation.remote_warmup_key == key:
             task = conversation.remote_warmup_task
             return "warming" if task and not task.done() else "warm"
@@ -284,7 +290,14 @@ class ConversationService:
         plugin_sys = await plugin_manager.get_system_prompt(conversation.plugin_id, conversation.id)
         if plugin_sys.strip():
             base_instructions = f"{base_instructions}\n\n{plugin_sys.strip()}"
+        previous_instructions = conversation.model.base_instructions
         await conversation.model.set_base_instructions(base_instructions)
+        if previous_instructions != base_instructions:
+            conversation.thread_generation += 1
+            conversation.remote_warmup_key = None
+            if conversation.remote_warmup_task and not conversation.remote_warmup_task.done():
+                conversation.remote_warmup_task.cancel()
+            conversation.remote_warmup_task = None
         return base_instructions
 
     async def apply_plugin(
@@ -318,19 +331,18 @@ async def call_reply(
     """Invoke model.reply with dynamically inspected argument support."""
     try:
         sig = inspect.signature(model.reply)
-        kwargs: dict[str, object] = {}
-        if "context_prompt" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            if context_prompt is not None:
-                kwargs["context_prompt"] = context_prompt
-        if "model" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            if model_name is not None:
-                kwargs["model"] = model_name
-        if "effort" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            if effort is not None:
-                kwargs["effort"] = effort
-        return await model.reply(text, **kwargs)
-    except TypeError:
+    except (TypeError, ValueError):
         return await model.reply(text)
+
+    kwargs: dict[str, object] = {}
+    accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+    if ("context_prompt" in sig.parameters or accepts_kwargs) and context_prompt is not None:
+        kwargs["context_prompt"] = context_prompt
+    if ("model" in sig.parameters or accepts_kwargs) and model_name is not None:
+        kwargs["model"] = model_name
+    if ("effort" in sig.parameters or accepts_kwargs) and effort is not None:
+        kwargs["effort"] = effort
+    return await model.reply(text, **kwargs)
 
 
 async def call_reply_stream(
@@ -343,18 +355,18 @@ async def call_reply_stream(
     """Stream replies from model with dynamically inspected argument support."""
     try:
         sig = inspect.signature(model.reply_stream)
-        kwargs: dict[str, object] = {}
-        if "context_prompt" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            if context_prompt is not None:
-                kwargs["context_prompt"] = context_prompt
-        if "model" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            if model_name is not None:
-                kwargs["model"] = model_name
-        if "effort" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            if effort is not None:
-                kwargs["effort"] = effort
-        async for chunk in model.reply_stream(text, **kwargs):
-            yield chunk
-    except TypeError:
+    except (TypeError, ValueError):
         async for chunk in model.reply_stream(text):
             yield chunk
+        return
+
+    kwargs: dict[str, object] = {}
+    accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+    if ("context_prompt" in sig.parameters or accepts_kwargs) and context_prompt is not None:
+        kwargs["context_prompt"] = context_prompt
+    if ("model" in sig.parameters or accepts_kwargs) and model_name is not None:
+        kwargs["model"] = model_name
+    if ("effort" in sig.parameters or accepts_kwargs) and effort is not None:
+        kwargs["effort"] = effort
+    async for chunk in model.reply_stream(text, **kwargs):
+        yield chunk

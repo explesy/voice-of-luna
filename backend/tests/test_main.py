@@ -313,7 +313,9 @@ def test_macos_speaker_renders_wav_directly(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("app.speak.shutil.which", lambda cmd: "/usr/bin/" + cmd)
     monkeypatch.setattr("app.speak.asyncio.create_subprocess_exec", fake_create_subprocess_exec)
 
-    speaker = main_module.LocalMacOsSpeaker()
+    # Exercise the macOS engine explicitly; the CI host may be Linux and has
+    # no system `say` voice inventory to select from.
+    speaker = main_module.LocalMacOsSpeaker(voice="Milena")
     import asyncio
     output_path = asyncio.run(speaker.synthesize("Привет мир"))
 
@@ -614,10 +616,19 @@ def test_api_speech_synthesize_success(monkeypatch, tmp_path) -> None:
     assert not clip.exists()
 
 
-def test_api_speech_synthesize_rejects_non_cyrillic() -> None:
+def test_api_speech_synthesize_accepts_supported_english(monkeypatch, tmp_path) -> None:
+    clip = tmp_path / "english_synthesis.wav"
+    clip.write_bytes(b"RIFFenglish")
+
+    async def fake_synthesize(_, text):
+        assert text == "Hello, this is pure English."
+        return clip
+
+    monkeypatch.setattr(main_module.LocalMacOsSpeaker, "synthesize", fake_synthesize)
     response = client.post("/api/speech/synthesize", json={"text": "Hello, this is pure English."})
-    assert response.status_code == 400
-    assert "non-Cyrillic" in response.json()["detail"]
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/wav")
+    assert not clip.exists()
 
 
 def test_api_speech_synthesize_validates_input() -> None:
@@ -646,18 +657,19 @@ def test_api_voices_endpoint() -> None:
 
 
 def test_api_voice_selection_and_cookie_persistence() -> None:
-    # Set to Milena (Enhanced)
-    response = client.post("/api/voice", json={"voice": "Milena (Enhanced)"})
+    # Edge voices are available on every supported CI host.
+    response = client.post("/api/voice", json={"voice": "Svetlana (Neural · Edge)"})
     assert response.status_code == 200
-    assert response.json() == {"ok": True, "active_voice": "Milena (Enhanced)"}
+    assert response.json() == {"ok": True, "active_voice": "Svetlana (Neural · Edge)"}
     cookie_header = response.headers.get("set-cookie", "")
     assert "voice_of_luna_voice=" in cookie_header
-    assert "Milena (Enhanced)" in cookie_header
+    assert "Svetlana (Neural" in cookie_header
 
-    # GET / with cookie should have Milena (Enhanced) selected
-    page = client.get("/", cookies={"voice_of_luna_voice": "Milena (Enhanced)"})
+    # The TestClient keeps the response cookie; passing a Unicode cookie via
+    # httpx's per-request cookies is not portable across Python versions.
+    page = client.get("/")
     assert page.status_code == 200
-    assert 'value="Milena (Enhanced)" selected' in page.text
+    assert 'value="Svetlana (Neural · Edge)" selected' in page.text
 
 
 def test_htmx_shell_renders_voice_selector_with_options() -> None:
@@ -677,8 +689,10 @@ def test_htmx_shell_renders_voice_selector_with_options() -> None:
 
 
 def test_htmx_shell_expands_other_voices_when_active_voice_is_other() -> None:
-    # Set cookie to an installed non-Russian voice (e.g. Sara)
-    page = client.get("/", cookies={"voice_of_luna_voice": "Sara"})
+    # Edge English is available independently of macOS system voices.
+    selected = client.post("/api/voice", json={"voice": "Jenny (Neural · Edge)"})
+    assert selected.status_code == 200
+    page = client.get("/")
     assert page.status_code == 200
     assert 'id="voice-select"' in page.text
     assert 'id="other-voices-group"' in page.text
