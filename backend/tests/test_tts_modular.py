@@ -173,6 +173,30 @@ async def test_piper_synthesizer_fallback_on_error(monkeypatch, tmp_path) -> Non
 
 
 @pytest.mark.anyio
+async def test_synthesis_metadata_reports_fallback_engine(monkeypatch, tmp_path) -> None:
+    async def failing_piper(self, text, voice):
+        raise RuntimeError("Piper engine failure")
+
+    fallback_wav = tmp_path / "fallback-metadata.wav"
+    fallback_wav.write_bytes(b"RIFFfallback")
+
+    async def fake_macos(self, text, voice):
+        return fallback_wav
+
+    monkeypatch.setattr(LocalMacOsSpeaker, "_synthesize_piper", failing_piper)
+    monkeypatch.setattr(LocalMacOsSpeaker, "_synthesize_macos", fake_macos)
+
+    result = await LocalMacOsSpeaker(
+        voice="Dmitri (Piper Neural · Offline)"
+    ).synthesize_with_metadata("Текст для синтеза.")
+
+    assert result is not None
+    assert result.requested_engine == "piper"
+    assert result.actual_engine == "macos"
+    assert "Piper engine failure" in (result.fallback_reason or "")
+
+
+@pytest.mark.anyio
 async def test_prewarm_voice_handles_piper_and_silero(monkeypatch) -> None:
     prewarmed = []
 

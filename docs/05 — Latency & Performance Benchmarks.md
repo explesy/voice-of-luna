@@ -1,105 +1,69 @@
 # Latency & Performance Benchmarks
 
-## Voice of Luna — Latency, Throughput & TTFA Matrix
+## What the application measures during a real voice turn
 
-> **Дата замеров:** 2026-09-07  
-> **Окружение:** macOS (Apple Silicon), локальный `codex app-server` (stdio JSON-RPC), Python 3.14 / FastAPI, WebSocket streaming pipeline.  
-> **Тестовый промпт:** *«Привет! В двух коротких предложениях объясни, как работает телескоп.»*
+The latency HUD describes one completed browser-to-local-server turn. It is a
+diagnostic breakdown, not an SLA and not a cross-machine benchmark.
 
-> **Статус данных:** историческая матрица ниже не воспроизведена в живой проверке 2026-09-07 и не должна использоваться как SLA или как основание для выбора модели. В текущей сессии заранее прогретый локальный thread создавался примерно за 230 мс, но TTFT реального Codex составлял 5,17 с для первого и 3,52 с для второго короткого хода `gpt-5.4-mini`; для `gpt-5.6-sol` — 8,17 с и 2,02 с соответственно. Скрытый прогрев в том же пользовательском thread снизил проверочный TTFT Mini до 1,30 с, но расходует одну короткую реплику квоты на новый диалог. Эти значения зависят от состояния удалённой модели и очереди сервиса. Новые метрики приложения разделяют клиентский VAD, STT, TTFT, ожидание первой фразы и TTS.
+| Metric | Boundary |
+|---|---|
+| `VAD` | Detected speech end to recorder stop. |
+| `ENC` | Browser PCM/WAV preparation after recorder stop. |
+| `PREP` | Server receipt of the complete audio frame to a usable 16 kHz mono WAV. |
+| `STT` | Start of Whisper transcription to transcript result. |
+| `LLM` | LLM request start to first streamed text delta. |
+| `TTS` | First speech segment queued to a completed audio artifact on the server. |
+| `e2e` | Detected speech end to browser audio-render start. |
 
----
+`e2e` is the closest available proxy for responsiveness. It means the browser
+scheduled audio rendering; it cannot prove when physical speakers produced a
+non-silent sample, because source clips may contain leading silence.
 
-## 1. Введение и методология
+## Local reproducible benchmarks
 
-В голосовом ассистенте ключевая метрика субъективного комфорта — не полное время генерации длинного ответа, а **TTFA (Time To First Audio)**: время от момента, когда пользователь замолчал, до момента, когда он **услышал первый звук** ответа.
+Run the local speech benchmark:
 
-Архитектура Voice of Luna решает проблему задержки за счёт **раннего чанкования (streaming sentence extraction)**:
-1. Backend слушает стрим токенов от `CodexAppServer`.
-2. Как только накапливается вводная фраза (от 3 слов и 12 символов до знака препинания вроде `,`, `:`, `—`), она мгновенно отправляется в синтезатор речи.
-3. Пока пользователь слушает первую фразу, модель в фоне продолжает генерировать остальную часть ответа, а движок TTS синтезирует последующие предложения.
+```bash
+make matrix
+```
 
----
+It performs seven warm repetitions per phrase, reports median, p95, min and
+max, and never calls Codex. Edge TTS is opt-in because it is network-backed:
 
-## 2. Главная матрица: Time To First Audio (TTFA)
+```bash
+cd backend
+uv run python scripts/run_model_matrix.py --include-edge
+```
 
-Время (в секундах) от отправки запроса до готовности первого аудио-чанка для воспроизведения в браузере.
+The runner reports `FALLBACK` rather than attributing a macOS fallback clip to
+Piper, Silero, or Edge. A requested engine is comparable only when its reported
+`actual` engine is the same.
 
-| Модель Codex \ Движок озвучки | Silero TTS (Offline PyTorch) ⚡ | Piper TTS (Offline ONNX) 🚀 | macOS say (Milena) 🍏 | Edge TTS (Cloud Neural) ☁️ |
-|:---|:---:|:---:|:---:|:---:|
-| **GPT-5.4-Mini** *(Lightweight)* | **1.71 – 1.99 с** 🏆 | **1.88 с** ⚡ | **2.97 – 3.00 с** | **4.93 – 12.29 с** |
-| **GPT-5.6-Sol** *(Everyday Workhorse)* | **2.15 – 2.38 с** 🚀 | **2.52 с** ✨ *(Топ баланс)* | **3.16 – 3.64 с** | **3.63 – 12.93 с** |
-| **GPT-5.6-Terra** *(Balanced Coding)* | **2.47 – 2.85 с** | **2.98 с** | **3.66 – 4.10 с** | **3.87 – 13.39 с** |
-| **GPT-5.6-Luna** *(Voice Companion)* | **4.42 – 4.95 с** | **5.10 с** | **5.49 – 6.22 с** | **6.52 – 15.51 с** |
-| **GPT-5.5** *(Proven General)* | **6.74 – 7.55 с** | **7.71 с** | **7.85 – 8.83 с** | **10.34 – 18.12 с** |
-| **GPT-6-Astra** *(Flagship Intelligence)* | **8.38 – 8.70 с** | **8.86 с** | **9.50 – 9.98 с** | **10.37 – 19.27 с** |
+STT has no valid built-in synthetic fixture. Supplying silence would measure
+silence handling rather than recognition. Use a licensed, known-speech 16 kHz
+mono WAV when running an operator experiment:
 
----
+```bash
+cd backend
+uv run python scripts/run_model_matrix.py --stt-fixture /absolute/path/to/fixture.wav
+```
 
-## 3. Матрица: Полное время ответа (Total Turn Duration)
+Record the fixture's language, transcript, duration, hardware, OS, Python and
+model/runtime versions alongside the result. Do not commit private recordings
+or conversation audio.
 
-Время (в секундах) от старта запроса до полного завершения генерации текста **и** синтеза всех аудио-фрагментов (на типовую реплику ~160 символов).
+## Live Codex measurements
 
-| Модель Codex \ Движок озвучки | Silero TTS (Offline PyTorch) | Piper TTS (Offline ONNX) | macOS say (Milena) | Edge TTS (Cloud Neural) |
-|:---|:---:|:---:|:---:|:---:|
-| **GPT-5.4-Mini** | **2.65 – 5.55 с** | **4.18 с** | **3.55 – 6.27 с** | 12.57 – 22.99 с |
-| **GPT-5.6-Sol** | **2.75 – 6.52 с** | **5.15 с** | **3.67 – 7.23 с** | 6.68 – 23.95 с |
-| **GPT-5.6-Terra** | **3.76 – 6.79 с** | **5.42 с** | **4.46 – 7.50 с** | 13.89 – 24.23 с |
-| **GPT-5.6-Luna** | **5.25 – 10.94 с** | **9.57 с** | **6.17 – 11.65 с** | 8.14 – 28.37 с |
-| **GPT-5.5** | **8.02 – 13.90 с** | **12.53 с** | **8.77 – 14.61 с** | 13.97 – 31.34 с |
-| **GPT-6-Astra** | **9.19 – 17.44 с** | **16.06 с** | **10.00 – 18.15 с** | 15.34 – 34.87 с |
+Remote-model TTFT, first spoken segment, and end-to-end latency depend on the
+selected model, reasoning effort, account state, queueing, conversation warmup
+and network conditions. They must be collected from explicit operator turns and
+reported with their sample count and percentile distribution. The local matrix
+does not estimate them from historical constants and does not consume quota.
 
----
+## Historical numbers
 
-## 4. Детализация по компонентам
-
-### 4.1. Скорость моделей (Codex App-Server)
-
-Замеры при значении `reasoning_effort="low"` (оптимизировано для голосового диалога):
-
-| Модель | TTFT (1-й токен) | Готовность 1-й фразы | Полная генерация | Длина ответа | Скорость |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **GPT-5.4-Mini** | 1.75 с | 1.92 с | 2.46 с | 155 симв. | **63.0 симв/с** |
-| **GPT-5.6-Sol** | 1.87 с | 2.09 с | 2.60 с | 142 симв. | **54.6 симв/с** |
-| **GPT-5.6-Terra** | 2.37 с | 2.42 с | 3.32 с | 196 симв. | **59.1 симв/с** |
-| **GPT-5.6-Luna** | 4.19 с | 4.34 с | 5.06 с | 161 симв. | **31.8 симв/с** |
-| **GPT-5.5** | 6.63 с | 6.68 с | 7.61 с | 219 симв. | **28.8 симв/с** |
-| **GPT-6-Astra** | 7.43 с | 8.27 с | 8.89 с | 172 симв. | **19.3 симв/с** |
-
-**Наблюдения по моделям:**
-- **GPT-5.4-Mini** и **GPT-5.6-Sol** начинают отдавать токены менее чем за 2 секунды. Для голосового ассистента это критически важно.
-- **GPT-5.6-Sol** демонстрирует наилучшее соотношение глубины ответа и скорости отклика.
-- **GPT-6-Astra** требует значительно больше времени на рассуждения (TTFT > 7.4 с), поэтому больше подходит для аналитических задач, чем для динамичного small talk.
-
----
-
-### 4.2. Сравнение движков синтеза речи (TTS Engines)
-
-Тестирование на калиброванных фразах:
-1. **Короткая фраза (44 симв., первый чанк):** *«Привет! Телескоп собирает и фокусирует свет.»*
-2. **Полное предложение (113 симв.):** *«Телескоп собирает и фокусирует свет с помощью системы линз или зеркал, создавая четкое изображение далёких звезд.»*
-
-| Движок | Задержка 1-го чанка | Задержка предложения | Скорость генерации | Формат | Плюсы и минусы |
-|---|:---:|:---:|:---:|:---:|---|
-| **Silero TTS v4** *(Ksenia, offline)* | **50 – 120 мс** | **~240 – 250 мс** | **~450 – 960 симв/с** | WAV (48 kHz) | 🚀 **Сверхбыстрый**. Резидентный PyTorch в памяти, микросекундная инициализация. |
-| **Piper TTS ONNX** *(Dmitri/Irina, offline)* | **~165 – 225 мс** | **~340 – 720 мс** | **~160 – 330 симв/с** | WAV (22 kHz) | ⚡ **Надёжный нейро-оффлайн**. Легковесный ONNX runtime, стабильная скорость без тяжелых зависимостей. |
-| **macOS say** *(Milena Enhanced)* | **~970 – 1350 мс** | **~1010 – 1170 мс** | **~100 симв/с** | WAV (22 kHz) | 🍏 **Надёжный offline**. Всегда доступен в macOS без сторонних библиотек, но имеет постоянный оверхед на запуск системного процесса `say` (~1 сек). |
-| **Edge TTS** *(Svetlana, cloud)* | **~2000 – 10000 мс** | **~6000 – 13500 мс** | **~15 – 35 симв/с** | MP3 (neural) | ☁️ **Премиум-звучание**. Очень естественные интонации, но сетевой TLS/WebSocket handshake добавляет заметную задержку. |
-
----
-
-## 5. Выводы и практические рекомендации
-
-1. **Рекомендуемая конфигурация по умолчанию:**  
-   `GPT-5.6-Sol` + `Ksenia (Silero Neural · Offline)`  
-   - Обеспечивает **TTFA 2.15 с** — пользователь не замечает паузы.
-   - Работает полностью автономно (TTS не зависит от доступности облака Microsoft).
-2. **Конфигурация максимальной отзывчивости (Ultra-fast):**  
-   `GPT-5.4-Mini` + `Silero TTS`  
-   - Рекордный **TTFA 1.99 с** и полное время цикла **2.65 с**.
-3. **Конфигурация наивысшего качества речи (Studio Quality):**  
-   `GPT-5.6-Sol` + `Svetlana (Neural · Edge)`  
-   - Задержка возрастает до **~3.6 с**, но даёт наиболее гладкую речь студийного уровня.
-4. **Конфигурация сложных рассуждений (Deep Thinking):**  
-   `GPT-6-Astra` + `Silero TTS`  
-   - TTFA **~8.4 с**. Подходит для разбора кода, сложной логики или глубоких консультаций.
+The tables that previously listed fixed LLM × TTS latency values were a mixture
+of single local observations and formula-derived estimates. They are retired
+from this document: they are neither a current measurement nor a basis for
+choosing a default model. Earlier timing claims remain available in git history
+as historical context only.

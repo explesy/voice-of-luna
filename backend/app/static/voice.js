@@ -369,6 +369,8 @@ function updateLatencyHud(timing, clientE2eMs) {
   }
   if (timing?.stt_ms != null) parts.push(`STT: ${timing.stt_ms}ms`);
   if (timing?.client_endpoint_delay_ms != null) parts.push(`VAD: ${timing.client_endpoint_delay_ms}ms`);
+  if (timing?.client_audio_encode_ms != null) parts.push(`ENC: ${timing.client_audio_encode_ms}ms`);
+  if (timing?.server_audio_prep_ms != null) parts.push(`PREP: ${timing.server_audio_prep_ms}ms`);
   if (timing?.llm_first_delta_ms != null) parts.push(`LLM: ${timing.llm_first_delta_ms}ms`);
   if (timing?.tts_synthesis_first_chunk_ms != null) parts.push(`TTS: ${timing.tts_synthesis_first_chunk_ms}ms`);
 
@@ -898,6 +900,7 @@ async function finishRecording(stream, recordBtn) {
   const audioUrl = recordBtn?.dataset?.audioUrl || document.querySelector("[data-record]")?.dataset.audioUrl;
 
   let audioBlob = null;
+  const audioEncodeStartedAt = performance.now();
   if (rawPcm.length > 0) {
     try {
       const merged = mergeBuffers(rawPcm);
@@ -913,6 +916,7 @@ async function finishRecording(stream, recordBtn) {
 
   await sendRecording(audioUrl, audioBlob, {
     endpoint_delay_ms: Math.round(recordingStoppedAt - speechEndedAt),
+    audio_encode_ms: Math.round(performance.now() - audioEncodeStartedAt),
   });
 }
 

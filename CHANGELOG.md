@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-09-08
+
+### Fixed
+- **Truthful latency evidence**:
+  - Replaced formula-derived LLM × TTS latency tables with a local-only benchmark that never estimates or invokes Codex.
+  - Made Edge TTS opt-in, required a real-speech fixture for STT, and added warm-run median/p95/min/max reporting.
+  - Detects and reports the engine that actually produced a TTS clip, so a macOS fallback cannot be presented as Piper, Silero, or Edge.
+  - Split server audio preparation from Whisper time and surfaces browser audio encoding time in the latency HUD.
+
 ## [0.14.0] - 2026-09-08
 
 ### Added

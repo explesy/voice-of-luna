@@ -19,6 +19,16 @@ class LocalSpeechError(RuntimeError):
     """Raised when a local response cannot be rendered to audio."""
 
 
+@dataclass(frozen=True)
+class SpeechSynthesisResult:
+    """Audio artifact together with the engine that actually produced it."""
+
+    path: Path
+    requested_engine: str
+    actual_engine: str
+    fallback_reason: str | None = None
+
+
 @dataclass
 class VoiceInfo:
     name: str
@@ -119,6 +129,16 @@ def is_piper_voice(voice_name: str) -> bool:
         or "piper" in voice_name.lower()
         or any(k.lower() in voice_name.lower() for k in ("dmitri", "irina"))
     )
+
+
+def _engine_for_voice(voice_name: str) -> str:
+    if is_edge_voice(voice_name):
+        return "edge"
+    if is_piper_voice(voice_name):
+        return "piper"
+    if is_silero_voice(voice_name):
+        return "silero"
+    return "macos"
 
 
 def resolve_piper_model(voice_name: str) -> str:
@@ -967,16 +987,30 @@ class LocalMacOsSpeaker:
             destination.unlink(missing_ok=True)
             raise
 
-    async def synthesize(self, text: str, voice: str | None = None) -> Path | None:
+    async def synthesize_with_metadata(
+        self, text: str, voice: str | None = None
+    ) -> SpeechSynthesisResult | None:
+        """Synthesize speech and retain an auditable record of any fallback.
+
+        The UI can continue to use :meth:`synthesize`, while diagnostics and
+        benchmarks can report the engine that produced the clip rather than the
+        engine that was merely requested.
+        """
         clean_text = sanitize_for_speech(text)
         if not clean_text:
             return None
 
         active_voice = voice or self.voice
+        requested_engine = _engine_for_voice(active_voice)
+        fallback_reason: str | None = None
 
         if is_edge_voice(active_voice):
             try:
-                return await self._synthesize_edge(clean_text, active_voice)
+                return SpeechSynthesisResult(
+                    path=await self._synthesize_edge(clean_text, active_voice),
+                    requested_engine=requested_engine,
+                    actual_engine="edge",
+                )
             except Exception as exc:
                 logger.warning(
                     "Edge TTS failed for voice '%s' (%s), falling back to local voice",
@@ -987,10 +1021,15 @@ class LocalMacOsSpeaker:
                     active_voice = get_voice_for_locale("en", allowed_engines={"macos"}) or "Samantha"
                 else:
                     active_voice = get_default_voice()
+                fallback_reason = str(exc)
 
         if is_piper_voice(active_voice):
             try:
-                return await self._synthesize_piper(clean_text, active_voice)
+                return SpeechSynthesisResult(
+                    path=await self._synthesize_piper(clean_text, active_voice),
+                    requested_engine=requested_engine,
+                    actual_engine="piper",
+                )
             except Exception as exc:
                 logger.warning(
                     "Piper TTS failed for voice '%s' (%s), falling back to local voice",
@@ -998,10 +1037,15 @@ class LocalMacOsSpeaker:
                     exc,
                 )
                 active_voice = get_default_voice()
+                fallback_reason = str(exc)
 
         if is_silero_voice(active_voice):
             try:
-                return await self._synthesize_silero(clean_text, active_voice)
+                return SpeechSynthesisResult(
+                    path=await self._synthesize_silero(clean_text, active_voice),
+                    requested_engine=requested_engine,
+                    actual_engine="silero",
+                )
             except Exception as exc:
                 logger.warning(
                     "Silero TTS failed for voice '%s' (%s), falling back to local voice",
@@ -1009,6 +1053,16 @@ class LocalMacOsSpeaker:
                     exc,
                 )
                 active_voice = get_default_voice()
+                fallback_reason = str(exc)
 
-        return await self._synthesize_macos(clean_text, active_voice)
+        return SpeechSynthesisResult(
+            path=await self._synthesize_macos(clean_text, active_voice),
+            requested_engine=requested_engine,
+            actual_engine="macos",
+            fallback_reason=fallback_reason,
+        )
 
+    async def synthesize(self, text: str, voice: str | None = None) -> Path | None:
+        """Backward-compatible synthesis API returning only the generated path."""
+        result = await self.synthesize_with_metadata(text, voice)
+        return result.path if result else None

@@ -554,7 +554,7 @@ def test_websocket_binary_audio_turn_transcribes_and_streams(monkeypatch, tmp_pa
         ready = ws.receive_json()
         assert ready["type"] == "ready"
 
-        ws.send_json({"type": "audio_timing", "endpoint_delay_ms": 450})
+        ws.send_json({"type": "audio_timing", "endpoint_delay_ms": 450, "audio_encode_ms": 32})
         ws.send_bytes(audio_bytes)
 
         status_transcribing = ws.receive_json()
@@ -584,6 +584,9 @@ def test_websocket_binary_audio_turn_transcribes_and_streams(monkeypatch, tmp_pa
         assert turn_done["type"] == "turn_completed"
         assert turn_done["turn"]["text"] == "Ответ на голос."
         assert turn_done["timing"]["client_endpoint_delay_ms"] == 450
+        assert turn_done["timing"]["client_audio_encode_ms"] == 32
+        assert "server_audio_prep_ms" in turn_done["timing"]
+        assert "stt_ms" in turn_done["timing"]
         assert "first_speech_segment_wait_ms" in turn_done["timing"]
         assert "tts_synthesis_first_chunk_ms" in turn_done["timing"]
 

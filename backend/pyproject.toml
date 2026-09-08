@@ -1,6 +1,6 @@
 [project]
 name = "voice-of-luna-backend"
-version = "0.14.0"
+version = "0.15.0"
 description = "Local-first conversation bridge for Voice of Luna"
 requires-python = ">=3.12"
 dependencies = [
@@ -9,6 +9,7 @@ dependencies = [
   "httpx>=0.27,<1",
   "jinja2>=3.1,<4",
   "numpy>=2.5.3",
+  "num2words>=0.5.13",
   "piper-tts>=1.2.0",
   "python-multipart>=0.0.20,<1",
   "uvicorn[standard]>=0.30,<1",

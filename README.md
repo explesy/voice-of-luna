@@ -234,10 +234,15 @@ cd backend
 uv run pytest -q
 ```
 
-To run the live hardware benchmark and test matrix:
+To run the local TTS benchmark (seven warm samples per phrase; no Codex quota
+and no Edge network request):
 ```bash
 make matrix
 ```
+
+Pass `--include-edge` explicitly for the network-backed Edge TTS experiment,
+and `--stt-fixture /absolute/path/to/licensed-speech.wav` for an STT experiment
+with real speech. See [the benchmark methodology](docs/05%20%E2%80%94%20Latency%20%26%20Performance%20Benchmarks.md).
 
 To verify version synchronization (SemVer single source of truth):
 ```bash

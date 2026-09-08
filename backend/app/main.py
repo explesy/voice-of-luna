@@ -1093,6 +1093,7 @@ async def _stream_and_synthesize(
     conversation: Conversation,
     prompt_text: str,
     t_start: float | None = None,
+    t_audio_prepared: float | None = None,
     t_stt: float | None = None,
     client_timing: dict[str, int] | None = None,
 ) -> None:
@@ -1256,8 +1257,10 @@ async def _stream_and_synthesize(
         t_turn_completed = time.perf_counter()
         timing: dict[str, float | None] = {}
         if t_start:
+            if t_audio_prepared:
+                timing["server_audio_prep_ms"] = round((t_audio_prepared - t_start) * 1000)
             if t_stt:
-                timing["stt_ms"] = round((t_stt - t_start) * 1000)
+                timing["stt_ms"] = round((t_stt - (t_audio_prepared or t_start)) * 1000)
             if t_first_delta:
                 base_llm = t_stt or t_start
                 timing["llm_first_delta_ms"] = round((t_first_delta - base_llm) * 1000)
@@ -1270,6 +1273,8 @@ async def _stream_and_synthesize(
             timing["backend_total_ms"] = round((t_turn_completed - t_start) * 1000)
         if client_timing and client_timing.get("endpoint_delay_ms") is not None:
             timing["client_endpoint_delay_ms"] = client_timing["endpoint_delay_ms"]
+        if client_timing and client_timing.get("audio_encode_ms") is not None:
+            timing["client_audio_encode_ms"] = client_timing["audio_encode_ms"]
 
         await websocket.send_json({
             "type": "turn_completed",
@@ -1362,6 +1367,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                             wav_path = temporary_path
                         else:
                             wav_path = await _convert_to_wav(temporary_path)
+                        t_audio_prepared = time.perf_counter()
                         stt_lang = plugin_manager.get_stt_language(conversation.plugin_id)
                         stt_prompt = plugin_manager.get_stt_prompt(conversation.plugin_id)
                         if not stt_lang:
@@ -1388,6 +1394,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                             conversation,
                             transcript,
                             t_start=t_recv,
+                            t_audio_prepared=t_audio_prepared,
                             t_stt=t_stt,
                             client_timing=client_timing,
                         )
@@ -1495,8 +1502,11 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                     })
                 elif msg_type == "audio_timing":
                     endpoint_delay = payload.get("endpoint_delay_ms")
+                    audio_encode = payload.get("audio_encode_ms")
                     if isinstance(endpoint_delay, (int, float)) and 0 <= endpoint_delay <= 10_000:
                         pending_audio_timing = {"endpoint_delay_ms": round(endpoint_delay)}
+                        if isinstance(audio_encode, (int, float)) and 0 <= audio_encode <= 10_000:
+                            pending_audio_timing["audio_encode_ms"] = round(audio_encode)
                 elif msg_type == "text":
                     text = payload.get("text", "").strip()
                     if not text:
