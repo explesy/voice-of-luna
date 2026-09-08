@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-09-08
+
+### Fixed
+- Use a locale-aware TTS fallback chain and report the actual engine used by streamed turns.
+- Allow English Piper Lessac synthesis and require verified Piper artifacts before loading or prewarming them.
+
 ## [0.22.0] - 2026-09-08
 
 ### Removed

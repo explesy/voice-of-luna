@@ -76,6 +76,7 @@ from .plugins import PluginTurnResult, TurnContext, plugin_manager
 from .speak import (
     LocalMacOsSpeaker,
     LocalSpeechError,
+    SpeechSynthesisResult,
     get_active_voice,
     get_default_voice,
     get_default_voice_for_locale,
@@ -93,6 +94,7 @@ from .whisper_server import WhisperServerManager
 whisper_server = WhisperServerManager()
 CONVERSATION_IDLE_TTL_SECONDS = int(os.environ.get("VOICE_OF_LUNA_CONVERSATION_IDLE_TTL_SECONDS", "900"))
 CONVERSATION_REAPER_INTERVAL_SECONDS = 60
+_DEFAULT_SPEAKER_SYNTHESIZE = LocalMacOsSpeaker.synthesize
 
 
 TRAILING_SOURCES_PLACEHOLDER_RE = re.compile(
@@ -1103,12 +1105,15 @@ async def _stream_and_synthesize(
     t_first_audio: float | None = None
 
     # Pipelined TTS: pre-synthesize sentence n+1 concurrently while delivering sentence n
-    synthesis_jobs: asyncio.Queue[tuple[str, asyncio.Task[Path | None]] | None] = asyncio.Queue()
+    synthesis_jobs: asyncio.Queue[tuple[str, asyncio.Task[SpeechSynthesisResult | None]] | None] = asyncio.Queue()
+    synthesis_results: list[SpeechSynthesisResult] = []
 
-    async def _send_audio(clean_text: str, clip_path: Path | None) -> None:
+    async def _send_audio(clean_text: str, result: SpeechSynthesisResult | None) -> None:
         nonlocal t_first_audio
-        if clip_path is None:
+        if result is None:
             return
+        clip_path = result.path
+        synthesis_results.append(result)
         try:
             if t_first_audio is None:
                 t_first_audio = time.perf_counter()
@@ -1160,9 +1165,27 @@ async def _stream_and_synthesize(
     consumer_task = asyncio.create_task(_synthesis_consumer())
     synth_semaphore = asyncio.Semaphore(2)
 
-    async def _bounded_synthesize(text: str) -> Path | None:
+    async def _bounded_synthesize(text: str) -> SpeechSynthesisResult | None:
         async with synth_semaphore:
-            return await speaker.synthesize(text)
+            # Keep compatibility with integrations/tests that override the
+            # legacy path-only ``synthesize`` method.
+            if getattr(speaker.synthesize, "__func__", None) is not _DEFAULT_SPEAKER_SYNTHESIZE:
+                path = await speaker.synthesize(text)
+                if path is None:
+                    return None
+                engine_label = _get_tts_engine(speaker_voice)
+                actual_engine = {
+                    "EDGE_TTS": "edge",
+                    "PIPER_OFFLINE": "piper",
+                    "SILERO_OFFLINE": "silero",
+                    "MACOS_SAY": "macos",
+                }.get(engine_label, "macos")
+                return SpeechSynthesisResult(
+                    path=path,
+                    requested_engine=actual_engine,
+                    actual_engine=actual_engine,
+                )
+            return await speaker.synthesize_with_metadata(text)
 
     async def _queue_sentence(sentence_to_deliver: str) -> None:
         nonlocal t_first_sentence_queued
@@ -1273,7 +1296,18 @@ async def _stream_and_synthesize(
             "response_locale": turn_lang.response_locale,
             "voice_locale": turn_lang.voice_locale,
             "voice": speaker_voice,
-            "tts_engine": _get_tts_engine(speaker_voice),
+            "requested_tts_engine": _get_tts_engine(speaker_voice),
+            "tts_engine": (
+                {"edge": "EDGE_TTS", "piper": "PIPER_OFFLINE", "silero": "SILERO_OFFLINE", "macos": "MACOS_SAY"}.get(
+                    synthesis_results[0].actual_engine,
+                    _get_tts_engine(speaker_voice),
+                )
+                if synthesis_results and len({result.actual_engine for result in synthesis_results}) == 1
+                else ("MIXED" if synthesis_results else _get_tts_engine(speaker_voice))
+            ),
+            "tts_fallback_reason": "; ".join(
+                result.fallback_reason for result in synthesis_results if result.fallback_reason
+            ) or None,
         })
         await websocket.send_json({
             "type": "status",

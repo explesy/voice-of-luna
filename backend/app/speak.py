@@ -132,7 +132,7 @@ def is_piper_voice(voice_name: str) -> bool:
     return (
         voice_name in PIPER_VOICES
         or "piper" in voice_name.lower()
-        or any(k.lower() in voice_name.lower() for k in ("dmitri", "irina"))
+        or any(k.lower() in voice_name.lower() for k in ("dmitri", "irina", "lessac"))
     )
 
 
@@ -374,7 +374,14 @@ def _get_piper_voice(model_key: str):
     if model_key in _piper_cache:
         return _piper_cache[model_key]
 
-    from app.tts_manager import find_model_file
+    from app.tts_manager import MODEL_CATALOG, find_model_file, tts_model_manager
+    model = next(
+        (definition for definition in MODEL_CATALOG.values()
+         if any(spec.filename == f"{model_key}.onnx" for spec in definition.files)),
+        None,
+    )
+    if model is None or not tts_model_manager.is_ready(model.id):
+        raise LocalSpeechError(f"Piper voice model '{model_key}' is missing or failed checksum verification")
     onnx_file = find_model_file(f"{model_key}.onnx")
     if not onnx_file:
         raise LocalSpeechError(f"Piper voice model '{model_key}' is not downloaded yet")
@@ -409,7 +416,9 @@ async def prewarm_voice(voice_name: str | None) -> None:
                 await asyncio.to_thread(_get_silero_model)
     elif is_piper_voice(voice_name):
         model_key = resolve_piper_model(voice_name)
-        if find_model_file(f"{model_key}.onnx"):
+        from app.tts_manager import tts_model_manager
+        model = tts_model_manager.get_model_for_voice(voice_name)
+        if model and tts_model_manager.is_ready(model.id):
             await asyncio.to_thread(_get_piper_voice, model_key)
 
 
@@ -1045,14 +1054,15 @@ class LocalMacOsSpeaker:
             raise
 
     async def _synthesize_piper(self, clean_text: str, voice_name: str) -> Path:
-        if not re.search(r"[\u0400-\u052f]", clean_text):
-            raise LocalSpeechError(f"Piper Russian TTS only supports Cyrillic text: '{clean_text[:40]}'")
-
         import wave
 
         model_key = resolve_piper_model(voice_name)
-        piper_text = normalize_numbers_for_speech(clean_text)
-        piper_text = transliterate_latin_for_speech(piper_text)
+        is_english_model = model_key.startswith("en_")
+        if not is_english_model and not re.search(r"[\u0400-\u052f]", clean_text):
+            raise LocalSpeechError(f"Piper Russian TTS only supports Cyrillic text: '{clean_text[:40]}'")
+        piper_text = clean_text if is_english_model else normalize_numbers_for_speech(clean_text)
+        if not is_english_model:
+            piper_text = transliterate_latin_for_speech(piper_text)
         descriptor, raw_wav = tempfile.mkstemp(prefix="voice-of-luna-speech-", suffix=".wav")
         os.close(descriptor)
         destination = Path(raw_wav)
@@ -1072,6 +1082,31 @@ class LocalMacOsSpeaker:
             destination.unlink(missing_ok=True)
             raise
 
+    def _fallback_candidates(self, requested_voice: str, clean_text: str) -> list[str]:
+        """Return installed same-locale voices in privacy-preserving fallback order."""
+        requested_lower = requested_voice.lower()
+        locale = "ru" if re.search(r"[\u0400-\u052f]", clean_text) else "en"
+        if any(token in requested_lower for token in ("elvira", "alvaro", "mónica", "monica", "paulina")):
+            locale = "es"
+        elif any(token in requested_lower for token in ("dmitri", "irina", "ksenia", "baya", "aidar", "eugene", "milena")):
+            locale = "ru"
+        candidates: list[str] = []
+        for engine in ("piper", "silero", "macos", "edge"):
+            candidate = get_voice_for_locale(locale, allowed_engines={engine})
+            if candidate and candidate.lower() not in {requested_lower, *(v.lower() for v in candidates)}:
+                candidates.append(candidate)
+        return candidates
+
+    async def _synthesize_candidate(self, clean_text: str, voice_name: str) -> Path | None:
+        engine = _engine_for_voice(voice_name)
+        if engine == "edge":
+            return await self._synthesize_edge(clean_text, voice_name)
+        if engine == "piper":
+            return await self._synthesize_piper(clean_text, voice_name)
+        if engine == "silero":
+            return await self._synthesize_silero(clean_text, voice_name)
+        return await self._synthesize_macos(clean_text, voice_name)
+
     async def synthesize_with_metadata(
         self, text: str, voice: str | None = None
     ) -> SpeechSynthesisResult | None:
@@ -1085,67 +1120,25 @@ class LocalMacOsSpeaker:
         if not clean_text:
             return None
 
-        active_voice = voice or self.voice
-        requested_engine = _engine_for_voice(active_voice)
-        fallback_reason: str | None = None
-
-        if is_edge_voice(active_voice):
+        requested_voice = voice or self.voice
+        requested_engine = _engine_for_voice(requested_voice)
+        candidates = [requested_voice, *self._fallback_candidates(requested_voice, clean_text)]
+        failures: list[str] = []
+        for candidate in candidates:
             try:
+                path = await self._synthesize_candidate(clean_text, candidate)
+                if path is None:
+                    raise LocalSpeechError(f"voice '{candidate}' produced no audio")
                 return SpeechSynthesisResult(
-                    path=await self._synthesize_edge(clean_text, active_voice),
+                    path=path,
                     requested_engine=requested_engine,
-                    actual_engine="edge",
+                    actual_engine=_engine_for_voice(candidate),
+                    fallback_reason="; ".join(failures) if failures else None,
                 )
             except Exception as exc:
-                logger.warning(
-                    "Edge TTS failed for voice '%s' (%s), falling back to local voice",
-                    active_voice,
-                    exc,
-                )
-                if any(n in active_voice.lower() for n in ("jenny", "guy", "aria")) or not re.search(r"[\u0400-\u052f]", clean_text):
-                    active_voice = get_voice_for_locale("en", allowed_engines={"macos"}) or "Samantha"
-                else:
-                    active_voice = get_default_voice()
-                fallback_reason = str(exc)
-
-        if is_piper_voice(active_voice):
-            try:
-                return SpeechSynthesisResult(
-                    path=await self._synthesize_piper(clean_text, active_voice),
-                    requested_engine=requested_engine,
-                    actual_engine="piper",
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Piper TTS failed for voice '%s' (%s), falling back to local voice",
-                    active_voice,
-                    exc,
-                )
-                active_voice = get_default_voice()
-                fallback_reason = str(exc)
-
-        if is_silero_voice(active_voice):
-            try:
-                return SpeechSynthesisResult(
-                    path=await self._synthesize_silero(clean_text, active_voice),
-                    requested_engine=requested_engine,
-                    actual_engine="silero",
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Silero TTS failed for voice '%s' (%s), falling back to local voice",
-                    active_voice,
-                    exc,
-                )
-                active_voice = get_default_voice()
-                fallback_reason = str(exc)
-
-        return SpeechSynthesisResult(
-            path=await self._synthesize_macos(clean_text, active_voice),
-            requested_engine=requested_engine,
-            actual_engine="macos",
-            fallback_reason=fallback_reason,
-        )
+                failures.append(f"{candidate}: {exc}")
+                logger.warning("TTS candidate failed for voice '%s': %s", candidate, exc)
+        raise LocalSpeechError("All TTS fallback candidates failed: " + "; ".join(failures))
 
     async def synthesize(self, text: str, voice: str | None = None) -> Path | None:
         """Backward-compatible synthesis API returning only the generated path."""

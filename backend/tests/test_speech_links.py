@@ -429,6 +429,7 @@ async def test_speaker_edge_tts_fallback_to_macos_on_error(monkeypatch, tmp_path
 
     speaker = LocalMacOsSpeaker(voice="Svetlana (Neural · Edge)")
     monkeypatch.setattr(speaker, "_synthesize_macos", fake_macos)
+    monkeypatch.setattr(speaker, "_fallback_candidates", lambda *args: ["Milena"])
 
     result_path = await speaker.synthesize("Тест автоматического отката на локальный синтез.")
     assert result_path is not None
@@ -511,6 +512,7 @@ async def test_speaker_silero_fallback_to_macos_on_error(monkeypatch, tmp_path) 
         raise RuntimeError("Silero inference crash")
 
     monkeypatch.setattr(LocalMacOsSpeaker, "_synthesize_silero", failing_silero)
+    monkeypatch.setattr(LocalMacOsSpeaker, "_fallback_candidates", lambda *args: ["Milena"])
 
     fake_wav = tmp_path / "fallback_milena.wav"
     fake_wav.write_bytes(b"RIFFfallback_from_silero")
@@ -633,8 +635,6 @@ def test_websocket_streaming_voices_all_sentences_with_links_in_bullets(monkeypa
         assert audio_chunks[0]["mime_type"] == "audio/mpeg"
         # Explicit sources section must be skipped
         assert not any("Источники" in p for p in synthesized_phrases)
-
-
 
 
 

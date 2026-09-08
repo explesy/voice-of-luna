@@ -160,6 +160,7 @@ async def test_piper_synthesizer_fallback_on_error(monkeypatch, tmp_path) -> Non
         raise RuntimeError("Piper engine failure")
 
     monkeypatch.setattr(LocalMacOsSpeaker, "_synthesize_piper", failing_piper)
+    monkeypatch.setattr(LocalMacOsSpeaker, "_fallback_candidates", lambda *args: ["Milena"])
 
     fallback_wav = tmp_path / "fallback.wav"
     fallback_wav.write_bytes(b"RIFFfallback_from_piper")
@@ -187,6 +188,7 @@ async def test_synthesis_metadata_reports_fallback_engine(monkeypatch, tmp_path)
 
     monkeypatch.setattr(LocalMacOsSpeaker, "_synthesize_piper", failing_piper)
     monkeypatch.setattr(LocalMacOsSpeaker, "_synthesize_macos", fake_macos)
+    monkeypatch.setattr(LocalMacOsSpeaker, "_fallback_candidates", lambda *args: ["Milena"])
 
     result = await LocalMacOsSpeaker(
         voice="Dmitri (Piper Neural · Offline)"
@@ -203,6 +205,7 @@ async def test_prewarm_voice_handles_piper_and_silero(monkeypatch) -> None:
     prewarmed = []
 
     monkeypatch.setattr("app.tts_manager.find_model_file", lambda f: Path(f))
+    monkeypatch.setattr("app.tts_manager.TTSModelManager.is_ready", lambda self, model_id: True)
     monkeypatch.setattr("app.speak._get_piper_voice", lambda k: prewarmed.append(f"piper:{k}"))
     monkeypatch.setattr("app.speak._get_silero_model", lambda: prewarmed.append("silero"))
 

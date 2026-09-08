@@ -50,7 +50,7 @@ test("text turn, settings, and fake microphone stay on one browser session", asy
   await expect(page.locator("#voice-select")).toHaveValue("Svetlana (Neural · Edge)");
 
   await page.locator("#locale-select").selectOption("en-US");
-  await page.locator("#session-plugin-select").selectOption("spanish_buddy");
+  await page.locator("#session-plugin-select").selectOption("project_room");
   await page.locator("#message").fill("hello from browser smoke");
   await page.locator("#message").press("Enter");
 
