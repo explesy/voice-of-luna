@@ -676,7 +676,7 @@ def test_htmx_shell_renders_voice_selector_with_options() -> None:
     page = client.get("/")
     assert page.status_code == 200
     assert 'id="voice-select"' in page.text
-    assert "Milena" in page.text
+    assert "Svetlana (Neural" in page.text
     assert "voice-selector-chip" in page.text
     # Other voices should be collapsed by default into template + expand option
     assert 'value="__expand_other__"' in page.text

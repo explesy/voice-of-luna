@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.5] - 2026-09-08
+
+### Fixed
+- Removed the last Linux CI assertion that depended on a macOS-only `Milena` voice.
+
 ## [0.17.4] - 2026-09-08
 
 ### Fixed
