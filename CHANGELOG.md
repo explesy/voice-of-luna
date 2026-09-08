@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-09-08
+
+### Changed
+- Recorded the reproducible local TTS, Edge TTS, and explicit live-Codex timing snapshots with their sample-size and evidence limitations.
+
 ## [0.16.0] - 2026-09-08
 
 ### Added
