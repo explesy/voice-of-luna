@@ -120,3 +120,24 @@ def test_call_reply_and_stream_duck_typing() -> None:
         return "".join(chunks)
 
     assert asyncio.run(collect_stream()) == "chunk1 world"
+
+
+def test_is_silero_available_detection() -> None:
+    from app.speak import is_silero_available
+    # In dev environment with torch installed, it should be True
+    assert is_silero_available() is True
+
+
+def test_silero_without_torch_raises_friendly_error(monkeypatch) -> None:
+    from app.speak import LocalMacOsSpeaker, LocalSpeechError
+
+    # Simulate missing torch via is_silero_available
+    monkeypatch.setattr("app.speak.is_silero_available", lambda: False)
+
+    speaker = LocalMacOsSpeaker(voice="Ksenia (Silero Neural · Offline)")
+
+    with pytest.raises(LocalSpeechError) as exc_info:
+        asyncio.run(speaker._synthesize_silero("Тестовый текст", "Ksenia (Silero Neural · Offline)"))
+
+    assert "PyTorch (torch) is not installed" in str(exc_info.value)
+    assert "setup-silero" in str(exc_info.value)

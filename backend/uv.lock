@@ -1459,7 +1459,7 @@ wheels = [
 
 [[package]]
 name = "voice-of-luna-backend"
-version = "0.13.0"
+version = "0.14.0"
 source = { virtual = "." }
 dependencies = [
     { name = "edge-tts" },
@@ -1469,13 +1469,18 @@ dependencies = [
     { name = "numpy" },
     { name = "piper-tts" },
     { name = "python-multipart" },
-    { name = "torch" },
     { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+silero = [
+    { name = "torch" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "torch" },
 ]
 
 [package.metadata]
@@ -1487,12 +1492,16 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "piper-tts", specifier = ">=1.2.0" },
     { name = "python-multipart", specifier = ">=0.0.20,<1" },
-    { name = "torch", specifier = ">=2.14.0" },
+    { name = "torch", marker = "extra == 'silero'", specifier = ">=2.14.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
 ]
+provides-extras = ["silero"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8,<9" }]
+dev = [
+    { name = "pytest", specifier = ">=8,<9" },
+    { name = "torch", specifier = ">=2.14.0" },
+]
 
 [[package]]
 name = "watchfiles"

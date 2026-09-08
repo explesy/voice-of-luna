@@ -1,7 +1,10 @@
-.PHONY: setup test run matrix
+.PHONY: setup setup-silero test run matrix
 
 setup:
-	cd backend && uv sync --group dev
+	cd backend && uv sync
+
+setup-silero:
+	cd backend && uv sync --extra silero
 
 test:
 	cd backend && uv run pytest -q

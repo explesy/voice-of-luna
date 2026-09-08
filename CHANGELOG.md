@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-08
+
+### Added
+- **Optional PyTorch Extra (`[project.optional-dependencies]`)**:
+  - Moved heavy PyTorch (`torch>=2.14.0`) to optional `silero` extra dependency.
+  - Base installation (`make setup` / `uv sync`) is now lightweight and fast without downloading massive PyTorch wheels, running Piper ONNX, Edge TTS, and macOS say out-of-the-box.
+  - Added `make setup-silero` (`uv sync --extra silero`) for users who want local PyTorch Silero v4 Russian neural voices.
+- **Graceful Silero Degradation & Torch Detection**:
+  - Added `is_silero_available()` detection in `app/speak.py` using `importlib.util.find_spec("torch")`.
+  - Voices list dynamically reflects PyTorch availability without crashing if `torch` is absent.
+  - `_get_silero_model()` and `_synthesize_silero()` raise actionable `LocalSpeechError` guiding users to install the `silero` extra.
+  - Added unit tests in `tests/test_speech_pipeline.py` verifying detection and friendly error reporting.
+- **Documentation & Architecture Updates**:
+  - Updated `README.md` architecture diagram reflecting `speech_pipeline` and `conversation_service`.
+  - Documented lightweight setup vs Silero PyTorch setup options and updated test suite count (198+ tests).
+
 ## [0.13.0] - 2026-09-08
 
 ### Added

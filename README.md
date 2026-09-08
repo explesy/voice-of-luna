@@ -50,14 +50,13 @@ flowchart LR
 
     subgraph Backend ["Voice of Lúna Backend (FastAPI on localhost)"]
         WS["⚡ WebSocket Pipeline<br/>(Turn & Audio Stream)"]
-        VAD["⏱️ Client VAD<br/>(450ms silence endpointing)"]
-        STT["🎧 Local Whisper STT<br/>(whisper.cpp / whisper-server)"]
-        Chunker["✂️ Streaming Chunker<br/>(Early sentence extraction)"]
+        ConvSvc["📋 Conversation Service<br/>(Sessions & Idle Reaper)"]
+        SpeechPipe["🎧 Speech Pipeline<br/>(Local Whisper STT & Chunker)"]
         
         subgraph TTS ["Multi-Tier TTS Engine"]
             Edge["☁️ Edge TTS (Neural Cloud)"]
             Piper["🚀 Piper ONNX (Offline Neural)"]
-            Silero["⚡ Silero v4 (Offline Neural)"]
+            Silero["⚡ Silero v4 (Optional PyTorch Neural)"]
             Mac["🍏 macOS say (Native Offline)"]
         end
     end
@@ -67,12 +66,12 @@ flowchart LR
         Models["🧠 GPT-5.6-Sol / Mini / Astra<br/>(Streaming Tokens)"]
     end
 
-    Mic -->|Raw PCM| WS
-    WS --> VAD --> STT
-    STT -->|Transcribed Text| AppServer
+    Mic -->|Raw PCM 1024-batches| WS
+    WS --> ConvSvc
+    WS --> SpeechPipe --> AppServer
     AppServer --> Models
-    Models -->|Token Stream| Chunker
-    Chunker -->|Sentence Chunks| TTS
+    Models -->|Token Stream| SpeechPipe
+    SpeechPipe -->|Sentence Chunks| TTS
     TTS -->|MP3 / WAV Audio| WS
     WS --> Speaker
     UI -.->|Barge-In Interrupt| WS
@@ -161,18 +160,19 @@ curl -L --retry 3 https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml
 *(The `data/` directory is git-ignored).*
 
 ### Step 3: Clone & Install
-
+ 
 ```bash
 git clone https://github.com/explesy/voice-of-luna.git
 cd voice-of-luna
 make setup
 ```
+*(Standard lightweight install without heavy PyTorch. Includes Piper ONNX, Edge TTS, and macOS say).*
 
-Or using `uv` directly:
+To also enable **Silero PyTorch v4** voices:
 ```bash
-cd backend
-uv sync --group dev
+make setup-silero
 ```
+*(Or using `uv` directly: `cd backend && uv sync --extra silero`)*
 
 ### Step 4: Launch Voice of Lúna
 
@@ -223,7 +223,7 @@ Voice of Lúna works out of the box with zero configuration, but can be customiz
 
 ## 🧪 Testing & Verification
 
-The test suite runs completely offline with 100% mocked model calls — running tests will **never consume your Codex quota**:
+The comprehensive test suite contains 198+ unit and integration tests running completely offline with 100% mocked model calls — running tests will **never consume your Codex quota**:
  
 ```bash
 make test

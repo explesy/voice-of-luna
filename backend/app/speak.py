@@ -56,6 +56,12 @@ PIPER_VOICES: dict[str, str] = {
 }
 
 
+def is_silero_available() -> bool:
+    """Check if PyTorch (torch) is installed for Silero offline neural voices."""
+    import importlib.util
+    return importlib.util.find_spec("torch") is not None
+
+
 def is_edge_voice(voice_name: str) -> bool:
     """Check if the given voice name corresponds to an Edge TTS neural voice."""
     if not voice_name:
@@ -303,6 +309,12 @@ def _get_silero_model():
     if _silero_model is not None:
         return _silero_model
 
+    if not is_silero_available():
+        raise LocalSpeechError(
+            "PyTorch (torch) is not installed. Silero voices require the optional 'silero' extra: "
+            "install it with `make setup-silero` or `pip install '.[silero]'`"
+        )
+
     import torch
 
     candidates = [
@@ -370,13 +382,14 @@ async def prewarm_voice(voice_name: str | None) -> None:
     from app.tts_manager import find_model_file
 
     if is_silero_voice(voice_name):
-        candidates = (
-            Path(__file__).resolve().parents[1] / "models" / "silero_v4_ru.pt",
-            Path("models/silero_v4_ru.pt"),
-            Path.home() / ".cache" / "voice-of-luna" / "models" / "silero_v4_ru.pt",
-        )
-        if any(path.is_file() for path in candidates) or find_model_file("silero_v4_ru.pt"):
-            await asyncio.to_thread(_get_silero_model)
+        if is_silero_available():
+            candidates = (
+                Path(__file__).resolve().parents[1] / "models" / "silero_v4_ru.pt",
+                Path("models/silero_v4_ru.pt"),
+                Path.home() / ".cache" / "voice-of-luna" / "models" / "silero_v4_ru.pt",
+            )
+            if any(path.is_file() for path in candidates) or find_model_file("silero_v4_ru.pt"):
+                await asyncio.to_thread(_get_silero_model)
     elif is_piper_voice(voice_name):
         model_key = resolve_piper_model(voice_name)
         if find_model_file(f"{model_key}.onnx"):
@@ -495,7 +508,7 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
 
     from app.tts_manager import tts_model_manager
 
-    silero_installed = tts_model_manager.is_installed("silero_v4_ru")
+    silero_installed = is_silero_available() and tts_model_manager.is_installed("silero_v4_ru")
     silero_ru_voices = [
         VoiceInfo(
             name="Ksenia (Silero Neural · Offline)",
@@ -893,6 +906,11 @@ class LocalMacOsSpeaker:
         if not re.search(r"[\u0400-\u052f]", clean_text):
             raise LocalSpeechError(f"Silero TTS only supports Cyrillic/Russian text: '{clean_text[:40]}'")
 
+        if not is_silero_available():
+            raise LocalSpeechError(
+                "PyTorch (torch) is not installed. Silero voices require the optional 'silero' extra: "
+                "install it with `make setup-silero` or `pip install '.[silero]'`"
+            )
         import wave
         import torch
 
