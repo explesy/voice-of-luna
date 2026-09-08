@@ -29,7 +29,6 @@ from app.plugins import plugin_manager
 from app.speak import (
     get_active_voice,
     get_default_voice_for_locale,
-    get_voice_for_locale,
     prewarm_voice,
     voice_matches_locale,
 )
@@ -108,14 +107,15 @@ def resolve_turn_language(
         voice_locale = response_locale
 
     # 4. Resolve speaker voice
+    selected_voice = conversation.selected_voice or conversation.voice
     if plugin_override or pref_voice_locale or conversation.locale == "auto":
-        if conversation.voice and voice_matches_locale(conversation.voice, voice_locale):
-            speaker_voice = conversation.voice
+        if selected_voice and voice_matches_locale(selected_voice, voice_locale):
+            speaker_voice = selected_voice
         else:
             speaker_voice = get_default_voice_for_locale(voice_locale)
     else:
         # Fixed locale without plugin override: respect user's explicit voice selection if set
-        speaker_voice = conversation.voice or get_default_voice_for_locale(voice_locale)
+        speaker_voice = selected_voice or get_default_voice_for_locale(voice_locale)
 
     return TurnLanguage(
         input_locale=input_locale,
@@ -131,6 +131,7 @@ class Conversation:
     turns: list[dict[str, str]] = field(default_factory=list)
     model: CodexAppServer = field(default_factory=CodexAppServer)
     voice: str = field(default_factory=get_active_voice)
+    selected_voice: str | None = None
     locale: str = "ru-RU"
     model_name: str | None = None
     reasoning_effort: str = "low"
@@ -142,6 +143,11 @@ class Conversation:
     remote_warmup_task: asyncio.Task[None] | None = field(default=None, repr=False)
     thread_generation: int = 0
     binary_audio: bool = False
+
+    def set_selected_voice(self, voice: str) -> None:
+        """Persist the user's voice choice while keeping legacy ``voice`` callers in sync."""
+        self.selected_voice = voice
+        self.voice = voice
 
 
 @dataclass
@@ -327,13 +333,6 @@ class ConversationService:
         if conversation.plugin_id != plugin_id:
             conversation.plugin_id = plugin_id
             conversation.plugin_mode = mode
-            pref_locale = plugin_manager.get_preferred_voice_locale(plugin_id)
-            if pref_locale:
-                matching_voice = get_voice_for_locale(pref_locale)
-                if matching_voice:
-                    conversation.voice = matching_voice
-            elif plugin_id == "neutral":
-                conversation.voice = get_active_voice()
             await self.refresh_base_instructions(conversation)
         else:
             conversation.plugin_mode = mode

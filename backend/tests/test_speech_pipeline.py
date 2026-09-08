@@ -73,6 +73,29 @@ def test_warmup_is_invalidated_when_base_instructions_change(monkeypatch) -> Non
     assert conversation.remote_warmup_task is None
 
 
+def test_plugin_switch_preserves_selected_voice(monkeypatch) -> None:
+    service = ConversationService()
+    conversation = Conversation(id="voice-selection", locale="en-US")
+    conversation.set_selected_voice("Lessac (Piper Neural · Offline)")
+
+    async def fake_set_base_instructions(instructions: str) -> None:
+        conversation.model.base_instructions = instructions
+
+    async def fake_get_system_prompt(*_args) -> str:
+        return ""
+
+    monkeypatch.setattr(conversation.model, "set_base_instructions", fake_set_base_instructions)
+    monkeypatch.setattr("app.conversation_service.plugin_manager.get_system_prompt", fake_get_system_prompt)
+
+    async def exercise() -> None:
+        await service.apply_plugin(conversation, "spanish_buddy")
+        await service.apply_plugin(conversation, "neutral")
+
+    asyncio.run(exercise())
+    assert conversation.selected_voice == "Lessac (Piper Neural · Offline)"
+    assert conversation.voice == conversation.selected_voice
+
+
 def test_resolve_stt_config_matches_locale_and_plugin_policy() -> None:
     russian = Conversation(id="stt-ru", locale="ru-RU")
     assert resolve_stt_config(russian).language == "ru"

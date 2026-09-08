@@ -345,12 +345,12 @@ async def _get_view_context(request: Request, conversation: Conversation | None 
     if cookie_voice:
         cookie_voice = cookie_voice.strip('"')
         if conversation:
-            conversation.voice = cookie_voice
+            conversation.set_selected_voice(cookie_voice)
     elif cookie_locale and conversation:
-        conversation.voice = get_default_voice_for_locale(active_locale)
+        conversation.set_selected_voice(get_default_voice_for_locale(active_locale))
     active_voice = (conversation.voice if conversation and conversation.voice else None) or (get_default_voice_for_locale(active_locale) if cookie_locale else get_active_voice())
     if conversation:
-        conversation.voice = active_voice
+        conversation.set_selected_voice(active_voice)
 
     cookie_model = request.cookies.get("voice_of_luna_model")
     if cookie_model and conversation and not conversation.model_name:
@@ -433,10 +433,10 @@ def _get_voice_context(request: Request, conversation: Conversation | None = Non
     if cookie_voice:
         cookie_voice = cookie_voice.strip('"')
         if conversation:
-            conversation.voice = cookie_voice
+            conversation.set_selected_voice(cookie_voice)
     active_voice = (conversation.voice if conversation and conversation.voice else None) or get_active_voice()
     if conversation:
-        conversation.voice = active_voice
+        conversation.set_selected_voice(active_voice)
     all_voices = [v.to_dict() for v in get_installed_voices()]
     russian_voices = [v for v in all_voices if v["is_russian"]]
     edge_voices = [v for v in russian_voices if v.get("engine") == "edge"]
@@ -900,9 +900,9 @@ async def create_conversation(request: Request) -> dict[str, str]:
         conversation.locale = cookie_locale.strip('"')
     cookie_voice = request.cookies.get("voice_of_luna_voice")
     if cookie_voice:
-        conversation.voice = cookie_voice.strip('"')
+        conversation.set_selected_voice(cookie_voice.strip('"'))
     elif cookie_locale:
-        conversation.voice = get_default_voice_for_locale(conversation.locale)
+        conversation.set_selected_voice(get_default_voice_for_locale(conversation.locale))
     conversations[conversation.id] = conversation
     await _refresh_conversation_base_instructions(conversation)
     _prewarm_conversation(conversation)
@@ -946,16 +946,17 @@ async def select_plugin(
     if conversation.voice:
         response.set_cookie(
             key="voice_of_luna_voice",
-            value=conversation.voice,
+            value=conversation.selected_voice or conversation.voice,
             max_age=365 * 24 * 3600,
             httponly=False,
             samesite="lax",
         )
+    effective_voice = resolve_turn_language(conversation).speaker_voice
     return {
         "ok": True,
         "plugin_id": conversation.plugin_id,
         "mode": conversation.plugin_mode,
-        "voice": conversation.voice,
+        "voice": effective_voice,
     }
 
 
@@ -1405,7 +1406,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                 if msg_type == "set_voice":
                     new_voice = payload.get("voice", "").strip()
                     if new_voice:
-                        conversation.voice = new_voice
+                        conversation.set_selected_voice(new_voice)
                         _safe_background_task(prewarm_voice(new_voice), name=f"prewarm-voice-{conversation.id}")
                         await websocket.send_json({
                             "type": "voice_updated",
@@ -1417,7 +1418,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                     if new_locale:
                         conversation.locale = new_locale
                         new_voice = get_default_voice_for_locale(new_locale)
-                        conversation.voice = new_voice
+                        conversation.set_selected_voice(new_voice)
                         _safe_background_task(prewarm_voice(new_voice), name=f"prewarm-voice-{conversation.id}")
                         base_instructions = await _refresh_conversation_base_instructions(conversation, override_locale=new_locale)
                         await websocket.send_json({
@@ -1432,7 +1433,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                     if "effort" in payload and payload["effort"]:
                         conversation.reasoning_effort = payload["effort"]
                     if "voice" in payload and payload["voice"]:
-                        conversation.voice = payload["voice"]
+                        conversation.set_selected_voice(payload["voice"])
                         _safe_background_task(prewarm_voice(conversation.voice), name=f"prewarm-voice-{conversation.id}")
                     if "locale" in payload and payload["locale"]:
                         conversation.locale = payload["locale"]
@@ -1463,12 +1464,13 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                     new_plugin = payload.get("plugin_id", "neutral").strip()
                     new_mode = payload.get("mode", "default").strip()
                     await _apply_plugin_to_conversation(conversation, new_plugin, new_mode)
+                    effective_voice = resolve_turn_language(conversation).speaker_voice
                     await websocket.send_json({
                         "type": "plugin_updated",
                         "plugin_id": conversation.plugin_id,
                         "mode": conversation.plugin_mode,
-                        "voice": conversation.voice,
-                        "tts_engine": _get_tts_engine(conversation.voice),
+                        "voice": effective_voice,
+                        "tts_engine": _get_tts_engine(effective_voice),
                     })
                 elif msg_type == "stop_speaking":
                     if active_turn_task and not active_turn_task.done():

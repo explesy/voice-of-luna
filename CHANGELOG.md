@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-09-08
+
+### Changed
+- Preserve the user's selected voice across plugin switches while resolving plugin-compatible effective voices per turn.
+
 ## [0.18.3] - 2026-09-08
 
 ### Fixed
