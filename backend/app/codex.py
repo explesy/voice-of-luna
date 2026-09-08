@@ -322,10 +322,19 @@ class CodexAppServer:
                 timeout=3.0,
             )
             logger.info("Codex turn interrupted: %s", target_turn)
+            if target_turn:
+                self.discard_turn_events(target_turn)
             return True
         except Exception as exc:
             logger.warning("Failed to interrupt turn %s: %s", target_turn, exc)
+            if target_turn:
+                self.discard_turn_events(target_turn)
             return False
+
+    def discard_turn_events(self, turn_id: str | None) -> None:
+        """Drop notifications that arrive after a cancelled or completed turn."""
+        if turn_id:
+            self._buffered_turn_events.pop(turn_id, None)
 
     async def _reply_with_input(
         self,
@@ -592,7 +601,10 @@ class CodexAppServer:
                             buffered = pending_deltas.pop(item_id, [])
                             if phase == "commentary":
                                 commentary_deltas.extend(buffered)
-                            elif phase == "final_answer" and not yielded_deltas:
+                            elif phase == "final_answer":
+                                if current_item_id is not None and current_item_id != item_id:
+                                    yield "\n\n"
+                                current_item_id = item_id
                                 for buffered_delta in buffered:
                                     yielded_deltas = True
                                     yield buffered_delta
@@ -618,6 +630,7 @@ class CodexAppServer:
                         return
         finally:
             self._turn_listeners.pop(turn_id, None)
+            self.discard_turn_events(turn_id)
 
     async def _request(self, method: str, params: dict[str, Any], timeout: float = 60.0) -> dict[str, Any]:
         self._ensure_reader()

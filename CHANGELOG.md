@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.5] - 2026-09-08
+
+### Fixed
+- Preserve every final agent-message item when Codex events arrive before item metadata.
+- Discard buffered notifications for interrupted or completed turns to prevent stale-event buildup.
+
 ## [0.22.4] - 2026-09-08
 
 ### Changed

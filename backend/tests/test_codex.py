@@ -232,6 +232,25 @@ def test_stream_separates_distinct_message_items() -> None:
     asyncio.run(exercise())
 
 
+def test_stream_keeps_multiple_reordered_final_items() -> None:
+    provider = CodexAppServer()
+    provider._buffered_turn_events["turn-reordered-multi"] = [
+        {"method": "item/agentMessage/delta", "params": {"threadId": "thread", "turnId": "turn-reordered-multi", "itemId": "item-1", "delta": "Первый."}},
+        {"method": "item/agentMessage/delta", "params": {"threadId": "thread", "turnId": "turn-reordered-multi", "itemId": "item-2", "delta": "Второй."}},
+        {"method": "item/started", "params": {"threadId": "thread", "turnId": "turn-reordered-multi", "item": {"id": "item-1", "phase": "final_answer"}}},
+        {"method": "item/completed", "params": {"threadId": "thread", "turnId": "turn-reordered-multi", "item": {"id": "item-1", "type": "agentMessage", "phase": "final_answer"}}},
+        {"method": "item/started", "params": {"threadId": "thread", "turnId": "turn-reordered-multi", "item": {"id": "item-2", "phase": "final_answer"}}},
+        {"method": "item/completed", "params": {"threadId": "thread", "turnId": "turn-reordered-multi", "item": {"id": "item-2", "type": "agentMessage", "phase": "final_answer"}}},
+        {"method": "turn/completed", "params": {"threadId": "thread", "turn": {"id": "turn-reordered-multi"}}},
+    ]
+
+    async def exercise() -> None:
+        chunks = [chunk async for chunk in provider._stream_answer("thread", "turn-reordered-multi")]
+        assert chunks == ["Первый.", "\n\n", "Второй."]
+
+    asyncio.run(exercise())
+
+
 def test_stream_filters_commentary_and_yields_final_answer() -> None:
     provider = CodexAppServer()
     provider._buffered_turn_events["turn-commentary"] = [
