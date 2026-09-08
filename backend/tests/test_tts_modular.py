@@ -45,10 +45,12 @@ def test_get_installed_voices_contains_piper_and_eugene() -> None:
     assert "Eugene (Silero Neural · Offline)" in names
     assert "Dmitri (Piper Neural · Offline)" in names
     assert "Irina (Piper Neural · Offline)" in names
+    assert "Lessac (Piper Neural · Offline)" in names
 
     piper_voices = [v for v in voices if v.engine == "piper"]
-    assert len(piper_voices) == 2
-    assert all(v.is_russian for v in piper_voices)
+    assert len(piper_voices) == 3
+    ru_piper = [v for v in piper_voices if v.is_russian]
+    assert len(ru_piper) == 2
 
     dmitri_voice = next(v for v in piper_voices if "Dmitri" in v.name)
     assert dmitri_voice.model_id == "piper_ru_dmitri"
@@ -209,3 +211,38 @@ async def test_prewarm_voice_handles_piper_and_silero(monkeypatch) -> None:
 
     await prewarm_voice("Eugene (Silero Neural · Offline)")
     assert "silero" in prewarmed
+
+
+def test_compute_file_sha256(tmp_path: Path) -> None:
+    from app.tts_manager import compute_file_sha256
+    test_file = tmp_path / "sample.bin"
+    test_file.write_bytes(b"Voice of Luna Test Bytes")
+    import hashlib
+    expected_hash = hashlib.sha256(b"Voice of Luna Test Bytes").hexdigest()
+    assert compute_file_sha256(test_file) == expected_hash
+
+
+def test_verify_checksums_logic(monkeypatch, tmp_path: Path) -> None:
+    from app.tts_manager import MODEL_CATALOG, ModelFileSpec, TTSModelDefinition, compute_file_sha256, tts_model_manager
+    test_file = tmp_path / "test-model.onnx"
+    test_file.write_bytes(b"valid-model-content")
+    valid_sha = compute_file_sha256(test_file)
+
+    test_model = TTSModelDefinition(
+        id="test_model_sha",
+        name="Test Model SHA",
+        engine="piper",
+        locale="en_US",
+        description="Test",
+        size_mb=1.0,
+        voices=["TestVoice"],
+        files=[ModelFileSpec(filename="test-model.onnx", url="http://example.com", sha256=valid_sha)],
+    )
+    monkeypatch.setitem(MODEL_CATALOG, "test_model_sha", test_model)
+    monkeypatch.setattr("app.tts_manager.find_model_file", lambda f: test_file if f == "test-model.onnx" else None)
+
+    assert tts_model_manager.verify_checksums("test_model_sha") is True
+
+    # Tamper with file
+    test_file.write_bytes(b"corrupted-tampered-content")
+    assert tts_model_manager.verify_checksums("test_model_sha") is False

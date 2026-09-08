@@ -7,6 +7,7 @@ for local neural speech synthesis models (Silero, Piper, etc.).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import shutil
@@ -25,6 +26,7 @@ class ModelFileSpec:
     filename: str
     url: str
     size_bytes: int = 0
+    sha256: str = ""
 
 
 @dataclass
@@ -70,10 +72,14 @@ MODEL_CATALOG: dict[str, TTSModelDefinition] = {
             ModelFileSpec(
                 filename="ru_RU-dmitri-medium.onnx",
                 url="https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx",
+                size_bytes=63510526,
+                sha256="f073356ebc4bd0f80c5af58df2953a5988bd5bdab1eb38635ce960b071fbefcb",
             ),
             ModelFileSpec(
                 filename="ru_RU-dmitri-medium.onnx.json",
                 url="https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx.json",
+                size_bytes=4842,
+                sha256="667ef3117bc642c2892dff7690d8bdc8ca4228aeaa783b2dc1416df632855e0d",
             ),
         ],
     ),
@@ -89,10 +95,37 @@ MODEL_CATALOG: dict[str, TTSModelDefinition] = {
             ModelFileSpec(
                 filename="ru_RU-irina-medium.onnx",
                 url="https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx",
+                size_bytes=63340030,
+                sha256="8ff38212d23da300bbe3705c645e6e5b9475f0bfde01558eb17813e22acaaaaa",
             ),
             ModelFileSpec(
                 filename="ru_RU-irina-medium.onnx.json",
                 url="https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx.json",
+                size_bytes=4842,
+                sha256="c2ec28bb38e2b59e93b959b3e40348c1afebbd272f30fed5d41205d08e98a9d7",
+            ),
+        ],
+    ),
+    "piper_en_lessac": TTSModelDefinition(
+        id="piper_en_lessac",
+        name="Piper Lessac (Medium)",
+        engine="piper",
+        locale="en_US",
+        description="Высококачественный оффлайн-голос ONNX для английского языка",
+        size_mb=63.0,
+        voices=["Lessac (Piper Neural · Offline)"],
+        files=[
+            ModelFileSpec(
+                filename="en_US-lessac-medium.onnx",
+                url="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx",
+                size_bytes=63201294,
+                sha256="5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f",
+            ),
+            ModelFileSpec(
+                filename="en_US-lessac-medium.onnx.json",
+                url="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
+                size_bytes=4889,
+                sha256="efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0",
             ),
         ],
     ),
@@ -114,6 +147,8 @@ MODEL_CATALOG: dict[str, TTSModelDefinition] = {
             ModelFileSpec(
                 filename="silero_v4_ru.pt",
                 url="https://models.silero.ai/models/tts/ru/v4_ru.pt",
+                size_bytes=41870817,
+                sha256="896ab96347d5bd781ab97959d4fd6885620e5aab52405d3445626eb7c1414b00",
             ),
         ],
     ),
@@ -130,6 +165,8 @@ MODEL_CATALOG: dict[str, TTSModelDefinition] = {
             "Jenny (Neural · Edge)",
             "Guy (Neural · Edge)",
             "Aria (Neural · Edge)",
+            "Elvira (Neural · Edge)",
+            "Alvaro (Neural · Edge)",
         ],
         is_cloud=True,
     ),
@@ -190,6 +227,15 @@ def find_model_file(filename: str) -> Path | None:
         if candidate.is_file() and candidate.stat().st_size > 0:
             return candidate
     return None
+
+
+def compute_file_sha256(path: Path) -> str:
+    """Compute sha256 hex digest for a file."""
+    hasher = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(1024 * 128):
+            hasher.update(chunk)
+    return hasher.hexdigest().lower()
 
 
 class TTSModelManager:
@@ -280,6 +326,21 @@ class TTSModelManager:
         storage_dir = get_model_storage_dir()
         return storage_dir
 
+    def verify_checksums(self, model_id: str) -> bool:
+        """Verify sha256 checksums of all installed files for a given model."""
+        defn = MODEL_CATALOG.get(model_id)
+        if not defn or not defn.files:
+            return True
+        for spec in defn.files:
+            if not spec.sha256:
+                continue
+            path = find_model_file(spec.filename)
+            if not path or not path.is_file():
+                return False
+            if compute_file_sha256(path) != spec.sha256.lower():
+                return False
+        return True
+
     async def _do_download(self, defn: TTSModelDefinition) -> None:
         target_dir = get_model_storage_dir()
         start_time = time.time()
@@ -295,11 +356,12 @@ class TTSModelManager:
             "eta_seconds": 0,
         }
 
-        def _sync_download_file(url: str, dest_path: Path, current_idx: int, total_files: int) -> None:
+        def _sync_download_file(file_spec: ModelFileSpec, dest_path: Path, current_idx: int, total_files: int) -> None:
             part_path = dest_path.with_suffix(dest_path.suffix + ".part")
+            hasher = hashlib.sha256()
             try:
                 req = urllib.request.Request(
-                    url,
+                    file_spec.url,
                     headers={"User-Agent": "Voice-Of-Luna-Model-Downloader"},
                 )
                 with urllib.request.urlopen(req, timeout=120) as resp, open(part_path, "wb") as f:
@@ -309,6 +371,7 @@ class TTSModelManager:
 
                     while chunk := resp.read(1024 * 128):
                         f.write(chunk)
+                        hasher.update(chunk)
                         downloaded_bytes += len(chunk)
                         elapsed = max(0.1, time.time() - start_time)
                         speed_kbps = round((downloaded_bytes / elapsed) / 1024, 1)
@@ -330,6 +393,15 @@ class TTSModelManager:
                                 "eta_seconds": eta,
                             }
 
+                if file_spec.sha256:
+                    computed_hash = hasher.hexdigest().lower()
+                    if computed_hash != file_spec.sha256.lower():
+                        part_path.unlink(missing_ok=True)
+                        raise ValueError(
+                            f"SHA256 mismatch for '{file_spec.filename}': "
+                            f"expected {file_spec.sha256}, got {computed_hash}"
+                        )
+
                 part_path.replace(dest_path)
             except Exception as e:
                 part_path.unlink(missing_ok=True)
@@ -340,9 +412,16 @@ class TTSModelManager:
             for idx, file_spec in enumerate(defn.files):
                 dest = target_dir / file_spec.filename
                 if dest.is_file() and dest.stat().st_size > 0:
-                    continue
+                    if file_spec.sha256:
+                        file_hash = compute_file_sha256(dest)
+                        if file_hash == file_spec.sha256.lower():
+                            continue
+                        logger.warning("Existing file '%s' failed sha256 check, re-downloading", dest)
+                        dest.unlink(missing_ok=True)
+                    else:
+                        continue
                 logger.info("Downloading TTS model file '%s' from %s", file_spec.filename, file_spec.url)
-                await asyncio.to_thread(_sync_download_file, file_spec.url, dest, idx, total_files)
+                await asyncio.to_thread(_sync_download_file, file_spec, dest, idx, total_files)
 
             self._progress[defn.id] = 100
             self._stats[defn.id] = {
@@ -352,7 +431,7 @@ class TTSModelManager:
                 "speed_kbps": 0.0,
                 "eta_seconds": 0,
             }
-            logger.info("Successfully downloaded all files for model '%s'", defn.id)
+            logger.info("Successfully downloaded and verified all files for model '%s'", defn.id)
         except Exception as exc:
             logger.exception("Failed to download model '%s'", defn.id)
             self._errors[defn.id] = str(exc)

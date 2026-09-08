@@ -12,6 +12,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -20,6 +21,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Check JavaScript syntax
+        run: |
+          node --check app/static/voice.js
+          node --check app/static/js/audio-player.js
+          node --check app/static/js/terminal-formatter.js
+          node --check app/static/js/vad.js
+          node --check app/static/pcm-recorder-processor.js
+        working-directory: backend
       - name: Install dependencies
         run: uv sync --group dev
         working-directory: backend

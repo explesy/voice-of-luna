@@ -220,7 +220,17 @@ function updateFooterStatus(ttsEngine) {
   if (!ttsEngine) return;
   const footerEl = document.querySelector("[data-footer-meta]");
   if (footerEl) {
-    footerEl.textContent = `100% LOCAL // WHISPER_CPP // ${ttsEngine} // CODEX_STDIO`;
+    let ttsLabel = ttsEngine;
+    if (ttsEngine === "EDGE_TTS" || ttsEngine.includes("EDGE")) {
+      ttsLabel = "EDGE_CLOUD";
+    } else if (ttsEngine === "PIPER_OFFLINE" || ttsEngine.includes("PIPER")) {
+      ttsLabel = "PIPER_LOCAL";
+    } else if (ttsEngine === "SILERO_OFFLINE" || ttsEngine.includes("SILERO")) {
+      ttsLabel = "SILERO_LOCAL";
+    } else if (ttsEngine === "MACOS_SAY" || ttsEngine.includes("MACOS")) {
+      ttsLabel = "MACOS_LOCAL";
+    }
+    footerEl.textContent = `STT:LOCAL // TTS:${ttsLabel} // LLM:CODEX`;
   }
 }
 

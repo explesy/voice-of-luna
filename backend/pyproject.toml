@@ -1,6 +1,6 @@
 [project]
 name = "voice-of-luna-backend"
-version = "0.16.4"
+version = "0.17.0"
 description = "Local-first conversation bridge for Voice of Luna"
 requires-python = ">=3.12"
 dependencies = [
@@ -19,7 +19,11 @@ dependencies = [
 silero = ["torch>=2.14.0"]
 
 [dependency-groups]
-dev = ["pytest>=8,<9", "torch>=2.14.0"]
+dev = [
+  "pytest>=8,<9",
+  "pytest-timeout>=2.3.1",
+  "torch>=2.14.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

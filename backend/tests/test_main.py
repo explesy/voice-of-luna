@@ -629,7 +629,7 @@ def test_get_installed_voices_and_default() -> None:
     voices = main_module.get_installed_voices()
     assert len(voices) > 0
     ru_voices = [v for v in voices if v.is_russian]
-    assert any("Milena" in v.name for v in ru_voices)
+    assert any(any(n in v.name for n in ("Milena", "Svetlana", "Dmitri")) for v in ru_voices)
     default_voice = main_module.get_default_voice()
     assert default_voice in [v.name for v in voices]
 
@@ -642,7 +642,7 @@ def test_api_voices_endpoint() -> None:
     assert "voices" in data
     assert "russian_voices" in data
     assert "other_voices" in data
-    assert any("Milena" in v["name"] for v in data["russian_voices"])
+    assert any(any(n in v["name"] for n in ("Milena", "Svetlana", "Dmitri")) for v in data["russian_voices"])
 
 
 def test_api_voice_selection_and_cookie_persistence() -> None:

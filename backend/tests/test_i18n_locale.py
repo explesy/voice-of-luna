@@ -24,7 +24,7 @@ def test_default_voice_for_locale() -> None:
     assert any(x in ru_voice.lower() for x in ("milena", "svetlana", "dmitry", "ksenia"))
 
     es_voice = get_default_voice_for_locale("es-ES")
-    assert any(x in es_voice.lower() for x in ("mónica", "monica", "paulina", "spanish", "spain", "es"))
+    assert any(x in es_voice.lower() for x in ("elvira", "alvaro", "mónica", "monica", "paulina", "spanish", "spain", "es"))
 
 
 def test_base_instructions_locale_variation() -> None:
@@ -216,4 +216,63 @@ def test_websocket_auto_locale_and_tts_engine(monkeypatch) -> None:
         assert completed["effective_locale"] == "en-US"
         assert any(x in completed["voice"].lower() for x in ("jenny", "samantha", "aria", "guy", "alex"))
         assert completed["tts_engine"] in ("EDGE_TTS", "MACOS_SAY")
+
+
+def test_resolve_turn_language_with_spanish_buddy_override() -> None:
+    from app.conversation_service import Conversation, resolve_turn_language
+
+    # Scenario: AUTO locale + Spanish Buddy plugin + Russian user prompt
+    conv = Conversation(id="test-conv-es", locale="auto", plugin_id="spanish_buddy")
+    conv.voice = "Milena (Enhanced)"  # Russian voice currently set
+
+    # User speaks Russian
+    lang = resolve_turn_language(conv, user_text="как сказать я сегодня очень устал?")
+    assert lang.input_locale == "ru-RU"
+    assert lang.response_locale == "es-ES"
+    assert lang.voice_locale in ("es", "es-ES")
+    # TTS voice must NOT be Russian Milena! It must be a Spanish voice (Elvira or Mónica)
+    assert any(es in lang.speaker_voice.lower() for es in ("elvira", "mónica", "monica", "alvaro"))
+
+
+def test_resolve_turn_language_auto_english() -> None:
+    from app.conversation_service import Conversation, resolve_turn_language
+
+    conv = Conversation(id="test-conv-en", locale="auto", plugin_id="neutral")
+    conv.voice = "Milena"
+
+    lang = resolve_turn_language(conv, user_text="Can you explain quantum computing?")
+    assert lang.input_locale == "en-US"
+    assert lang.response_locale == "en-US"
+    assert any(en in lang.speaker_voice.lower() for en in ("jenny", "samantha", "aria", "guy", "lessac"))
+
+
+def test_spanish_fuentes_source_pipeline() -> None:
+    from app.speech_pipeline import SOURCES_SPLIT_RE
+    from app.speak import sanitize_for_speech
+    from app.main import format_terminal_text
+
+    text = (
+        "Madrid es la capital y ciudad más grande de España.\n\n"
+        "Fuentes:\n"
+        "- [Wikipedia](https://es.wikipedia.org/wiki/Madrid)\n"
+        "- [Portal](https://madrid.es)"
+    )
+
+    # 1. SOURCES_SPLIT_RE must detect the Fuentes: boundary
+    match = SOURCES_SPLIT_RE.search(text)
+    assert match is not None
+    assert "Fuentes" in text[match.start():match.end()]
+
+    # 2. sanitize_for_speech must completely strip the Fuentes section and URLs
+    clean = sanitize_for_speech(text)
+    assert "Madrid es la capital" in clean
+    assert "Fuentes" not in clean
+    assert "wikipedia" not in clean.lower()
+    assert "https" not in clean
+
+    # 3. format_terminal_text must create the formatted log-sources card with FUENTES: tag
+    html = str(format_terminal_text(text))
+    assert '<div class="sources-tag">// FUENTES:</div>' in html
+    assert 'class="term-link"' in html
+    assert "https://es.wikipedia.org/wiki/Madrid" in html
 

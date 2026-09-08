@@ -57,9 +57,34 @@ FIRST_CHUNK_SPLIT_RE = re.compile(
     """
 )
 
+def detect_effective_turn_locale(text: str, fallback_locale: str = "ru-RU") -> str:
+    """Detect turn locale based on text content (Cyrillic -> ru-RU, Spanish markers -> es-ES, else en-US)."""
+    if not text:
+        return fallback_locale if fallback_locale != "auto" else "ru-RU"
+    if re.search(r"[\u0400-\u04FF]", text):
+        return "ru-RU"
+    if re.search(r"[¿¡áéíóúÁÉÍÓÚñÑ]", text):
+        return "es-ES"
+    if re.search(r"[a-zA-Z]", text):
+        return "en-US"
+    return fallback_locale if fallback_locale != "auto" else "ru-RU"
+
+
+SOURCE_HEADER_WORDS = (
+    "источники",
+    "ссылки",
+    "источник",
+    "sources",
+    "references",
+    "source",
+    "fuentes",
+    "referencias",
+    "fuente",
+)
+
 SOURCES_SPLIT_RE = re.compile(
     r"""(?xi)
-    (?:^|\n)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?
+    (?:^|\n)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references|source|fuentes|referencias|fuente)\b\s*:?
     """
 )
 

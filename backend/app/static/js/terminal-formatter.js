@@ -29,12 +29,12 @@ function formatTerminalText(element) {
   });
 
   let sourcesPart = "";
-  const sourcesPlaceholderRegex = /(?:(?:\n|^)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?[\s\S]*$|(?<=[.!?…\n])\s*(?:(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?\s*)?(?:(?:[-*•·]|\d+\.)?\s*[\(\[]?\s*@@@LINK_\d+@@@[\)\]]?\s*[,;•·–—\-/\n\s]*)+$)/i;
+  const sourcesPlaceholderRegex = /(?:(?:\n|^)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references|source|fuentes|referencias|fuente)\b\s*:?[\s\S]*$|(?<=[.!?…\n])\s*(?:(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references|source|fuentes|referencias|fuente)\b\s*:?\s*)?(?:(?:[-*•·]|\d+\.)?\s*[\(\[]?\s*@@@LINK_\d+@@@[\)\]]?\s*[,;•·–—\-/\n\s]*)+$)/i;
   const sourcesMatch = sourcesPlaceholderRegex.exec(escaped);
   if (sourcesMatch) {
     const before = escaped.slice(0, sourcesMatch.index).trim();
     const rawSources = escaped.slice(sourcesMatch.index).trim();
-    const headerMatch = /^\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?/i.exec(rawSources);
+    const headerMatch = /^\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references|source|fuentes|referencias|fuente)\b\s*:?/i.exec(rawSources);
     let header = "источники";
     let body = rawSources;
     if (headerMatch) {
@@ -143,8 +143,8 @@ function sanitizeForSpeech(text) {
   if (!text) return "";
   if (isPureCitation(text)) return "";
 
-  let clean = text.split(/(?:\n|^)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?/i)[0];
-  const trailingRegex = /(?<=[.!?…\n])\s*(?:(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?\s*)?(?:(?:[-*•·]|\d+\.)?\s*[\(\[]?\s*(?:\[[^\]]+\]\((?:https?:\/\/)[^)\s]+\)|https?:\/\/\S+)[\)\]]?\s*[,;•·–—\-/\n\s]*)+$/i;
+  let clean = text.split(/(?:\n|^)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references|source|fuentes|referencias|fuente)\b\s*:?/i)[0];
+  const trailingRegex = /(?<=[.!?…\n])\s*(?:(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references|source|fuentes|referencias|fuente)\b\s*:?\s*)?(?:(?:[-*•·]|\d+\.)?\s*[\(\[]?\s*(?:\[[^\]]+\]\((?:https?:\/\/)[^)\s]+\)|https?:\/\/\S+)[\)\]]?\s*[,;•·–—\-/\n\s]*)+$/i;
   clean = clean.replace(trailingRegex, "");
   clean = stripCitationParens(clean);
   clean = clean.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");

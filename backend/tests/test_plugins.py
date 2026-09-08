@@ -365,8 +365,8 @@ def test_spanish_buddy_stt_language_and_voice():
     data = res_es.json()
     assert data["plugin_id"] == "spanish_buddy"
     if "voice" in data and data["voice"]:
-        # Should be a Spanish voice (e.g. Mónica or Paulina if installed)
-        assert any(x in data["voice"].lower() for x in ("mónica", "monica", "paulina", "es"))
+        # Should be a Spanish voice (e.g. Elvira, Alvaro, Mónica, Paulina)
+        assert any(x in data["voice"].lower() for x in ("elvira", "alvaro", "mónica", "monica", "paulina", "es"))
 
 
 @pytest.mark.anyio

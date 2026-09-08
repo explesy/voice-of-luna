@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-08
+
+### Added
+- **Centralized Language & Voice Resolver (`TurnLanguage`)**:
+  - Unified turn language resolution across Codex prompt instructions, TTS voice selection, and WebSocket telemetry.
+  - Fixes language desynchronization where active plugins (e.g. `Spanish Buddy` with `response_locale_override = "es-ES"`) would be assigned a Russian TTS voice if the user asked a question in Russian in `AUTO` mode.
+  - Added Spanish Edge neural voices (`Elvira (Neural · Edge)`, `Alvaro (Neural · Edge)`) and automatic voice-to-locale compatibility matching.
+- **Multilingual Source Header Pipeline & Spanish `Fuentes:` Support**:
+  - Expanded source header split detection across backend (`SOURCES_SPLIT_RE`, `TRAILING_SOURCES_RE`, `format_terminal_text`) and frontend (`terminal-formatter.js`, `sanitizeForSpeech`).
+  - Correctly strips Spanish `Fuentes:` and `Referencias:` sections from spoken audio output and renders them as styled source cards in the UI.
+- **Cryptographic SHA256 Verification for TTS Models**:
+  - Added `sha256` checksums to `ModelFileSpec` for Piper ONNX models (`dmitri`, `irina`, `lessac`), their JSON configurations, and Silero PyTorch weights (`silero_v4_ru.pt`).
+  - Added incremental SHA256 verification during download and atomic `.part` replacement to prevent corrupted or tampered weights from loading.
+  - Added `tts_model_manager.verify_checksums(model_id)`.
+- **English Offline Voice for Linux (`piper_en_lessac`)**:
+  - Added Piper ONNX English voice (`Lessac (Piper Neural · Offline)`) to catalog, enabling full offline English TTS without macOS `say`.
+- **UI Internationalization (RU / EN)**:
+  - Created `app/i18n.py` providing translated UI strings for headers, tooltips, chips, and option groups.
+- **CI / CD Robustness**:
+  - Added JavaScript syntax validation (`node --check`) step to GitHub Actions CI workflow.
+  - Added `timeout-minutes: 10` and `pytest-timeout>=2.3.1` to prevent hanging async test runners.
+
+### Fixed
+- **Platform-Aware macOS Voices**:
+  - `get_installed_voices()` no longer injects fake macOS voices (`Milena`, `Samantha`) on Linux systems where `shutil.which("say")` is not available.
+- **Accurate Footer Privacy Status**:
+  - Footer now accurately reports component states (e.g. `STT:LOCAL // TTS:EDGE_CLOUD // LLM:CODEX`) rather than claiming `100% LOCAL` when cloud Edge TTS is active.
+
 ## [0.16.4] - 2026-09-08
 
 ### Changed

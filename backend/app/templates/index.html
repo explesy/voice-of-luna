@@ -27,19 +27,19 @@
           <span class="sys-chip {{ 'chip-online' if runtime.available else 'chip-offline' }}" title="{{ runtime.detail }}">
             <span class="chip-led"></span>CODEX:{{ 'ONLINE' if runtime.available else 'OFFLINE' }}
           </span>
-          <div class="sys-chip locale-selector-chip" title="Выбор языка сессии (Session Locale / Language)">
+          <div class="sys-chip locale-selector-chip" title="{{ ui.lang_chip_title if ui else 'Язык общения и синтеза' }}">
             <span class="chip-led chip-led-locale"></span>
             <label for="locale-select" class="voice-chip-label">LANG:</label>
-            <select id="locale-select" class="voice-select" aria-label="Выбор языка">
+            <select id="locale-select" class="voice-select" aria-label="{{ ui.lang_aria_label if ui else 'Выбор языка' }}">
               <option value="ru-RU" {% if not active_locale or active_locale == 'ru-RU' %}selected{% endif %}>RU (Русский)</option>
               <option value="en-US" {% if active_locale == 'en-US' %}selected{% endif %}>EN (English)</option>
               <option value="auto" {% if active_locale == 'auto' %}selected{% endif %}>AUTO (Авто)</option>
             </select>
           </div>
-          <div class="sys-chip model-selector-chip" title="Выбор модели Codex">
+          <div class="sys-chip model-selector-chip" title="{{ ui.model_chip_title if ui else 'Выбор модели Codex' }}">
             <span class="chip-led chip-led-model"></span>
             <label for="model-select" class="voice-chip-label">MODEL:</label>
-            <select id="model-select" class="voice-select" aria-label="Выбор модели">
+            <select id="model-select" class="voice-select" aria-label="{{ ui.model_aria_label if ui else 'Выбор модели' }}">
               {% for m in models %}
               <option value="{{ m.id }}" {% if m.id == active_model %}selected{% endif %}>
                 {{ m.displayName }}
@@ -50,22 +50,22 @@
               {% endif %}
             </select>
           </div>
-          <div class="sys-chip effort-selector-chip" title="Уровень reasoning (размышлений модели)">
+          <div class="sys-chip effort-selector-chip" title="{{ ui.effort_chip_title if ui else 'Уровень reasoning' }}">
             <span class="chip-led chip-led-effort"></span>
             <label for="effort-select" class="voice-chip-label">EFFORT:</label>
-            <select id="effort-select" class="voice-select" aria-label="Уровень reasoning">
+            <select id="effort-select" class="voice-select" aria-label="{{ ui.effort_aria_label if ui else 'Уровень reasoning' }}">
               <option value="low" {% if active_effort == 'low' %}selected{% endif %}>low (fast)</option>
               <option value="medium" {% if active_effort == 'medium' %}selected{% endif %}>medium</option>
               <option value="high" {% if active_effort == 'high' %}selected{% endif %}>high</option>
               <option value="xhigh" {% if active_effort == 'xhigh' %}selected{% endif %}>xhigh</option>
             </select>
           </div>
-          <div class="sys-chip voice-selector-chip" data-russian-voice="{{ active_voice }}" title="Выбор языка и голоса">
+          <div class="sys-chip voice-selector-chip" data-russian-voice="{{ active_voice }}" title="{{ ui.voice_chip_title if ui else 'Выбор языка и голоса' }}">
             <span class="chip-led chip-led-voice"></span>
             <label for="voice-select" class="voice-chip-label">VOICE:</label>
-            <select id="voice-select" class="voice-select" data-russian-voice="{{ active_voice }}" aria-label="Выбор голоса">
+            <select id="voice-select" class="voice-select" data-russian-voice="{{ active_voice }}" aria-label="{{ ui.voice_aria_label if ui else 'Выбор голоса' }}">
               {% if edge_voices %}
-              <optgroup label="Нейросеть (Edge Cloud · Бесплатно)">
+              <optgroup label="{{ ui.optgroup_edge if ui else 'Нейросеть (Edge Cloud · Бесплатно)' }}">
                 {% for v in edge_voices %}
                 <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
                   {{ v.name }} ★
@@ -74,7 +74,7 @@
               </optgroup>
               {% endif %}
               {% if piper_voices %}
-              <optgroup label="Локальная нейросеть (Piper ONNX · Offline)">
+              <optgroup label="{{ ui.optgroup_piper if ui else 'Локальная нейросеть (Piper ONNX · Offline)' }}">
                 {% for v in piper_voices %}
                 <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %} data-engine="{{ v.engine }}" data-installed="{{ 'true' if v.is_downloaded else 'false' }}" data-model-id="{{ v.model_id or '' }}">
                   {{ v.name }}{% if v.is_downloaded %} ★{% else %} [↓ {{ v.size_mb|int }}MB]{% endif %}
@@ -83,7 +83,7 @@
               </optgroup>
               {% endif %}
               {% if silero_voices %}
-              <optgroup label="Локальная нейросеть (Silero · Offline)">
+              <optgroup label="{{ ui.optgroup_silero if ui else 'Локальная нейросеть (Silero · Offline)' }}">
                 {% for v in silero_voices %}
                 <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %} data-engine="{{ v.engine }}" data-installed="{{ 'true' if v.is_downloaded else 'false' }}" data-model-id="{{ v.model_id or '' }}">
                   {{ v.name }}{% if v.is_downloaded %} ★{% else %} [↓ {{ v.size_mb|int }}MB]{% endif %}
@@ -92,7 +92,7 @@
               </optgroup>
               {% endif %}
               {% if local_russian_voices %}
-              <optgroup label="Локальные macOS (Offline)">
+              <optgroup label="{{ ui.optgroup_macos if ui else 'Локальные macOS (Offline)' }}">
                 {% for v in local_russian_voices %}
                 <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
                   {{ v.name }}{% if v.is_enhanced %} ★{% endif %}
@@ -100,7 +100,7 @@
                 {% endfor %}
               </optgroup>
               {% elif russian_voices and not edge_voices %}
-              <optgroup label="Русский (Russian)">
+              <optgroup label="{{ ui.optgroup_russian if ui else 'Русский (Russian)' }}">
                 {% for v in russian_voices %}
                 <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
                   {{ v.name }}{% if v.is_enhanced %} ★{% endif %}
@@ -110,16 +110,16 @@
               {% endif %}
               {% set active_is_other = other_voices and (other_voices | selectattr("name", "equalto", active_voice) | list | length > 0) %}
               {% if active_is_other %}
-              <optgroup id="other-voices-group" label="Другие языки (Other)">
+              <optgroup id="other-voices-group" label="{{ ui.optgroup_other if ui else 'Другие языки (Other)' }}">
                 {% for v in other_voices %}
                 <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
                   {{ v.name }} ({{ v.locale }})
                 </option>
                 {% endfor %}
               </optgroup>
-              <option value="__collapse_other__">▲ Скрыть другие языки</option>
+              <option value="__collapse_other__">{{ ui.collapse_other if ui else '▲ Скрыть другие языки' }}</option>
               {% elif other_voices %}
-              <option value="__expand_other__">▶ Другие языки (+{{ other_voices|length }})...</option>
+              <option value="__expand_other__">{{ ui.expand_other if ui else '▶ Другие языки' }} (+{{ other_voices|length }})...</option>
               {% endif %}
               {% if not russian_voices and not other_voices %}
               <option value="{{ active_voice }}" selected>{{ active_voice }}</option>
@@ -127,7 +127,7 @@
             </select>
             {% if other_voices and not active_is_other %}
             <template id="other-voices-template">
-              <optgroup id="other-voices-group" label="Другие языки (Other)">
+              <optgroup id="other-voices-group" label="{{ ui.optgroup_other if ui else 'Другие языки (Other)' }}">
                 {% for v in other_voices %}
                 <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
                   {{ v.name }} ({{ v.locale }})
@@ -137,12 +137,12 @@
             </template>
             {% endif %}
           </div>
-          <button type="button" class="sys-chip vad-toggle-chip is-auto" id="vad-toggle" title="Автоматическое определение конца речи [V]">
+          <button type="button" class="sys-chip vad-toggle-chip is-auto" id="vad-toggle" title="{{ ui.vad_chip_title if ui else 'Автоматическое определение конца речи [V]' }}">
             <span class="chip-led chip-led-vad"></span>
             <span class="vad-label">VAD:</span>
             <span class="vad-state-text">AUTO</span>
           </button>
-          <button type="button" class="sys-chip vad-toggle-chip {{ 'is-auto' if remote_warmup_enabled else 'is-manual' }}" id="remote-warmup-toggle" title="Технический прогрев Codex расходует одну короткую реплику квоты на новый диалог">
+          <button type="button" class="sys-chip vad-toggle-chip {{ 'is-auto' if remote_warmup_enabled else 'is-manual' }}" id="remote-warmup-toggle" title="{{ ui.warmup_chip_title if ui else 'Технический прогрев Codex' }}">
             <span class="chip-led chip-led-vad"></span>
             <span class="vad-label">WARM:</span>
             <span class="warmup-state-text">{{ 'ON' if remote_warmup_enabled else 'OFF' }}</span>
@@ -163,7 +163,7 @@
           <span><kbd>ENTER</kbd> exec</span>
         </div>
         <div class="footer-meta">
-          <span data-footer-meta>100% LOCAL // WHISPER_CPP // {{ 'EDGE_TTS' if active_voice and 'edge' in active_voice.lower() else ('PIPER_OFFLINE' if active_voice and 'piper' in active_voice.lower() else ('SILERO_OFFLINE' if active_voice and 'silero' in active_voice.lower() else 'MACOS_SAY')) }} // CODEX_STDIO</span>
+          <span data-footer-meta>STT:LOCAL // TTS:{{ 'EDGE_CLOUD' if active_voice and 'edge' in active_voice.lower() else ('PIPER_LOCAL' if active_voice and 'piper' in active_voice.lower() else ('SILERO_LOCAL' if active_voice and 'silero' in active_voice.lower() else 'MACOS_LOCAL')) }} // LLM:CODEX</span>
         </div>
       </footer>
     </div>

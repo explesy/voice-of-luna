@@ -28,6 +28,7 @@ from .speech_pipeline import (
     SOURCES_SPLIT_RE,
     AudioConversionError,
     convert_to_wav,
+    detect_effective_turn_locale,
     extract_speech_sentence,
     is_16k_mono_wav,
     remove_temporary_audio,
@@ -37,10 +38,13 @@ from .conversation_service import (
     Conversation,
     ConversationService,
     SpeechClip,
+    TurnLanguage,
     call_reply,
     call_reply_stream,
     conversation_service,
+    resolve_turn_language,
 )
+from .i18n import get_ui_text
 
 from fastapi import (
     FastAPI,
@@ -94,12 +98,12 @@ TRAILING_SOURCES_PLACEHOLDER_RE = re.compile(
     r"""(?xi)
     (?:
         # Case 1: Explicit header
-        (?:\n|\A)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?[\s\S]*$
+        (?:\n|\A)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references|source|fuentes|referencias|fuente)\b\s*:?[\s\S]*$
         |
         # Case 2: Trailing block with link placeholders after sentence end or newline
         (?<=[.!?…\n])\s*
         (?:
-            (?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?\s*
+            (?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references|source|fuentes|referencias|fuente)\b\s*:?\s*
         )?
         (?:
             (?:[-*•·]|\d+\.)?\s*
@@ -153,7 +157,7 @@ def format_terminal_text(text: str) -> Markup:
         before = formatted[: sources_match.start()].strip()
         raw_sources = formatted[sources_match.start():].strip()
         header_match = re.match(
-            r"(?i)\s*(?:источники|ссылки|источник|sources|references)\s*:?",
+            r"(?i)\s*(?:источники|ссылки|источник|sources|references|source|fuentes|referencias|fuente)\s*:?",
             raw_sources,
         )
         if header_match:
@@ -419,6 +423,7 @@ async def _get_view_context(request: Request, conversation: Conversation | None 
         "active_plugin_mode": active_plugin_mode,
         "version": __version__,
         "app_version": __version__,
+        "ui": get_ui_text(active_locale),
     }
 
 
@@ -1077,13 +1082,6 @@ FIRST_CHUNK_SPLIT_RE = re.compile(
     """
 )
 
-SOURCES_SPLIT_RE = re.compile(
-    r"""(?xi)
-    (?:^|\n)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?
-    """
-)
-
-
 def _extract_speech_sentence(buffer: str, is_first_chunk: bool = False) -> tuple[str | None, str]:
     return extract_speech_sentence(buffer, is_first_chunk=is_first_chunk)
 
@@ -1099,11 +1097,9 @@ async def _stream_and_synthesize(
 ) -> None:
     await _await_conversation_warmup(conversation)
 
-    effective_locale = conversation.locale
-    speaker_voice = conversation.voice
-    if conversation.locale == "auto":
-        effective_locale = detect_effective_turn_locale(prompt_text, fallback_locale="ru-RU")
-        speaker_voice = get_default_voice_for_locale(effective_locale)
+    turn_lang = resolve_turn_language(conversation, user_text=prompt_text)
+    effective_locale = turn_lang.response_locale
+    speaker_voice = turn_lang.speaker_voice
 
     speaker = LocalMacOsSpeaker(voice=speaker_voice)
     full_reply_parts: list[str] = []
@@ -1281,6 +1277,9 @@ async def _stream_and_synthesize(
             "turn": turn,
             "timing": timing,
             "effective_locale": effective_locale,
+            "input_locale": turn_lang.input_locale,
+            "response_locale": turn_lang.response_locale,
+            "voice_locale": turn_lang.voice_locale,
             "voice": speaker_voice,
             "tts_engine": _get_tts_engine(speaker_voice),
         })
@@ -1544,10 +1543,8 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
 
 async def _append_assistant_turn(conversation: Conversation, text: str) -> str | None:
     turn = {"role": "assistant", "text": text}
-    voice_to_use = conversation.voice
-    if conversation.locale == "auto":
-        effective_locale = detect_effective_turn_locale(text, fallback_locale="ru-RU")
-        voice_to_use = get_default_voice_for_locale(effective_locale)
+    turn_lang = resolve_turn_language(conversation, user_text=text)
+    voice_to_use = turn_lang.speaker_voice
     try:
         speech_path = await LocalMacOsSpeaker(voice=voice_to_use).synthesize(text)
     except LocalSpeechError as exception:

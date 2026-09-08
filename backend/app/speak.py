@@ -53,6 +53,8 @@ EDGE_VOICES: dict[str, str] = {
     "Jenny (Neural · Edge)": "en-US-JennyNeural",
     "Guy (Neural · Edge)": "en-US-GuyNeural",
     "Aria (Neural · Edge)": "en-US-AriaNeural",
+    "Elvira (Neural · Edge)": "es-ES-ElviraNeural",
+    "Alvaro (Neural · Edge)": "es-ES-AlvaroNeural",
 }
 
 SILERO_VOICES: dict[str, str] = {
@@ -65,6 +67,7 @@ SILERO_VOICES: dict[str, str] = {
 PIPER_VOICES: dict[str, str] = {
     "Dmitri (Piper Neural · Offline)": "ru_RU-dmitri-medium",
     "Irina (Piper Neural · Offline)": "ru_RU-irina-medium",
+    "Lessac (Piper Neural · Offline)": "en_US-lessac-medium",
 }
 
 
@@ -460,7 +463,7 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
         except Exception:
             pass
 
-    if not voices:
+    if not voices and shutil.which("say") is not None:
         voices = [
             VoiceInfo(
                 name="Milena (Enhanced)",
@@ -580,6 +583,7 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
 
     piper_dmitri_installed = tts_model_manager.is_installed("piper_ru_dmitri")
     piper_irina_installed = tts_model_manager.is_installed("piper_ru_irina")
+    piper_lessac_installed = tts_model_manager.is_installed("piper_en_lessac")
     piper_ru_voices = [
         VoiceInfo(
             name="Dmitri (Piper Neural · Offline)",
@@ -602,6 +606,20 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
             is_downloaded=piper_irina_installed,
             model_id="piper_ru_irina",
             size_mb=60.0,
+        ),
+    ]
+
+    piper_en_voices = [
+        VoiceInfo(
+            name="Lessac (Piper Neural · Offline)",
+            locale="en_US",
+            sample="First off, I'd like to say that I'm a big fan of your work.",
+            is_russian=False,
+            is_enhanced=True,
+            engine="piper",
+            is_downloaded=piper_lessac_installed,
+            model_id="piper_en_lessac",
+            size_mb=63.0,
         ),
     ]
 
@@ -638,29 +656,73 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
         ),
     ]
 
-    _cached_installed_voices = edge_ru_voices + piper_ru_voices + silero_ru_voices + ru_voices + edge_en_voices + other_voices
+    edge_es_voices = [
+        VoiceInfo(
+            name="Elvira (Neural · Edge)",
+            locale="es_ES",
+            sample="¡Hola! Me llamo Elvira.",
+            is_russian=False,
+            is_enhanced=True,
+            engine="edge",
+            is_downloaded=True,
+            model_id="edge_tts_cloud",
+        ),
+        VoiceInfo(
+            name="Alvaro (Neural · Edge)",
+            locale="es_ES",
+            sample="¡Hola! Me llamo Alvaro.",
+            is_russian=False,
+            is_enhanced=True,
+            engine="edge",
+            is_downloaded=True,
+            model_id="edge_tts_cloud",
+        ),
+    ]
+
+    _cached_installed_voices = (
+        edge_ru_voices
+        + piper_ru_voices
+        + silero_ru_voices
+        + ru_voices
+        + edge_en_voices
+        + piper_en_voices
+        + edge_es_voices
+        + other_voices
+    )
     return _cached_installed_voices
 
 
 def get_default_voice() -> str:
-    """Determine the default voice: environment variable -> Milena (Enhanced) if present -> Milena."""
+    """Determine the default voice: environment variable -> Milena (Enhanced) if present -> Milena -> Dmitri -> Svetlana."""
     env_voice = os.environ.get("VOICE_OF_LUNA_RUSSIAN_VOICE")
     if env_voice:
         return env_voice
     voices = get_installed_voices()
+    for candidate in (
+        "Milena (Enhanced)",
+        "Milena",
+        "Dmitri (Piper Neural · Offline)",
+        "Svetlana (Neural · Edge)",
+    ):
+        for v in voices:
+            if v.name == candidate and (getattr(v, "is_downloaded", True) or v.engine in ("macos", "edge")):
+                return v.name
     for v in voices:
-        if v.name == "Milena (Enhanced)":
-            return "Milena (Enhanced)"
+        if v.is_russian:
+            return v.name
     return "Milena"
 
 
 def get_default_voice_for_locale(locale: str) -> str:
-    """Find the best default voice for a given locale (e.g. 'en-US' -> 'Jenny (Neural · Edge)')."""
+    """Find the best default voice for a given locale (e.g. 'en-US' -> 'Jenny (Neural · Edge)', 'es-ES' -> 'Elvira')."""
     norm = (locale or "").lower().replace("_", "-")
     voices = get_installed_voices()
     if norm.startswith("en"):
         for v in voices:
             if v.name == "Jenny (Neural · Edge)":
+                return v.name
+        for v in voices:
+            if v.name == "Lessac (Piper Neural · Offline)" and getattr(v, "is_downloaded", False):
                 return v.name
         for v in voices:
             if v.locale.lower().startswith("en") and "samantha" in v.name.lower():
@@ -671,10 +733,37 @@ def get_default_voice_for_locale(locale: str) -> str:
         return "Jenny (Neural · Edge)"
     elif norm.startswith("es"):
         for v in voices:
+            if v.name == "Elvira (Neural · Edge)":
+                return v.name
+        for v in voices:
+            if v.locale.lower().startswith("es") and "mónica" in v.name.lower():
+                return v.name
+        for v in voices:
             if v.locale.lower().startswith("es"):
                 return v.name
-        return "Mónica"
+        return "Elvira (Neural · Edge)"
     return get_default_voice()
+
+
+def voice_matches_locale(voice_name: str, locale: str) -> bool:
+    """Check if the given voice matches the target locale prefix (e.g. 'es', 'en', 'ru')."""
+    if not voice_name or not locale:
+        return False
+    norm_loc = locale.lower().replace("_", "-")
+    prefix = norm_loc.split("-")[0]
+    voices = get_installed_voices()
+    for v in voices:
+        if v.name.lower() == voice_name.lower():
+            v_loc = v.locale.lower().replace("_", "-")
+            return v_loc.startswith(prefix)
+    name_lower = voice_name.lower()
+    if prefix == "ru" and any(r in name_lower for r in ("milena", "svetlana", "dmitry", "dmitri", "irina", "ksenia", "baya", "aidar", "eugene", "raya")):
+        return True
+    if prefix == "en" and any(e in name_lower for e in ("jenny", "guy", "aria", "samantha", "lessac")):
+        return True
+    if prefix == "es" and any(s in name_lower for s in ("mónica", "monica", "elvira", "alvaro")):
+        return True
+    return False
 
 
 def get_active_voice() -> str:
@@ -727,12 +816,12 @@ TRAILING_SOURCES_RE = re.compile(
     r"""(?xi)
     (?:
         # Case 1: Explicit header
-        (?:\n|\A)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?[\s\S]*$
+        (?:\n|\A)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references|source|fuentes|referencias|fuente)\b\s*:?[\s\S]*$
         |
         # Case 2: Trailing block of markdown links / citations at the end of text
         (?<=[.!?…\n])\s*
         (?:
-            (?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?\s*
+            (?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references|source|fuentes|referencias|fuente)\b\s*:?\s*
         )?
         (?:
             (?:[-*•·]|\d+\.)?\s*
@@ -782,7 +871,7 @@ def sanitize_for_speech(text: str) -> str:
 
     # 1. Cut off explicit sources/references section at the end
     text = re.split(
-        r"(?i)(?:\n|\A)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references)\b\s*:?",
+        r"(?i)(?:\n|\A)\s*(?:[#/*_~-]+\s*)?(?:источники|ссылки|источник|sources|references|source|fuentes|referencias|fuente)\b\s*:?",
         text,
     )[0]
 

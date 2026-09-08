@@ -31,10 +31,77 @@ from app.speak import (
     get_default_voice_for_locale,
     get_voice_for_locale,
     prewarm_voice,
+    voice_matches_locale,
 )
-from app.speech_pipeline import remove_temporary_audio
+from app.speech_pipeline import (
+    detect_effective_turn_locale,
+    remove_temporary_audio,
+)
 
 logger = logging.getLogger("voice_of_luna")
+
+
+@dataclass(frozen=True)
+class TurnLanguage:
+    input_locale: str
+    response_locale: str
+    voice_locale: str
+    speaker_voice: str
+
+
+def resolve_turn_language(
+    conversation: Conversation,
+    user_text: str = "",
+    assistant_text: str | None = None,
+) -> TurnLanguage:
+    """Resolve unified turn language across prompt, STT, TTS, and telemetry.
+
+    Considers:
+    1. Active plugin overrides (response_locale_override, preferred_voice_locale).
+    2. Dynamic user text language detection when session locale is 'auto'.
+    3. Session conversation.locale when fixed (e.g. 'ru-RU', 'en-US', 'es-ES').
+    4. Speaker voice compatibility with voice_locale.
+    """
+    plugin = plugin_manager.get(conversation.plugin_id)
+    plugin_override = getattr(plugin, "response_locale_override", None)
+    pref_voice_locale = plugin_manager.get_preferred_voice_locale(conversation.plugin_id)
+
+    # 1. Resolve user input locale
+    if conversation.locale == "auto":
+        input_locale = detect_effective_turn_locale(user_text, fallback_locale="ru-RU")
+    else:
+        input_locale = conversation.locale
+
+    # 2. Resolve target response locale
+    if plugin_override:
+        response_locale = plugin_override
+    else:
+        response_locale = input_locale
+
+    # 3. Resolve voice locale
+    if pref_voice_locale:
+        voice_locale = pref_voice_locale
+    elif plugin_override:
+        voice_locale = plugin_override
+    else:
+        voice_locale = response_locale
+
+    # 4. Resolve speaker voice
+    if plugin_override or pref_voice_locale or conversation.locale == "auto":
+        if conversation.voice and voice_matches_locale(conversation.voice, voice_locale):
+            speaker_voice = conversation.voice
+        else:
+            speaker_voice = get_default_voice_for_locale(voice_locale)
+    else:
+        # Fixed locale without plugin override: respect user's explicit voice selection if set
+        speaker_voice = conversation.voice or get_default_voice_for_locale(voice_locale)
+
+    return TurnLanguage(
+        input_locale=input_locale,
+        response_locale=response_locale,
+        voice_locale=voice_locale,
+        speaker_voice=speaker_voice,
+    )
 
 
 @dataclass
