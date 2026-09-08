@@ -2,7 +2,8 @@
   "name": "voice-of-luna-browser-tests",
   "private": true,
   "scripts": {
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "experiment:vad": "node scripts/vad_ab_experiment.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.55.0"

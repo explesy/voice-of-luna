@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-09-08
+
+### Added
+- Added a reproducible VAD A/B harness for fast (300 ms), normal (450 ms), and patient (600 ms) endpointing profiles.
+- Added an example trace format for measuring endpoint timing and false-end events from captured sessions.
+
 ## [0.17.8] - 2026-09-08
 
 ### Changed
