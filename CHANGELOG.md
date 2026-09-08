@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-09-08
+
+### Changed
+- Simplified the README measurement snapshot by moving environment and detailed run mechanics to the canonical benchmark document.
+
 ## [0.17.0] - 2026-09-08
 
 ### Added
