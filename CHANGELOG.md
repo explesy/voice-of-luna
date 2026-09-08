@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-09-08
+
+### Added
+- Added opt-in local VAD trace capture/export with volume, threshold, state, silence, and endpoint markers; audio and transcripts are never recorded.
+
 ## [0.22.5] - 2026-09-08
 
 ### Fixed

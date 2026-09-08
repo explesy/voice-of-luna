@@ -108,12 +108,18 @@ async function initAudioAnalyser(stream) {
             speechEndDetectedAt = now;
           } else if (now - window.vadSilenceStartTime >= silenceTimeout) {
             console.log("// VAD auto-stop: silence detected for", Math.round(now - window.vadSilenceStartTime), "ms");
+            if (typeof window.recordVadTraceSample === "function") {
+              window.recordVadTraceSample(normalizedVolume, threshold, window.vadSpeechDetected, window.vadSilenceStartTime, "automaticStop");
+            }
             window.vadSpeechDetected = false;
             window.vadSilenceStartTime = null;
             window.speechStartTime = null;
             stopRecording();
             return;
           }
+        }
+        if (typeof window.recordVadTraceSample === "function") {
+          window.recordVadTraceSample(normalizedVolume, threshold, window.vadSpeechDetected, window.vadSilenceStartTime);
         }
       }
 
@@ -862,6 +868,9 @@ async function startRecording(recordBtn) {
   stopSpeaking();
 
   try {
+    if (typeof window.recordVadTraceSample === "function" && window.vadTraceEnabled) {
+      window.recordVadTraceSample(0, window.VAD_VOLUME_THRESHOLD || 0.055, false, null, "manualRestart");
+    }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     activeRecordingStream = stream;
     await initAudioAnalyser(stream);

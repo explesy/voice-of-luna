@@ -103,6 +103,8 @@ Switch voices on the fly with automatic multi-tier fallback:
 
 To compare VAD endpointing profiles on captured traces, run `npm run experiment:vad -- scripts/vad-traces.example.json`. The harness reports endpoint and false-end counts for fast (300 ms), normal (450 ms), and patient (600 ms) settings. Built-in traces are synthetic calibration data, not a latency SLA.
 
+For an opt-in local browser capture, run `setVadTraceCapture(true)` in DevTools before speaking. The trace stores only timestamps, normalized volume, threshold, speech state, silence start, and stop/restart markers; it never stores audio or transcripts. Export it with `downloadVadTrace()`, then disable capture with `setVadTraceCapture(false)`.
+
 ### 4. Live Codex Discovery & Warmup
 - **Dynamic Model Discovery**: Queries `/api/models` directly from your local Codex runtime (`gpt-5.6-sol`, `gpt-5.4-mini`, `gpt-5.6-terra`, `gpt-6-astra`).
 - **Adjustable Reasoning**: Configure reasoning effort (`low`, `medium`, `high`) per session.
