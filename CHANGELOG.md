@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.4] - 2026-09-08
+
+### Changed
+- Added the dated TTS, STT, and live-Codex measurement snapshot directly to the README, with sample-size and evidence limitations.
+
 ## [0.16.3] - 2026-09-08
 
 ### Fixed

@@ -122,6 +122,45 @@ It distinguishes reproducible local TTS, opt-in network Edge TTS, private
 real-speech STT, and quota-consuming live Codex observations. Do not treat a
 single machine's snapshot as an SLA or a universal model ranking.
 
+### Latest measured snapshot — 2026-09-08
+
+Environment: Apple M2 / arm64, macOS 26.6.2, Python 3.14.3. TTS rows are seven
+warm samples after an excluded warm-up; all requested engines were actually
+used (no fallback). The range is min–max, not a product guarantee.
+
+| Voice | Engine | First chunk, median | Full sentence, median | Range across both measurements |
+|---|---|---:|---:|---:|
+| Eugene | Silero | **80.2 ms** | **237.1 ms** | 67.3–255.6 ms |
+| Ksenia | Silero | 154.1 ms | 272.4 ms | 105.0–1800.4 ms |
+| Dmitri | Piper | 402.2 ms | 908.2 ms | 240.2–958.2 ms |
+| Irina | Piper | 471.7 ms | 1213.6 ms | 413.7–1280.2 ms |
+| Milena | macOS say | 1356.7 ms | 1396.4 ms | 1309.1–1452.1 ms |
+| Svetlana | Edge | 975.1 ms | 889.7 ms | 701.5–3813.9 ms |
+
+STT was also checked against a private, locally processed 11.304-second
+Russian speech recording: conversion to 16 kHz mono WAV plus transcription
+returned non-empty speech in **864 ms**. The audio and transcript are not
+stored in this repository; no accuracy claim is made without a reference text.
+
+Live Codex latency is the dominant variable. The table below is one explicit
+quota-consuming observation per state with `reasoning_effort="low"`: `cold` is
+the first turn on a new ephemeral thread, and `warm` is the immediately
+following turn on that same thread. Values are TTFT / full-turn milliseconds.
+
+| Model | Cold | Warm |
+|---|---:|---:|
+| GPT-5.4-Mini | 6098 / 6391 | 4801 / 5097 |
+| GPT-5.6-Sol | 6495 / 6835 | 3854 / 4187 |
+| GPT-5.6-Terra | 5552 / 5706 | **2132 / 2549** |
+| GPT-5.6-Luna | 6479 / 6708 | 3968 / 4726 |
+| GPT-5.5 | 5404 / 5447 | 3660 / 3664 |
+| GPT-6-Astra | 6463 / 6845 | 3786 / 4144 |
+
+Every warm observation was faster in this run. This supports optional warmup,
+but not a fixed latency promise or a permanent model ranking. See the
+[full methodology and limits](docs/05%20%E2%80%94%20Latency%20&%20Performance%20Benchmarks.md)
+before making a configuration decision.
+
 ---
 
 ## 🚀 Getting Started
