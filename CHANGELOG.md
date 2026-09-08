@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.2] - 2026-09-08
+
+### Documentation
+- Reconciled the README and project documents with the implemented Project Room plugin, native tool permissions, local HTTP startup, and streaming TTS pipeline.
+- Removed retired plugin names and corrected the documented Python test count and local-first privacy wording.
+- Documented Project Room, plugin storage, project-root, model-directory, and optional GitHub runtime configuration.
+
 ## [0.24.1] - 2026-09-08
 
 ### Changed

@@ -48,7 +48,7 @@ End немедленно останавливает микрофон и TTS. П�
 
 # MVP-функции
 
-MVP включает browser microphone input, automatic turn detection, STT, text LLM через local Codex bridge, TTS, low-latency transport, barge-in, скрываемый transcript и удаление истории. Мультипользовательские аккаунты, billing, marketplace plugins, сложная аналитика и тренажёрные сценарии в MVP не входят.
+MVP включает browser microphone input, automatic turn detection, STT, text LLM через local Codex bridge, streaming TTS, low-latency transport, barge-in, скрываемый transcript, удаление истории и capability-limited Project Room plugin. Мультипользовательские аккаунты, billing, marketplace plugins, сложная аналитика и тренажёрные сценарии в MVP не входят.
 
 # Критерии качества
 

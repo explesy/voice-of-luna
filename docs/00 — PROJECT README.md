@@ -16,7 +16,7 @@ Voice of Luna — личное web-приложение для простого 
 
 # Текущие решения
 
-Продукт делаем как web application, работающий в современном браузере на desktop и mobile. Нативное Mac-приложение не требуется. Frontend получает доступ к микрофону через browser APIs. Все секретные API-ключи хранятся только на backend. Интеграция с LLM/STT/TTS строится через официальные provider APIs; автоматизация consumer ChatGPT UI не является частью архитектуры. Конкретные модели должны задаваться конфигурацией и заменяться без переписывания приложения.
+Продукт делаем как web application, работающий в современном браузере на desktop и mobile. Нативное Mac-приложение не требуется. Frontend получает доступ к микрофону через browser APIs. Секреты, если они нужны адаптеру, хранятся только в локальном runtime backend и не передаются в браузер. В personal MVP LLM подключается через локальный `codex app-server` и уже выполненный `codex login`; STT работает локально, а Edge TTS остаётся отдельным сетевым opt-in. Автоматизация consumer ChatGPT UI не является частью архитектуры. Конкретные модели должны задаваться конфигурацией и заменяться без переписывания приложения.
 
 Для личного локального MVP допускается отдельный **Codex-connected mode**: пользователь один раз авторизует локальный companion через свою ChatGPT/Codex-учётную запись, а тот запускает поддерживаемый Codex runtime для LLM-turns. Браузер и web backend не получают OAuth access/refresh tokens. Это не публичная «Sign in with ChatGPT» для посетителей сайта и не способ обходить лимиты подписки: вызовы расходуют доступный лимит Codex этой учётной записи. API-key mode остаётся независимым fallback для server deployment и будущего multi-user продукта.
 
@@ -39,4 +39,4 @@ Voice-first: во время разговора пользователь не о
 
 # Текущий статус
 
-Сформулированы продуктовая гипотеза, web-first архитектура и первоначальный MVP. Следующий инженерный шаг — минимальный локальный prototype: browser microphone → STT → local Codex bridge → text response → TTS → speaker.
+Рабочий local MVP реализует text и voice turn-ы, persistent same-thread Codex conversation, streaming TTS, barge-in, VAD telemetry, локальную plugin storage и Project Room. Дальнейшие задачи — поддержание совместимости с меняющейся schema `codex app-server`, ручной cross-browser smoke и развитие безопасных plugins; публичный multi-user deployment в scope не входит.

@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg?logo=fastapi&logoColor=white" alt="FastAPI" />
   <img src="https://img.shields.io/badge/HTMX-2.0-3366cc.svg?logo=htmx&logoColor=white" alt="HTMX 2.0" />
   <img src="https://img.shields.io/badge/managed%20by-uv-DE5FE9.svg" alt="Managed by uv" />
-  <img src="https://img.shields.io/badge/privacy-100%25%20local--first-00f0ff.svg" alt="100% Local-First" />
+  <img src="https://img.shields.io/badge/privacy-local--first-00f0ff.svg" alt="Local-First" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License" /></a>
 </p>
 
@@ -29,8 +29,8 @@ Unlike traditional cloud voice assistants that upload unencrypted voice recordin
 
 ### Why Voice of Lúna?
 
-- 🔒 **Zero Audio Leakage & Total Privacy**: Speech recognition runs entirely offline with local Whisper. Your raw voice recordings never leave your machine.
-- 🔑 **No Extra API Keys or Costs**: Communicates directly with your authenticated local Codex session (`codex login`) via stdio JSON-RPC. No pay-per-token API billing or additional third-party subscriptions.
+- 🔒 **Local audio processing by default**: Speech recognition runs with local Whisper. Raw recordings are temporary and are not persisted by the application.
+- 🔑 **Uses the local Codex login**: Communicates with your authenticated local Codex session (`codex login`) via stdio JSON-RPC. Turns still use the account's available Codex allowance; this is not an unlimited API or a public multi-user login.
 - ⚡ **Streaming Sentence-Level TTS**: The first completed speech clause is sent to synthesis while the model continues generating the rest of its reply.
 - 🛑 **True Natural Barge-In**: Interrupt Lúna at any moment simply by speaking or pressing `[Space]`. Audio playback stops instantly, queues are flushed, and a new turn begins.
 - 🎙️ **Multi-Tier Voice Engine**: High-fidelity free cloud neural voices (Microsoft Edge TTS), ultra-fast offline neural voices (Silero TTS v4), and native macOS speech with automatic graceful fallback.
@@ -112,9 +112,10 @@ For an opt-in local browser capture, run `setVadTraceCapture(true)` in DevTools 
 
 ### 5. Capability-Isolated Plugins
 Extend Lúna's capabilities without granting plugins access to credentials or raw audio:
-- **`Lúna (Core)`**: Neutral, empathetic conversation core.
-- **`Focus Sprint`**: Timed Pomodoro-style sprints with progress check-ins.
-- **`Spanish Buddy`**: Conversational Spanish language tutor.
+- **`Lúna (Core)`**: Neutral conversation core with no plugin tools.
+- **`Project Room`**: Persistent plugin-scoped memory, read-only access to a user-selected project root, and optional GitHub issue tools. Repository reads are constrained to the selected root; GitHub issue creation requires a one-shot approval.
+
+The core does not embed a personal-training protocol. Specialized workflows remain a future plugin concern.
 
 ---
 
@@ -250,13 +251,18 @@ Voice of Lúna works out of the box with zero configuration, but can be customiz
 | `VOICE_OF_LUNA_WHISPER_HOST` | `127.0.0.1` | Local Whisper server host |
 | `VOICE_OF_LUNA_WHISPER_PORT` | `8089` | Local Whisper server port |
 | `VOICE_OF_LUNA_RUSSIAN_VOICE` | `Milena (Enhanced)` | Default macOS speech voice |
+| `VOICE_OF_LUNA_MODELS_DIR` | `backend/models` (fallback: `~/.cache/voice-of-luna/models`) | Directory for downloaded Piper/Silero model artifacts |
+| `VOICE_OF_LUNA_PLUGIN_DB` | `data/voice_of_luna_plugins.sqlite3` | Local SQLite file for plugin-scoped memory |
+| `VOICE_OF_LUNA_PROJECT_ROOT` | unset | Optional default project root for Project Room read-only tools |
+| `VOICE_OF_LUNA_GITHUB_REPOSITORY` | unset | Local `owner/repository` target for Project Room GitHub tools |
+| `VOICE_OF_LUNA_GITHUB_TOKEN` | unset | Local GitHub token; never sent to the browser or plugin code |
 | `VOICE_OF_LUNA_CONVERSATION_IDLE_TTL_SECONDS` | `900` | Inactivity timeout before reclaiming idle Codex threads (15 min) |
 
 ---
 
 ## 🧪 Testing & Verification
 
-The comprehensive test suite contains 198+ unit and integration tests running completely offline with 100% mocked model calls — running tests will **never consume your Codex quota**:
+The comprehensive Python test suite currently collects 223 unit and integration tests. It runs offline with mocked model calls — running tests will **never consume your Codex quota**:
  
 ```bash
 make test
@@ -288,9 +294,9 @@ uv run pytest tests/test_version.py
 ## 🔒 Security & Privacy Model
 
 - **Localhost Boundary**: Voice of Lúna binds exclusively to `127.0.0.1`. It is designed as a personal companion, never to be exposed directly to the public internet without an authentication layer.
-- **No Token Storage**: The application never touches, reads, or caches your OAuth credentials. All LLM calls pass through the local `codex app-server` binary already authorized on your machine.
+- **No Token Storage**: The application never copies or exposes your OAuth credentials. All LLM calls pass through the local `codex app-server` binary already authorized on your machine.
 - **Ephemeral Audio Lifecycle**: Recorded audio chunks, temporary WAV conversions, and synthesized reply audio are wiped immediately after turn delivery.
-- **Isolated Plugins**: Plugins run in restricted turn contexts and have no access to file systems, credentials, or raw audio data.
+- **Isolated Plugins**: Plugins run in restricted turn contexts and have no access to credentials or raw audio. Project Room's repository tools are the explicit exception: they can read only the selected project root and never write repository files.
 
 ---
 

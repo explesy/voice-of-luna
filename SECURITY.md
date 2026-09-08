@@ -12,4 +12,4 @@ Include a minimal reproduction, impact, affected revision, and any relevant conf
 
 ## Security boundary
 
-The project must never copy the operator's Codex OAuth credentials into its database, HTTP responses, WebSocket messages, logs, Docker images, or browser bundle. The app-server is local-only. Reports showing a bypass of either rule are high priority.
+The project must never copy the operator's Codex OAuth credentials into its database, HTTP responses, WebSocket messages, logs, Docker images, or browser bundle. Optional GitHub credentials are likewise kept in the local backend runtime and are never exposed to plugins, browser clients, or logs. The app-server is local-only. Project Room repository access is read-only, constrained to the selected root, and excludes `.git` and `.env` paths; external GitHub issue creation requires a one-shot approval. Reports showing a bypass of these rules are high priority.

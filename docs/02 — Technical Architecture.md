@@ -7,7 +7,7 @@
 Voice of Luna — local-first voice shell над сильной текстовой моделью. Browser отвечает за микрофон, визуальное состояние и playback. Local backend управляет turn-taking, хранением истории и адаптерами. Codex app-server отвечает за LLM turn, используя уже авторизованную личную учётную запись владельца.
 
 ```text
-Browser ── HTTPS/WSS ── Local backend ── stdio / Unix socket ── Codex app-server
+Browser ── HTTP/WS ── Local backend ── stdio / Unix socket ── Codex app-server
  microphone                  │                                      │
  speaker                     ├── STT / TTS adapters                 └── ChatGPT/Codex account
                              └── local conversation store
@@ -19,8 +19,8 @@ Browser не получает API keys, OAuth access token или refresh token.
 
 - UI: FastAPI templates + htmx; no client-side application framework.
 - Local backend: Python + FastAPI.
-- Realtime: WebSocket для статусов и коротких аудио-событий.
-- Browser audio: `getUserMedia`, `AudioWorklet` после первого spike; `MediaRecorder` допустим для первого запуска.
+- Realtime: WebSocket для статусов, transcript events и потоковых аудио-событий; HTTP остаётся text/compatibility fallback.
+- Browser audio: `getUserMedia`, `AudioWorklet` for PCM/VAD capture with `MediaRecorder` fallback.
 - Persistence: SQLite, только local filesystem. Raw audio по умолчанию не сохраняется.
 - Runtime LLM: установленный `codex app-server` через stdio. Версию и schema проверяем при запуске.
 
@@ -34,7 +34,7 @@ Browser не получает API keys, OAuth access token или refresh token.
 
 `SpeechToTextProvider`, `TextToSpeechProvider` и `LanguageModelProvider` — небольшие интерфейсы без provider-specific типов в core.
 
-`LocalWhisperTranscriber` конвертирует browser recording локальным `ffmpeg` в mono 16 kHz WAV, запускает multilingual Whisper small и возвращает transcript. Исходник, WAV и JSON-результат существуют только на время turn и затем удаляются. Для кириллического ответа `LocalMacOsSpeaker` вызывает локальный macOS `say` (по умолчанию голос Milena) и кодирует короткий M4A для browser playback; файл удаляется после однократной выдачи. `LocalCodexLanguageModelProvider` запускает app-server, выполняет protocol handshake и запрашивает `turn/start` с этим текстом. Provider собирает только итоговую `agentMessage` и не показывает пользователю внутренние tool calls, reasoning или файловый контекст. Runtime запускается с read-only sandbox и без доступа к этому репозиторию, кроме пустого рабочего каталога companion.
+`LocalWhisperTranscriber` конвертирует browser recording локальным `ffmpeg` в mono 16 kHz WAV, запускает multilingual Whisper small и возвращает transcript. Исходник, WAV и JSON-результат существуют только на время turn и затем удаляются. TTS может использовать локальные Piper/Silero/macOS voices или opt-in network-backed Edge TTS; фактически использованный engine сохраняется в telemetry. `LocalCodexLanguageModelProvider` запускает app-server, выполняет protocol handshake и переиспользует один ephemeral thread на conversation. Provider отдаёт текст `agentMessage`; native plugin tool results проходят через отдельный capability boundary. Runtime запускается с read-only sandbox и без доступа к этому репозиторию, кроме явно выбранного Project Room root.
 
 `OpenAIApiLanguageModelProvider` остаётся будущим fallback для server deployment. Он не нужен, чтобы запустить personal MVP.
 
@@ -46,7 +46,7 @@ Plugin — локальный пакет с manifest и одной или нес
 
 Persistent plugin memory использует один local SQLite/FTS5 файл с namespace по `plugin_id` и scope (`global`, `plugin`, `conversation`). Repository access ограничен realpath выбранного project root и read-only операциями.
 
-Первый plugin может быть тренировочным протоколом, но базовый продукт без него должен оставаться полезным. До появления рабочего voice loop никакой plugin runtime не реализуется: сейчас фиксируется только совместимая граница.
+Первый реализованный plugin — `Project Room`: его память хранится в plugin-scoped SQLite/FTS5, repository tools работают read-only в выбранном root, а `github.create_issue` требует одноразового approval `external.write` на 60 секунд. Базовый продукт без plugin остаётся полезным; личные тренировочные сценарии по-прежнему не входят в core.
 
 # API, security и проверки
 
@@ -55,7 +55,7 @@ Persistent plugin memory использует один local SQLite/FTS5 фай�
 - `POST /api/conversations` — создаёт local conversation.
 - `POST /api/conversations/{id}/turns` — принимает уже распознанный текст для первого smoke path.
 - `DELETE /api/conversations/{id}` — удаляет transcript и events.
-- `WS /ws/conversations/{id}` — следующий этап для audio, partial transcript и TTS chunks.
+- `WS /ws/conversations/{id}` — realtime audio input, transcript/status events, streamed assistant text и TTS chunks.
 - `POST /api/conversations/{id}/plugin` — выбирает plugin/mode и, для Project Room, локальный `project_root`.
 - `POST /api/conversations/{id}/tool-approval` — выдаёт одноразовое approval для `external.write`.
 
