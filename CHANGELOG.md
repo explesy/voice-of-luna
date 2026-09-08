@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-09-08
+
+### Added
+- Added explicit project-root selection for Project Room through the plugin API.
+- Added tool permission metadata and one-shot, 60-second approval for `external.write` actions.
+- Added a local-only GitHub capability gateway and guarded `github.issues` / `github.create_issue` tools.
+
 ## [0.23.0] - 2026-09-08
 
 ### Added

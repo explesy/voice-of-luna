@@ -22,6 +22,7 @@ from uuid import uuid4
 
 from app.codex import CodexAppServer, get_base_instructions
 from app.plugin_storage import PluginStorage
+from app.github_gateway import GitHubGateway
 import os
 
 CONVERSATION_IDLE_TTL_SECONDS = int(os.environ.get("VOICE_OF_LUNA_CONVERSATION_IDLE_TTL_SECONDS", "900"))
@@ -39,6 +40,21 @@ from app.speech_pipeline import (
 )
 
 logger = logging.getLogger("voice_of_luna")
+_tool_approvals: dict[tuple[str, str], float] = {}
+
+
+def approve_tool_permission(conversation_id: str, permission: str, ttl: float = 60.0) -> None:
+    _tool_approvals[(conversation_id, permission)] = time.monotonic() + ttl
+
+
+def consume_tool_permission(conversation_id: str, permission: str) -> bool:
+    key = (conversation_id, permission)
+    expires = _tool_approvals.get(key, 0.0)
+    if expires <= time.monotonic():
+        _tool_approvals.pop(key, None)
+        return False
+    _tool_approvals.pop(key, None)
+    return True
 
 
 def _configured_project_root() -> Path | None:
@@ -370,9 +386,15 @@ class ConversationService:
                         metadata={
                             "project_root": str(conversation.project_root)
                             if conversation.project_root
-                            else None
+                            else None,
+                            "permissions": (
+                                ("storage.read", "storage.write", "repo.read", "network.read", "external.write")
+                                if consume_tool_permission(conversation.id, "external.write")
+                                else ("storage.read", "storage.write", "repo.read", "network.read")
+                            ),
                         },
                         storage=plugin_storage,
+                        github=github_gateway,
                     ),
                 )
                 return result.as_rpc_result()
@@ -386,6 +408,7 @@ class ConversationService:
 
 conversation_service = ConversationService()
 plugin_storage = PluginStorage()
+github_gateway = GitHubGateway()
 
 
 async def call_reply(

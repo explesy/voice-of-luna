@@ -80,6 +80,12 @@
               {% endif %}
             </select>
           </div>
+          <div class="sys-chip project-root-chip" title="Локальный каталог Project Room">
+            <label for="project-root-input" class="session-plugin-label">ROOT:</label>
+            <input id="project-root-input" class="voice-input project-root-input" type="text"
+                   value="{{ conversation.project_root or '' }}" placeholder="/path/to/project"
+                   aria-label="Локальный корень проекта">
+          </div>
           {% set current_p = none %}
           {% for p in plugins %}
             {% if p.id == active_plugin %}

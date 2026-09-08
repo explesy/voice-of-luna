@@ -1693,6 +1693,7 @@ function initPluginSelector() {
 }
 
 function sendPluginUpdate(pluginId, mode = "default") {
+  const projectRoot = document.querySelector("#project-root-input")?.value.trim() || null;
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "set_plugin", plugin_id: pluginId, mode: mode }));
   }
@@ -1702,7 +1703,7 @@ function sendPluginUpdate(pluginId, mode = "default") {
     fetch(`/api/conversations/${convId}/plugin`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plugin_id: pluginId, mode: mode }),
+      body: JSON.stringify({ plugin_id: pluginId, mode: mode, project_root: projectRoot }),
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {

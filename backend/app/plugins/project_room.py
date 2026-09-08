@@ -49,6 +49,16 @@ class ProjectRoomPlugin(Plugin):
                 {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
                 "repo.read",
             ),
+            ToolSpec(
+                "github", "issues", "List issues in the configured project repository.",
+                {"type": "object", "properties": {"state": {"type": "string"}}},
+                "network.read",
+            ),
+            ToolSpec(
+                "github", "create_issue", "Create an issue in the configured project repository.",
+                {"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}}, "required": ["title", "body"]},
+                "external.write",
+            ),
         ]
 
     async def call_tool(self, name: str, arguments: dict[str, Any], ctx: ToolCallContext) -> ToolResult:
@@ -83,6 +93,16 @@ class ProjectRoomPlugin(Plugin):
                 return ToolResult(content_items=[_text("Search query is empty")])
             matches = await asyncio.to_thread(self._search_repo, root, query)
             return ToolResult(content_items=[_text("\n".join(matches) or "No repository matches found.")])
+        if qualified == "github.issues":
+            if ctx.github is None:
+                raise RuntimeError("GitHub gateway is unavailable")
+            issues = await ctx.github.issues(str(arguments.get("state", "open")))
+            return ToolResult(content_items=[_text(issues)])
+        if qualified == "github.create_issue":
+            if ctx.github is None:
+                raise RuntimeError("GitHub gateway is unavailable")
+            issue = await ctx.github.create_issue(str(arguments.get("title", "")), str(arguments.get("body", "")))
+            return ToolResult(content_items=[_text({"number": issue.get("number"), "url": issue.get("html_url")})])
         raise ValueError(f"Unknown Project Room tool: {name}")
 
     @staticmethod

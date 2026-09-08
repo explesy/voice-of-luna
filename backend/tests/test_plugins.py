@@ -93,6 +93,15 @@ async def test_plugin_manager_dispatches_declared_tools_and_isolates_unknown_too
     unknown = await mgr.call_tool("tool_plugin", "repo.read", {}, ctx)
     assert unknown.metadata["error"] == "unknown_tool"
 
+    restricted = ToolPlugin()
+    restricted.tools = lambda: [ToolSpec(
+        namespace="external", name="write", description="write", input_schema={"type": "object"},
+        required_permission="external.write",
+    )]
+    mgr.register(restricted)
+    denied = await mgr.call_tool("tool_plugin", "external.write", {}, ctx)
+    assert denied.metadata["error"] == "permission_denied"
+
 
 @pytest.mark.anyio
 async def test_plugin_manager_timeout_guard():

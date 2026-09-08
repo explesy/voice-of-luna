@@ -45,6 +45,13 @@ class PluginManager:
                 "name": p.name,
                 "description": p.description,
                 "modes": p.get_modes(),
+                "tools": [
+                    {
+                        "name": tool.qualified_name,
+                        "permission": tool.required_permission,
+                    }
+                    for tool in p.tools()
+                ],
             }
             for p in self._plugins.values()
         ]
@@ -76,6 +83,14 @@ class PluginManager:
                 ],
                 metadata={"ok": False, "error": "unknown_tool"},
             )
+        granted = set(ctx.metadata.get("permissions", ()))
+        if tool.required_permission and tool.required_permission not in granted:
+            return ToolResult(
+                content_items=[
+                    {"type": "text", "text": "Permission required for this tool."}
+                ],
+                metadata={"ok": False, "error": "permission_denied", "permission": tool.required_permission},
+            )
         try:
             qualified = name if "." in name else tool.qualified_name
             call_ctx = ToolCallContext(
@@ -84,6 +99,7 @@ class PluginManager:
                 active_mode=ctx.active_mode,
                 metadata={**ctx.metadata, "tool_qualified_name": qualified},
                 storage=ctx.storage,
+                github=ctx.github,
             )
             return await asyncio.wait_for(plugin.call_tool(tool.name, arguments, call_ctx), timeout)
         except asyncio.TimeoutError:

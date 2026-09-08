@@ -66,6 +66,7 @@ class ToolCallContext:
     active_mode: str
     metadata: dict[str, Any] = field(default_factory=dict)
     storage: Any = None
+    github: Any = None
 
 
 class Plugin(ABC):
