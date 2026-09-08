@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 import pytest
 
-from app.conversation_service import Conversation, ConversationService, SpeechClip, call_reply, call_reply_stream
+from app.conversation_service import Conversation, ConversationService, SpeechClip, call_reply, call_reply_stream, resolve_stt_config
 from app.speech_pipeline import (
     AudioConversionError,
     extract_speech_sentence,
@@ -71,6 +71,20 @@ def test_warmup_is_invalidated_when_base_instructions_change(monkeypatch) -> Non
     assert conversation.thread_generation == 2
     assert conversation.remote_warmup_key is None
     assert conversation.remote_warmup_task is None
+
+
+def test_resolve_stt_config_matches_locale_and_plugin_policy() -> None:
+    russian = Conversation(id="stt-ru", locale="ru-RU")
+    assert resolve_stt_config(russian).language == "ru"
+
+    english = Conversation(id="stt-en", locale="en-US")
+    assert resolve_stt_config(english).language == "en"
+    assert resolve_stt_config(english).prompt == ""
+
+    spanish = Conversation(id="stt-es", locale="auto", plugin_id="spanish_buddy")
+    config = resolve_stt_config(spanish)
+    assert config.language == "auto"
+    assert "español" in config.prompt
 
 
 def test_write_and_remove_temporary_audio(tmp_path: Path) -> None:

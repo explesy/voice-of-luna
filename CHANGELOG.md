@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.7] - 2026-09-08
+
+### Changed
+- Centralized Whisper language and prompt resolution for HTTP and WebSocket audio transports.
+- Added regression coverage for locale and plugin-specific STT policy.
+
 ## [0.17.6] - 2026-09-08
 
 ### Added

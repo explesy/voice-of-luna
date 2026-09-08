@@ -49,6 +49,28 @@ class TurnLanguage:
     speaker_voice: str
 
 
+@dataclass(frozen=True)
+class SttConfig:
+    language: str
+    prompt: str
+
+
+def resolve_stt_config(conversation: Conversation) -> SttConfig:
+    """Resolve the shared Whisper language and prompt policy for every transport."""
+    language = plugin_manager.get_stt_language(conversation.plugin_id)
+    prompt = plugin_manager.get_stt_prompt(conversation.plugin_id) or ""
+    if not language:
+        if conversation.locale.startswith("en"):
+            language = "en"
+        elif conversation.locale.startswith("ru"):
+            language = "ru"
+        else:
+            language = "auto"
+    if conversation.locale.startswith("en") and not plugin_manager.get_stt_prompt(conversation.plugin_id):
+        prompt = ""
+    return SttConfig(language=language, prompt=prompt)
+
+
 def resolve_turn_language(
     conversation: Conversation,
     user_text: str = "",

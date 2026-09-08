@@ -42,6 +42,7 @@ from .conversation_service import (
     call_reply,
     call_reply_stream,
     conversation_service,
+    resolve_stt_config,
     resolve_turn_language,
 )
 from .i18n import get_ui_text
@@ -641,19 +642,9 @@ async def create_audio_turn_fragment(
         else:
             wav_path = await _convert_to_wav(temporary_path)
         t_wav = time.perf_counter()
-        stt_lang = plugin_manager.get_stt_language(conversation.plugin_id)
-        stt_prompt = plugin_manager.get_stt_prompt(conversation.plugin_id)
-        if not stt_lang:
-            if conversation.locale.startswith("en"):
-                stt_lang = "en"
-            elif conversation.locale.startswith("ru"):
-                stt_lang = "ru"
-            else:
-                stt_lang = "auto"
-        if conversation.locale.startswith("en") and not plugin_manager.get_stt_prompt(conversation.plugin_id):
-            stt_prompt = ""
+        stt_config = resolve_stt_config(conversation)
         transcript = await LocalWhisperTranscriber(
-            language=stt_lang, prompt=stt_prompt
+            language=stt_config.language, prompt=stt_config.prompt
         ).transcribe(wav_path)
         t_stt = time.perf_counter()
         conversation.turns.append({"role": "user", "text": transcript})
@@ -1367,19 +1358,9 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         else:
                             wav_path = await _convert_to_wav(temporary_path)
                         t_audio_prepared = time.perf_counter()
-                        stt_lang = plugin_manager.get_stt_language(conversation.plugin_id)
-                        stt_prompt = plugin_manager.get_stt_prompt(conversation.plugin_id)
-                        if not stt_lang:
-                            if conversation.locale.startswith("en"):
-                                stt_lang = "en"
-                            elif conversation.locale.startswith("ru"):
-                                stt_lang = "ru"
-                            else:
-                                stt_lang = "auto"
-                        if conversation.locale.startswith("en") and not plugin_manager.get_stt_prompt(conversation.plugin_id):
-                            stt_prompt = ""
+                        stt_config = resolve_stt_config(conversation)
                         transcript = await LocalWhisperTranscriber(
-                            language=stt_lang, prompt=stt_prompt
+                            language=stt_config.language, prompt=stt_config.prompt
                         ).transcribe(wav_path)
                         t_stt = time.perf_counter()
                         conversation.turns.append({"role": "user", "text": transcript})
