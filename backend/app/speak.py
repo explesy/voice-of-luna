@@ -12,6 +12,8 @@ import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from app.num_normalizer import normalize_numbers_for_speech
+
 logger = logging.getLogger("voice_of_luna.speak")
 
 
@@ -935,7 +937,8 @@ class LocalMacOsSpeaker:
         import torch
 
         speaker_id = resolve_silero_speaker(voice_name)
-        silero_text = transliterate_latin_for_speech(clean_text)
+        silero_text = normalize_numbers_for_speech(clean_text)
+        silero_text = transliterate_latin_for_speech(silero_text)
         descriptor, raw_wav = tempfile.mkstemp(prefix="voice-of-luna-speech-", suffix=".wav")
         os.close(descriptor)
         destination = Path(raw_wav)
@@ -967,7 +970,8 @@ class LocalMacOsSpeaker:
         import wave
 
         model_key = resolve_piper_model(voice_name)
-        piper_text = transliterate_latin_for_speech(clean_text)
+        piper_text = normalize_numbers_for_speech(clean_text)
+        piper_text = transliterate_latin_for_speech(piper_text)
         descriptor, raw_wav = tempfile.mkstemp(prefix="voice-of-luna-speech-", suffix=".wav")
         os.close(descriptor)
         destination = Path(raw_wav)

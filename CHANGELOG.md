@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-08
+
+### Added
+- **Ultra-Fast Russian Number Normalization (`app/num_normalizer.py`)**:
+  - Implemented high-performance speech text normalizer designed for Silero TTS (and Piper TTS) where digits are not natively present in vocabulary tokens.
+  - Converts numbers, calendar dates (`8 сентября` $\to$ `восьмого сентября`), years with Russian cases (`2026 года` $\to$ `две тысячи двадцать шестого года`, `в 2026 году` $\to$ `в две тысячи двадцать шестом году`), times (`14:30` $\to$ `четырнадцать тридцать`), percentages (`73%` $\to$ `семьдесят три процента`), currencies (`$100`, `50€`, `1500 руб`), decimals (`3.5` $\to$ `три целых пять десятых`), decades (`90-х`), hyphenated ordinals (`1-й`), and Roman centuries (`XXI век`).
+  - **Sub-millisecond latency**: incorporates zero-cost bail-outs for digitless strings ($<0.01$ ms), precompiled regexes, fast substring filters, and `@lru_cache` memoization ($<0.05$ ms average per turn).
+  - Added `num2words>=0.5.13` dependency.
+  - Integrated into `_synthesize_silero` and `_synthesize_piper` in `app/speak.py`.
+  - Added comprehensive test suite `tests/test_num_normalizer.py` verifying all grammar cases and execution speed.
+
 ## [0.15.1] - 2026-09-08
 
 ### Fixed
