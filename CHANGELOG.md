@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.3] - 2026-09-08
+
+### Fixed
+- Make the production CI import smoke use the environment created by `uv sync --no-dev` without re-syncing development dependencies.
+
 ## [0.18.2] - 2026-09-08
 
 ### Fixed
