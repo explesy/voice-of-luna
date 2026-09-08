@@ -56,6 +56,7 @@ flowchart LR
         
         subgraph TTS ["Multi-Tier TTS Engine"]
             Edge["☁️ Edge TTS (Neural Cloud)"]
+            Piper["🚀 Piper ONNX (Offline Neural)"]
             Silero["⚡ Silero v4 (Offline Neural)"]
             Mac["🍏 macOS say (Native Offline)"]
         end
@@ -92,9 +93,10 @@ Switch voices on the fly with automatic multi-tier fallback:
 
 | Engine | Tier | Latency (1st Chunk) | Description |
 |:---|:---:|:---:|:---|
-| **Microsoft Edge TTS** | ☁️ Cloud Neural | ~1.5 – 2.0 s | Studio-quality neural voices (`Svetlana`, `Dmitry`). Free, no API keys required. |
-| **Silero TTS v4** | ⚡ Offline Neural | **50 – 100 ms** | Blazing fast PyTorch neural model (`Ksenia`, `Baya`, `Aidar`). 100% offline with Latin/English phonetic transliteration for tech terms. |
-| **macOS say** | 🍏 Native Offline | ~1.0 s | Zero-dependency macOS native voice (`Milena Enhanced`, `Yuri`). Reliable offline fallback. |
+| **Piper TTS ONNX** | 🚀 Offline Neural | **~165 – 225 ms** | Ultra-responsive offline ONNX neural voices (`Dmitri`, `Irina`). Low memory footprint, no PyTorch warmup needed. |
+| **Silero TTS v4** | ⚡ Offline Neural | **50 – 120 ms** | Blazing fast PyTorch neural model (`Eugene`, `Ksenia`, `Baya`). 100% offline with Latin phonetic transliteration. |
+| **Microsoft Edge TTS** | ☁️ Cloud Neural | ~1.5 – 3.5 s | Studio-quality cloud neural voices (`Svetlana`, `Dmitry`, `Jenny`). Free, natural prosody, no API keys required. |
+| **macOS say** | 🍏 Native Offline | ~1.0 s | Zero-dependency macOS native voice (`Milena`, `Samantha`). System-level offline fallback. |
 
 ### 3. Client-Side VAD & Instant Barge-In
 - **Continuous Voice Activity Detection (VAD)** automatically detects when you stop speaking (450ms silence endpointing) and triggers processing without manual clicks.
@@ -118,14 +120,15 @@ Extend Lúna's capabilities without granting plugins access to credentials or ra
 Measured on Apple Silicon with local `codex app-server` (stdio JSON-RPC) and `reasoning_effort="low"`:
 
 ### Time To First Audio (TTFA)
+*Measured from prompt dispatch to first audible frame delivery in browser:*
 
-| Model \ TTS Engine | Silero TTS (Offline Neural) ⚡ | macOS say (Milena) 🍏 | Edge TTS (Cloud Neural) ☁️ |
-|:---|:---:|:---:|:---:|
-| **GPT-5.4-Mini** *(Lightweight)* | **1.99 s** 🏆 *(Fastest)* | 2.97 s | 4.93 s |
-| **GPT-5.6-Sol** *(Everyday Workhorse)* | **2.15 s** 🚀 *(Recommended)* | 3.16 s | 3.63 s |
-| **GPT-5.6-Terra** *(Balanced Coding)* | 2.47 s | 3.66 s | 3.87 s |
-| **GPT-5.6-Luna** *(Voice Companion)* | 4.42 s | 5.49 s | 6.52 s |
-| **GPT-6-Astra** *(Flagship Reasoning)* | 8.38 s | 9.50 s | 10.37 s |
+| Model \ TTS Engine | Silero v4 ⚡ | Piper ONNX 🚀 | macOS say 🍏 | Edge TTS ☁️ |
+|:---|:---:|:---:|:---:|:---:|
+| **GPT-5.4-Mini** *(Lightweight)* | **1.71 – 1.99 s** 🏆 | **1.88 s** ⚡ | 2.97 – 3.00 s | 4.93 – 12.29 s |
+| **GPT-5.6-Sol** *(Everyday Workhorse)* | **2.15 – 2.38 s** 🚀 | **2.52 s** ✨ | 3.16 – 3.64 s | 3.63 – 12.93 s |
+| **GPT-5.6-Terra** *(Balanced Coding)* | **2.47 – 2.85 s** | **2.98 s** | 3.66 – 4.10 s | 3.87 – 13.39 s |
+| **GPT-5.6-Luna** *(Voice Companion)* | **4.42 – 4.95 s** | **5.10 s** | 5.49 – 6.22 s | 6.52 – 15.51 s |
+| **GPT-6-Astra** *(Flagship Reasoning)* | **8.38 – 8.70 s** | **8.86 s** | 9.50 – 9.98 s | 10.37 – 19.27 s |
 
 > 📖 **Full benchmarks**: See [`docs/05 — Latency & Performance Benchmarks.md`](docs/05%20%E2%80%94%20Latency%20&%20Performance%20Benchmarks.md) for TTFT breakdowns, throughput graphs, and detailed audio chunk profiling.
 
@@ -221,7 +224,7 @@ Voice of Lúna works out of the box with zero configuration, but can be customiz
 ## 🧪 Testing & Verification
 
 The test suite runs completely offline with 100% mocked model calls — running tests will **never consume your Codex quota**:
-
+ 
 ```bash
 make test
 ```
@@ -229,6 +232,11 @@ Or:
 ```bash
 cd backend
 uv run pytest -q
+```
+
+To run the live hardware benchmark and test matrix:
+```bash
+make matrix
 ```
 
 To verify version synchronization (SemVer single source of truth):
