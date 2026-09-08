@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-09-08
+
+### Fixed
+- **Duplicate Model Responses from Commentary/Preamble Messages**:
+  - Filtered out interim commentary messages (`phase: "commentary"`) emitted by Codex during tool/search execution, streaming only the final answer (`phase: "final_answer"`).
+  - Buffered commentary text in the stream reader as a fallback in case no final answer item is emitted, ensuring no information loss while eliminating duplicated text and repeated source listings in speech and UI.
+- **Concurrent HTMX & WebSocket Form Submissions**:
+  - Registered the text prompt form submit listener during the DOM capture phase (`{ capture: true }`) with `event.stopImmediatePropagation()`.
+  - Added an `htmx:configRequest` cancel handler when the WebSocket is open to guarantee HTMX no-JS fallback does not fire a simultaneous HTTP POST turn alongside the WebSocket turn.
+
 ## [0.17.2] - 2026-09-08
 
 ### Fixed

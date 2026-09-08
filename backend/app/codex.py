@@ -483,7 +483,9 @@ class CodexAppServer:
             queue.put_nowait(message)
         yielded_deltas = False
         fallback_messages: list[str] = []
+        commentary_deltas: list[str] = []
         current_item_id: str | None = None
+        item_phases: dict[str, str] = {}
 
         try:
             while True:
@@ -493,27 +495,41 @@ class CodexAppServer:
 
                 method = message.get("method")
                 params = message.get("params", {})
-                if method == "item/agentMessage/delta":
+                if method == "item/started":
+                    item = params.get("item", {})
+                    if params.get("threadId") == thread_id and item.get("id"):
+                        phase = item.get("phase")
+                        if phase:
+                            item_phases[item["id"]] = phase
+                elif method == "item/agentMessage/delta":
                     if params.get("threadId") == thread_id and params.get("turnId") == turn_id:
                         delta = params.get("delta", "")
                         item_id = params.get("itemId")
+                        phase = item_phases.get(item_id) if item_id else None
                         if delta:
-                            if current_item_id is not None and item_id and item_id != current_item_id:
-                                yield "\n\n"
-                            current_item_id = item_id
-                            yielded_deltas = True
-                            yield delta
+                            if phase == "commentary":
+                                commentary_deltas.append(delta)
+                            else:
+                                if current_item_id is not None and item_id and item_id != current_item_id:
+                                    yield "\n\n"
+                                current_item_id = item_id
+                                yielded_deltas = True
+                                yield delta
                 elif method == "item/completed":
                     item = params.get("item", {})
                     if params.get("threadId") == thread_id and item.get("type") == "agentMessage":
+                        phase = item.get("phase") or item_phases.get(item.get("id"))
                         text = item.get("text", "")
-                        if text:
+                        if text and phase != "commentary":
                             fallback_messages.append(text)
                 elif method == "turn/completed":
                     if params.get("threadId") == thread_id and params.get("turn", {}).get("id") == turn_id:
                         if not yielded_deltas:
-                            for text in fallback_messages:
-                                yield text
+                            if fallback_messages:
+                                for text in fallback_messages:
+                                    yield text
+                            elif commentary_deltas:
+                                yield "".join(commentary_deltas)
                         return
         finally:
             self._turn_listeners.pop(turn_id, None)

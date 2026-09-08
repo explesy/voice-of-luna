@@ -1201,7 +1201,7 @@ document.body.addEventListener("htmx:afterSwap", (event) => {
   }
 });
 
-// Intercept prompt-dock text submissions for real-time WebSocket streaming
+// Intercept prompt-dock text submissions in capture phase to prevent duplicate HTMX POST
 document.addEventListener("submit", (event) => {
   const form = event.target.closest(".cmd-form");
   if (!form) return;
@@ -1211,11 +1211,20 @@ document.addEventListener("submit", (event) => {
 
   if (socket && socket.readyState === WebSocket.OPEN) {
     event.preventDefault();
+    event.stopImmediatePropagation();
     stopSpeaking();
     lastSpeechEndTime = performance.now();
     firstAudioPlayTime = null;
+    currentStreamingEntry = null;
     socket.send(JSON.stringify({ type: "text", text }));
     input.value = "";
+  }
+}, { capture: true });
+
+// Explicit guard: prevent HTMX from issuing AJAX requests for .cmd-form when WebSocket is open
+document.addEventListener("htmx:configRequest", (event) => {
+  if (event.target.closest?.(".cmd-form") && socket && socket.readyState === WebSocket.OPEN) {
+    event.preventDefault();
   }
 });
 

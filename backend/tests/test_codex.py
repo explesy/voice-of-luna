@@ -156,6 +156,94 @@ def test_stream_separates_distinct_message_items() -> None:
     asyncio.run(exercise())
 
 
+def test_stream_filters_commentary_and_yields_final_answer() -> None:
+    provider = CodexAppServer()
+    provider._buffered_turn_events["turn-commentary"] = [
+        {
+            "method": "item/started",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-commentary",
+                "item": {"id": "item-c1", "type": "agentMessage", "phase": "commentary"},
+            },
+        },
+        {
+            "method": "item/agentMessage/delta",
+            "params": {"threadId": "thread-1", "turnId": "turn-commentary", "itemId": "item-c1", "delta": "Подумаю над подборкой..."},
+        },
+        {
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-commentary",
+                "item": {"id": "item-c1", "type": "agentMessage", "phase": "commentary", "text": "Подумаю над подборкой..."},
+            },
+        },
+        {
+            "method": "item/started",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-commentary",
+                "item": {"id": "item-f1", "type": "agentMessage", "phase": "final_answer"},
+            },
+        },
+        {
+            "method": "item/agentMessage/delta",
+            "params": {"threadId": "thread-1", "turnId": "turn-commentary", "itemId": "item-f1", "delta": "Вот отличные репозитории: vscode, immich."},
+        },
+        {
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-commentary",
+                "item": {"id": "item-f1", "type": "agentMessage", "phase": "final_answer", "text": "Вот отличные репозитории: vscode, immich."},
+            },
+        },
+        {
+            "method": "turn/completed",
+            "params": {"threadId": "thread-1", "turn": {"id": "turn-commentary"}},
+        },
+    ]
+
+    async def exercise() -> None:
+        chunks = []
+        async for chunk in provider._stream_answer("thread-1", "turn-commentary"):
+            chunks.append(chunk)
+        assert chunks == ["Вот отличные репозитории: vscode, immich."]
+
+    asyncio.run(exercise())
+
+
+def test_stream_falls_back_to_commentary_if_no_final_answer() -> None:
+    provider = CodexAppServer()
+    provider._buffered_turn_events["turn-only-c"] = [
+        {
+            "method": "item/started",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-only-c",
+                "item": {"id": "item-c1", "type": "agentMessage", "phase": "commentary"},
+            },
+        },
+        {
+            "method": "item/agentMessage/delta",
+            "params": {"threadId": "thread-1", "turnId": "turn-only-c", "itemId": "item-c1", "delta": "Единственный ответ."},
+        },
+        {
+            "method": "turn/completed",
+            "params": {"threadId": "thread-1", "turn": {"id": "turn-only-c"}},
+        },
+    ]
+
+    async def exercise() -> None:
+        chunks = []
+        async for chunk in provider._stream_answer("thread-1", "turn-only-c"):
+            chunks.append(chunk)
+        assert chunks == ["Единственный ответ."]
+
+    asyncio.run(exercise())
+
+
 def test_turn_start_passes_model_and_effort(monkeypatch) -> None:
     provider = CodexAppServer()
     turn_params = []
