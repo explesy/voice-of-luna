@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.6] - 2026-09-08
+
+### Added
+- Added a deterministic Playwright browser smoke for WebSocket text turns, settings changes, and fake microphone start/stop.
+- CI now runs the browser smoke on Ubuntu and macOS and uploads its diagnostics.
+
 ## [0.17.5] - 2026-09-08
 
 ### Fixed
