@@ -1485,6 +1485,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         if conversation.remote_warmup_task and not conversation.remote_warmup_task.done():
                             conversation.remote_warmup_task.cancel()
                         conversation.remote_warmup_key = None
+                        conversation.remote_warmup_status = "cold"
                     await websocket.send_json({
                         "type": "settings_updated",
                         "model": conversation.model_name,

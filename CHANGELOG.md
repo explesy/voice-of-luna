@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.3] - 2026-09-08
+
+### Fixed
+- Preserve an explicit failed state for remote warmup instead of reporting a completed warmup after an error.
+
 ## [0.22.2] - 2026-09-08
 
 ### Fixed

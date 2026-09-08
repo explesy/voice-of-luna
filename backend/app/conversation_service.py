@@ -147,6 +147,7 @@ class Conversation:
     active_websockets: int = 0
     remote_warmup_key: tuple[str, str, int, int] | None = None
     remote_warmup_task: asyncio.Task[None] | None = field(default=None, repr=False)
+    remote_warmup_status: str = "cold"
     thread_generation: int = 0
     binary_audio: bool = False
     project_root: Path | None = field(default_factory=_configured_project_root)
@@ -270,8 +271,13 @@ class ConversationService:
                 model=model_name,
                 effort=effort,
             )
+            conversation.remote_warmup_status = "warm"
             logger.info("Conversation warmup completed for %s (%s)", model_name, effort)
+        except asyncio.CancelledError:
+            conversation.remote_warmup_status = "cold"
+            raise
         except Exception as exc:
+            conversation.remote_warmup_status = "failed"
             logger.warning("Conversation warmup failed for %s (%s): %s", model_name, effort, exc)
 
     def schedule_warmup(
@@ -286,10 +292,11 @@ class ConversationService:
         )
         if conversation.remote_warmup_key == key:
             task = conversation.remote_warmup_task
-            return "warming" if task and not task.done() else "warm"
+            return "warming" if task and not task.done() else conversation.remote_warmup_status
         if conversation.remote_warmup_task and not conversation.remote_warmup_task.done():
             conversation.remote_warmup_task.cancel()
         conversation.remote_warmup_key = key
+        conversation.remote_warmup_status = "warming"
         conversation.remote_warmup_task = asyncio.create_task(
             self.run_warmup(conversation, model_name, effort)
         )
@@ -329,6 +336,7 @@ class ConversationService:
         if previous_instructions != base_instructions:
             conversation.thread_generation += 1
             conversation.remote_warmup_key = None
+            conversation.remote_warmup_status = "cold"
             if conversation.remote_warmup_task and not conversation.remote_warmup_task.done():
                 conversation.remote_warmup_task.cancel()
             conversation.remote_warmup_task = None

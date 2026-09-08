@@ -73,6 +73,25 @@ def test_warmup_is_invalidated_when_base_instructions_change(monkeypatch) -> Non
     assert conversation.remote_warmup_task is None
 
 
+def test_failed_warmup_is_not_reported_as_warm(monkeypatch) -> None:
+    service = ConversationService()
+    conversation = Conversation(id="warmup-failure")
+
+    async def fail_reply(*_args, **_kwargs):
+        raise RuntimeError("remote unavailable")
+
+    monkeypatch.setattr(conversation.model, "reply", fail_reply)
+
+    async def exercise() -> str:
+        assert service.schedule_warmup(conversation, "gpt-test", "low") == "warming"
+        await service.await_warmup(conversation)
+        return service.schedule_warmup(conversation, "gpt-test", "low")
+
+    status = asyncio.run(exercise())
+    assert status == "failed"
+    assert conversation.remote_warmup_status == "failed"
+
+
 def test_plugin_switch_preserves_selected_voice(monkeypatch) -> None:
     service = ConversationService()
     conversation = Conversation(id="voice-selection", locale="en-US")
