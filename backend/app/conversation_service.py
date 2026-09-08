@@ -74,7 +74,6 @@ def resolve_stt_config(conversation: Conversation) -> SttConfig:
 def resolve_turn_language(
     conversation: Conversation,
     user_text: str = "",
-    assistant_text: str | None = None,
 ) -> TurnLanguage:
     """Resolve unified turn language across prompt, STT, TTS, and telemetry.
 

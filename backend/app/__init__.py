@@ -1,3 +1,3 @@
 """Voice of Luna local backend."""
 
-__version__ = "0.17.7"
+__version__ = "0.17.8"

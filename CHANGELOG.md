@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.8] - 2026-09-08
+
+### Changed
+- Removed the unused assistant-text argument from `TurnLanguage` resolution and derive TTS language from the preceding user turn.
+- Pinned CI actions to immutable current SHAs and Node 24-compatible major releases.
+
 ## [0.17.7] - 2026-09-08
 
 ### Changed

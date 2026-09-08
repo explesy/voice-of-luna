@@ -1524,7 +1524,15 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
 
 async def _append_assistant_turn(conversation: Conversation, text: str) -> str | None:
     turn = {"role": "assistant", "text": text}
-    turn_lang = resolve_turn_language(conversation, user_text=text)
+    source_user_text = next(
+        (
+            previous_turn.get("text", "")
+            for previous_turn in reversed(conversation.turns)
+            if previous_turn.get("role") == "user"
+        ),
+        "",
+    )
+    turn_lang = resolve_turn_language(conversation, user_text=source_user_text)
     voice_to_use = turn_lang.speaker_voice
     try:
         speech_path = await LocalMacOsSpeaker(voice=voice_to_use).synthesize(text)
