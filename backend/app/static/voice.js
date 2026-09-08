@@ -8,19 +8,12 @@ let activeRecordingStream = null;
 let audioChunks = [];
 let pcmProcessorNode = null;
 let pcmSamples = [];
-let activePlayer = null;
 let audioWorkletNode = null;
 let audioWorkletModuleLoaded = false;
 let audioContext = null;
-let playbackAudioContext = null;
-let activeScheduledSources = [];
-let nextAudioChunkStartTime = 0;
 let analyserNode = null;
 let micSourceNode = null;
 let animationFrameId = null;
-let lastSpeechEndTime = null;
-let firstAudioPlayTime = null;
-let latestTiming = null;
 let speechEndDetectedAt = null;
 
 // Audio processing and VAD state are provided by audio-player.js and vad.js
@@ -337,7 +330,6 @@ function voiceFor(language) {
 }
 
 let socket = null;
-let currentStreamingEntry = null;
 
 function stopSpeaking() {
   if (window.speechSynthesis) {

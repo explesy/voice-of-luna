@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-09-08
+
+### Fixed
+- **Frontend Script Redeclaration Error**:
+  - Resolved `Uncaught SyntaxError: redeclaration of let firstAudioPlayTime` (and duplicate declarations of `activePlayer`, `playbackAudioContext`, `activeScheduledSources`, `nextAudioChunkStartTime`, `lastSpeechEndTime`, `latestTiming`, `currentStreamingEntry`) when loading `static/js/audio-player.js` alongside `static/voice.js`.
+  - Switched shared audio playback and timing state in `audio-player.js` to `var` global declarations and cleaned up redundant declarations in `voice.js`.
+
 ## [0.12.0] - 2026-09-08
 
 ### Added

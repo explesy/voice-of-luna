@@ -64,17 +64,17 @@ function encodeWav16k(samples) {
 
   return new Blob([view], { type: "audio/wav" });
 }
-let playbackAudioContext = null;
-let audioQueue = [];
-let activeScheduledSources = [];
-let nextAudioChunkStartTime = 0;
-let isAudioQueuePlaying = false;
-let currentAudioElement = null;
-let activePlayer = null;
-let currentStreamingEntry = null;
-let firstAudioPlayTime = null;
-let lastSpeechEndTime = null;
-let latestTiming = null;
+var playbackAudioContext = null;
+var audioQueue = [];
+var activeScheduledSources = [];
+var nextAudioChunkStartTime = 0;
+var isAudioQueuePlaying = false;
+var currentAudioElement = null;
+var activePlayer = null;
+var currentStreamingEntry = null;
+var firstAudioPlayTime = null;
+var lastSpeechEndTime = null;
+var latestTiming = null;
 
 function notifyVoiceState(state, message, modeLabel) {
   if (typeof setVoiceState === "function") {
