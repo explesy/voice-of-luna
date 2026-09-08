@@ -483,6 +483,7 @@ class CodexAppServer:
             queue.put_nowait(message)
         yielded_deltas = False
         fallback_messages: list[str] = []
+        current_item_id: str | None = None
 
         try:
             while True:
@@ -495,7 +496,11 @@ class CodexAppServer:
                 if method == "item/agentMessage/delta":
                     if params.get("threadId") == thread_id and params.get("turnId") == turn_id:
                         delta = params.get("delta", "")
+                        item_id = params.get("itemId")
                         if delta:
+                            if current_item_id is not None and item_id and item_id != current_item_id:
+                                yield "\n\n"
+                            current_item_id = item_id
                             yielded_deltas = True
                             yield delta
                 elif method == "item/completed":

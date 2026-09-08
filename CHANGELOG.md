@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.17.1] - 2026-09-08
+## [0.17.2] - 2026-09-08
+
+### Fixed
+- **AudioWorklet Re-initialization Bug**: Tracked AudioWorklet module loading on `audioContext._workletLoaded` per `AudioContext` instance instead of an un-resettable global flag, preventing `DOMException: Unknown AudioWorklet name 'pcm-recorder-processor'` and eliminating automatic fallback to `ScriptProcessorNode` on subsequent voice recordings.
+- **WebSocket Send Null Pointer Guard**: Added safe readyState verification after `await audioBlob.arrayBuffer()` in `sendRecording()`, preventing uncaught `TypeError: can't access property "send", socket is null` when the socket closes during audio buffer preparation and falling back cleanly to HTTP.
+- **Text Prompt E2E Latency Metric & Stale Timestamps**: Reset `lastSpeechEndTime` and record turn start time on text prompt form submissions, ensuring the client latency HUD accurately measures actual e2e latency instead of inheriting stale timestamps from earlier voice recording attempts.
+- **Multi-Item Agent Message Streaming**: Separated distinct `agentMessage` items within the same turn by yielding `\n\n` upon `itemId` changes in Codex stream handler, preventing multi-stage search/revision chunks from fusing words together mid-sentence.
 
 ### Changed
 - Simplified the README measurement snapshot by moving environment and detailed run mechanics to the canonical benchmark document.

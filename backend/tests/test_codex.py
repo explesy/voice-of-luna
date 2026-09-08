@@ -130,6 +130,32 @@ def test_stream_delivers_events_buffered_before_listener_registration() -> None:
     asyncio.run(exercise())
 
 
+def test_stream_separates_distinct_message_items() -> None:
+    provider = CodexAppServer()
+    provider._buffered_turn_events["turn-multi"] = [
+        {
+            "method": "item/agentMessage/delta",
+            "params": {"threadId": "thread-multi", "turnId": "turn-multi", "itemId": "item-1", "delta": "Часть 1."},
+        },
+        {
+            "method": "item/agentMessage/delta",
+            "params": {"threadId": "thread-multi", "turnId": "turn-multi", "itemId": "item-2", "delta": "Часть 2."},
+        },
+        {
+            "method": "turn/completed",
+            "params": {"threadId": "thread-multi", "turn": {"id": "turn-multi"}},
+        },
+    ]
+
+    async def exercise() -> None:
+        chunks = []
+        async for chunk in provider._stream_answer("thread-multi", "turn-multi"):
+            chunks.append(chunk)
+        assert chunks == ["Часть 1.", "\n\n", "Часть 2."]
+
+    asyncio.run(exercise())
+
+
 def test_turn_start_passes_model_and_effort(monkeypatch) -> None:
     provider = CodexAppServer()
     turn_params = []

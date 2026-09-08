@@ -36,9 +36,9 @@ async function initAudioAnalyser(stream) {
 
     if (audioContext.audioWorklet && window.AudioWorkletNode) {
       try {
-        if (!audioWorkletModuleLoaded) {
+        if (!audioContext._workletLoaded) {
           await audioContext.audioWorklet.addModule("/static/pcm-recorder-processor.js");
-          audioWorkletModuleLoaded = true;
+          audioContext._workletLoaded = true;
         }
         audioWorkletNode = new AudioWorkletNode(audioContext, "pcm-recorder-processor");
         audioWorkletNode.port.onmessage = (event) => {
@@ -950,10 +950,16 @@ async function sendRecording(url, audioBlob, timing = null) {
 
   if (socket && socket.readyState === WebSocket.OPEN) {
     setVoiceState("thinking", "Uploading stream via WebSocket...", "UPLOADING // WS");
-    const arrayBuffer = await audioBlob.arrayBuffer();
-    if (timing) socket.send(JSON.stringify({ type: "audio_timing", ...timing }));
-    socket.send(arrayBuffer);
-    return;
+    try {
+      const arrayBuffer = await audioBlob.arrayBuffer();
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        if (timing) socket.send(JSON.stringify({ type: "audio_timing", ...timing }));
+        socket.send(arrayBuffer);
+        return;
+      }
+    } catch (wsErr) {
+      console.warn("// WS audio send failed, falling back to HTTP fetch:", wsErr);
+    }
   }
 
   if (!url) return;
@@ -980,6 +986,8 @@ async function sendRecording(url, audioBlob, timing = null) {
     speakLatestResponse();
     scrollFeedToBottom();
   } catch (error) {
+    lastSpeechEndTime = null;
+    firstAudioPlayTime = null;
     setVoiceState("idle", `Turn failed: ${error.message}`, "ERR // TURN");
     showToast(`// turn error: ${error.message}`);
   }
@@ -1204,6 +1212,8 @@ document.addEventListener("submit", (event) => {
   if (socket && socket.readyState === WebSocket.OPEN) {
     event.preventDefault();
     stopSpeaking();
+    lastSpeechEndTime = performance.now();
+    firstAudioPlayTime = null;
     socket.send(JSON.stringify({ type: "text", text }));
     input.value = "";
   }
