@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.2] - 2026-09-08
+
+### Changed
+- Recorded a private, locally processed real-speech STT latency result without retaining the audio or transcript.
+
 ## [0.16.1] - 2026-09-08
 
 ### Changed

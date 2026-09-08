@@ -73,6 +73,16 @@ Record the fixture's language, transcript, duration, hardware, OS, Python and
 model/runtime versions alongside the result. Do not commit private recordings
 or conversation audio.
 
+### Recorded local STT run — 2026-09-08
+
+A user-supplied private Russian MP3 was converted locally to temporary 16 kHz
+mono PCM WAV and removed immediately after the run. The original file was not
+copied into the repository, and neither its transcript nor its audio is stored
+here. The input duration was 11,304 ms; local transcription completed in
+**864 ms** and returned non-empty speech (102 characters). No reference
+transcript was supplied, so this verifies pipeline latency and speech detection
+only — not recognition accuracy, WER, or punctuation quality.
+
 ## Live Codex measurements
 
 Remote-model TTFT, first spoken segment, and end-to-end latency depend on the
