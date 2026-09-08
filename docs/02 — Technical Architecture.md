@@ -38,9 +38,13 @@ Browser не получает API keys, OAuth access token или refresh token.
 
 `OpenAIApiLanguageModelProvider` остаётся будущим fallback для server deployment. Он не нужен, чтобы запустить personal MVP.
 
-# Plugin boundary — после voice loop
+# Plugin boundary and native tool runtime
 
-Plugin — локальный пакет с manifest и одной или несколькими ограниченными точками расширения: `systemPrompt`, `beforeTurn`, `afterTurn`, `renderPanel`. Он получает нормализованный transcript и состояние разговора, но никогда не получает аудио stream, OAuth credential, app-server transport или возможность писать в core database вне своего namespace.
+Plugin — локальный пакет с manifest и одной или несколькими ограниченными точками расширения: `systemPrompt`, `beforeTurn`, `afterTurn`, `renderPanel`, `tools` и `call_tool`. Он получает нормализованный transcript и capability context, но никогда не получает аудио stream, OAuth credential, app-server transport или возможность писать в core database вне своего namespace.
+
+Для native tools используется opt-in `dynamicTools` app-server protocol. `CodexAppServer` остаётся общим bidirectional bridge: server-initiated `item/tool/call` маршрутизируется через `PluginManager`, где проверяются объявление инструмента, permission и timeout. MCP пока остаётся адаптером для внешних интеграций; first-party Project Room не зависит от MCP.
+
+Persistent plugin memory использует один local SQLite/FTS5 файл с namespace по `plugin_id` и scope (`global`, `plugin`, `conversation`). Repository access ограничен realpath выбранного project root и read-only операциями.
 
 Первый plugin может быть тренировочным протоколом, но базовый продукт без него должен оставаться полезным. До появления рабочего voice loop никакой plugin runtime не реализуется: сейчас фиксируется только совместимая граница.
 
@@ -52,5 +56,7 @@ Plugin — локальный пакет с manifest и одной или нес
 - `POST /api/conversations/{id}/turns` — принимает уже распознанный текст для первого smoke path.
 - `DELETE /api/conversations/{id}` — удаляет transcript и events.
 - `WS /ws/conversations/{id}` — следующий этап для audio, partial transcript и TTS chunks.
+- `POST /api/conversations/{id}/plugin` — выбирает plugin/mode и, для Project Room, локальный `project_root`.
+- `POST /api/conversations/{id}/tool-approval` — выдаёт одноразовое approval для `external.write`.
 
 Логируются только lifecycle events, timings, безопасные технические ошибки и явно сохранённый transcript. OAuth/API secrets, raw audio и полные stdout/stderr app-server не логируются. Contract test выполняет JSON-RPC handshake с установленным app-server и проверяет один короткий text turn только по явному локальному запуску. Browser smoke проверяет permission/error states и то, что transcript не отправляется в URL или local logs без согласия.

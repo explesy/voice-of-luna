@@ -23,11 +23,13 @@
 
 # Turn contract
 
-Core передаёт модели system instruction для краткого голосового диалога, краткую историю и текущую user utterance. Результат базового режима — только текст assistant response. Структурированные действия, tool calls и domain rules не являются частью core protocol.
+Core передаёт модели system instruction для краткого голосового диалога, краткую историю и текущую user utterance. Результат базового режима — только текст assistant response. Выбранный native plugin может дополнительно объявить `ToolSpec`; app-server передаёт tool request обратно через bidirectional JSON-RPC, а backend возвращает structured `contentItems` в тот же turn.
 
-# Plugin hooks
+# Plugin hooks and tools
 
-Позднее plugin может добавить prompt context в `beforeTurn`, сохранить собственную заметку в `afterTurn` или отобразить панель через `renderPanel`. Core применяет ограничения длины и redaction, а plugin hook не может задерживать аудио-путь бесконечно: timeout означает продолжить обычный turn и записать техническую ошибку.
+Plugin может добавить prompt context в `beforeTurn`, сохранить собственную заметку в `afterTurn`, отобразить панель через `renderPanel` или объявить native tools через `tools()`. Core применяет timeout и redaction; hook или tool не может задерживать аудио-путь бесконечно. Tool получает только capability context: raw audio, OAuth tokens, process handles и произвольный shell ему недоступны.
+
+Project Room — первый first-party tool plugin. Его read-only repository tools ограничены выбранным `VOICE_OF_LUNA_PROJECT_ROOT`, а память хранится в plugin-scoped SQLite/FTS5. `github.create_issue` требует одноразового `external.write` approval через `POST /api/conversations/{id}/tool-approval`; approval живёт 60 секунд и потребляется одним вызовом.
 
 # Минимальные тесты
 
