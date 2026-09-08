@@ -1093,6 +1093,10 @@ class LocalMacOsSpeaker:
         candidates: list[str] = []
         for engine in ("piper", "silero", "macos", "edge"):
             candidate = get_voice_for_locale(locale, allowed_engines={engine})
+            if engine == "macos" and candidate is None:
+                # Keep a deterministic local fallback candidate even on Linux;
+                # the synthesizer will report that ``say`` is unavailable.
+                candidate = "Milena" if locale == "ru" else "Samantha"
             if candidate and candidate.lower() not in {requested_lower, *(v.lower() for v in candidates)}:
                 candidates.append(candidate)
         return candidates

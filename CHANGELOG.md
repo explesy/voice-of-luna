@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-09-08
+
+### Fixed
+- Keep a deterministic system-voice fallback candidate when running on hosts without macOS `say`.
+
 ## [0.22.1] - 2026-09-08
 
 ### Fixed
