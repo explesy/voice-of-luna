@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.2] - 2026-09-08
+
+### Fixed
+- Upgrade immutable CI artifact uploads to `actions/upload-artifact` v6 for Node 24 runner compatibility.
+
 ## [0.18.1] - 2026-09-08
 
 ### Fixed
