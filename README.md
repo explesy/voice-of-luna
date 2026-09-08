@@ -92,7 +92,7 @@ Switch voices on the fly with automatic multi-tier fallback:
 
 | Engine | Tier | Description |
 |:---|:---:|:---|
-| **Piper TTS ONNX** | 🚀 Offline Neural | Local ONNX neural voices (`Dmitri`, `Irina`) with a small runtime footprint. |
+| **Piper TTS ONNX** | 🚀 Offline Neural | Local ONNX neural voices (`Dmitri`, `Irina`, `Lessac`) with a small runtime footprint. |
 | **Silero TTS v4** | ⚡ Offline Neural | Optional PyTorch neural voices (`Eugene`, `Ksenia`, `Baya`), fully offline. |
 | **Microsoft Edge TTS** | ☁️ Cloud Neural | Natural cloud voices (`Svetlana`, `Dmitry`, `Jenny`); network variability is measured separately. |
 | **macOS say** | 🍏 Native Offline | System-level offline fallback (`Milena`, `Samantha`). |

@@ -525,7 +525,7 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
 
     from app.tts_manager import tts_model_manager
 
-    silero_installed = is_silero_available() and tts_model_manager.is_installed("silero_v4_ru")
+    silero_installed = is_silero_available() and tts_model_manager.is_ready("silero_v4_ru")
     silero_ru_voices = [
         VoiceInfo(
             name="Ksenia (Silero Neural · Offline)",
@@ -573,9 +573,9 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
         ),
     ]
 
-    piper_dmitri_installed = tts_model_manager.is_installed("piper_ru_dmitri")
-    piper_irina_installed = tts_model_manager.is_installed("piper_ru_irina")
-    piper_lessac_installed = tts_model_manager.is_installed("piper_en_lessac")
+    piper_dmitri_installed = tts_model_manager.is_ready("piper_ru_dmitri")
+    piper_irina_installed = tts_model_manager.is_ready("piper_ru_irina")
+    piper_lessac_installed = tts_model_manager.is_ready("piper_en_lessac")
     piper_ru_voices = [
         VoiceInfo(
             name="Dmitri (Piper Neural · Offline)",

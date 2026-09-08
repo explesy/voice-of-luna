@@ -291,7 +291,7 @@ class TTSModelManager:
         if not defn:
             return {"id": model_id, "error": "Model not found", "status": "error"}
 
-        installed = self.is_installed(model_id)
+        installed = self.is_ready(model_id)
         is_downloading = model_id in self._downloads and not self._downloads[model_id].done()
         err = self._errors.get(model_id)
 

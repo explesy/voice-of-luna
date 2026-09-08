@@ -870,7 +870,7 @@ async def select_voice(body: VoiceSelectInput, response: Response) -> dict[str, 
 
     model = tts_model_manager.get_model_for_voice(body.voice)
     auto_downloading = False
-    if model and not tts_model_manager.is_installed(model.id):
+    if model and not tts_model_manager.is_ready(model.id):
         auto_downloading = True
 
         async def _bg() -> None:

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-09-08
+
+### Fixed
+- Treat checksum verification as the readiness gate for TTS model status, voice selection, and voice discovery.
+- Relax the number-normalizer performance regression guard to remain reliable on shared CI runners.
+- Document the English Piper Lessac voice alongside the other offline voices.
+
 ## [0.18.0] - 2026-09-08
 
 ### Added
