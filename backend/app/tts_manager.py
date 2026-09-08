@@ -246,7 +246,19 @@ class TTSModelManager:
         self._progress: dict[str, int] = {}
         self._stats: dict[str, dict[str, object]] = {}
         self._errors: dict[str, str] = {}
+        self._checksum_cache: dict[tuple[str, int, int, str], bool] = {}
         self._lock = asyncio.Lock()
+
+    def _invalidate_checksum_cache(self, model_id: str | None = None) -> None:
+        if model_id is None:
+            self._checksum_cache.clear()
+            return
+        defn = MODEL_CATALOG.get(model_id)
+        filenames = {spec.filename for spec in defn.files} if defn else set()
+        self._checksum_cache = {
+            key: value for key, value in self._checksum_cache.items()
+            if Path(key[0]).name not in filenames
+        }
 
     def is_installed(self, model_id: str) -> bool:
         """Return True if all files required by model_id are present."""
@@ -346,7 +358,13 @@ class TTSModelManager:
             path = find_model_file(spec.filename)
             if not path or not path.is_file():
                 return False
-            if compute_file_sha256(path) != spec.sha256.lower():
+            stat = path.stat()
+            cache_key = (str(path), stat.st_size, stat.st_mtime_ns, spec.sha256.lower())
+            cached = self._checksum_cache.get(cache_key)
+            if cached is None:
+                cached = compute_file_sha256(path) == spec.sha256.lower()
+                self._checksum_cache[cache_key] = cached
+            if not cached:
                 return False
         return True
 
@@ -432,7 +450,8 @@ class TTSModelManager:
                 logger.info("Downloading TTS model file '%s' from %s", file_spec.filename, file_spec.url)
                 await asyncio.to_thread(_sync_download_file, file_spec, dest, idx, total_files)
 
-            self._progress[defn.id] = 100
+                self._progress[defn.id] = 100
+            self._invalidate_checksum_cache(defn.id)
             self._stats[defn.id] = {
                 "progress_percent": 100,
                 "downloaded_mb": defn.size_mb,

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.4] - 2026-09-08
+
+### Changed
+- Cache verified TTS model checksums until a model file's metadata changes, avoiding repeated hashing on status polling.
+
 ## [0.22.3] - 2026-09-08
 
 ### Fixed
