@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-08
+
+### Added
+- **Backend Speech Pipeline Modularization (`app/speech_pipeline.py`)**:
+  - Extracted audio lifecycle management: temporary file creation (`write_temporary_audio`), cleanup (`remove_temporary_audio`), format checking (`is_16k_mono_wav`), and FFmpeg transcoding (`convert_to_wav`).
+  - Extracted streaming sentence extraction logic (`extract_speech_sentence`) with early clause boundary splitting for first audio chunks and abbreviation shielding.
+  - Added unit test suite `tests/test_speech_pipeline.py` covering audio conversion, clause boundary logic, and streaming sentence extraction.
+- **Stateful Conversation Domain Service (`app/conversation_service.py`)**:
+  - Extracted `Conversation` and `SpeechClip` domain models and `ConversationService` class.
+  - Centralized session storage (`conversations`, `speech_clips`), model/voice prewarming, idle conversation reaping, and dynamic Codex reply invocation (`call_reply`, `call_reply_stream`).
+  - Maintained full backward compatibility in `app/main.py` with alias exports and monkeypatch-compatible module attributes.
+
 ## [0.12.1] - 2026-09-08
 
 ### Fixed

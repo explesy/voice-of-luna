@@ -8,15 +8,39 @@ import logging
 import os
 import re
 import shutil
+import sys
 import tempfile
 import time
 import wave
-from collections.abc import Coroutine
+from collections.abc import AsyncIterator, Coroutine
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+from .speech_pipeline import (
+    ABBREVIATIONS,
+    AUDIO_SUFFIXES,
+    FIRST_CHUNK_SPLIT_RE,
+    MAX_AUDIO_BYTES,
+    SENTENCE_SPLIT_RE,
+    SOURCES_SPLIT_RE,
+    AudioConversionError,
+    convert_to_wav,
+    extract_speech_sentence,
+    is_16k_mono_wav,
+    remove_temporary_audio,
+    write_temporary_audio,
+)
+from .conversation_service import (
+    Conversation,
+    ConversationService,
+    SpeechClip,
+    call_reply,
+    call_reply_stream,
+    conversation_service,
+)
 
 from fastapi import (
     FastAPI,
@@ -220,151 +244,53 @@ templates.env.filters["format_terminal_text"] = format_terminal_text
 
 logger = logging.getLogger("voice_of_luna")
 
-
-@dataclass
-class Conversation:
-    id: str
-    turns: list[dict[str, str]] = field(default_factory=list)
-    model: CodexAppServer = field(default_factory=CodexAppServer)
-    voice: str = field(default_factory=get_active_voice)
-    locale: str = "ru-RU"
-    model_name: str | None = None
-    reasoning_effort: str = "low"
-    plugin_id: str = "neutral"
-    plugin_mode: str = "default"
-    last_active_at: float = field(default_factory=time.monotonic)
-    active_websockets: int = 0
-    remote_warmup_key: tuple[str, str] | None = None
-    remote_warmup_task: asyncio.Task[None] | None = field(default=None, repr=False)
-    binary_audio: bool = False
-
-
-@dataclass
-class SpeechClip:
-    conversation_id: str
-    path: Path
-
-
-_background_tasks: set[asyncio.Task[Any]] = set()
+conversations: dict[str, Conversation] = conversation_service.conversations
+speech_clips: dict[str, SpeechClip] = conversation_service.speech_clips
 
 
 def _safe_background_task(
     coro: Coroutine[Any, Any, Any], name: str | None = None
 ) -> asyncio.Task[Any]:
-    """Schedule a background task, retaining a strong reference and logging unexpected errors."""
-    task = asyncio.create_task(coro, name=name)
-    _background_tasks.add(task)
-
-    def _on_done(t: asyncio.Task[Any]) -> None:
-        _background_tasks.discard(t)
-        try:
-            exc = t.exception()
-            if exc and not isinstance(exc, asyncio.CancelledError):
-                logger.debug(
-                    "Background task %s finished with exception: %s",
-                    t.get_name(),
-                    exc,
-                )
-        except asyncio.CancelledError:
-            pass
-        except Exception as ex:
-            logger.debug(
-                "Error checking background task %s exception: %s",
-                t.get_name(),
-                ex,
-            )
-
-    task.add_done_callback(_on_done)
-    return task
+    return conversation_service.safe_background_task(coro, name=name)
 
 
 def _prewarm_conversation(conversation: Conversation) -> None:
-    """Start optional local runtimes before the first user turn."""
-    async def _safe_model_prewarm() -> None:
-        try:
-            await conversation.model.prewarm()
-        except Exception as exc:
-            logger.debug("Model prewarm skipped or failed for %s: %s", conversation.id, exc)
-
-    async def _safe_voice_prewarm() -> None:
-        try:
-            await prewarm_voice(conversation.voice)
-        except Exception as exc:
-            logger.debug("Voice prewarm skipped or failed for %s: %s", conversation.id, exc)
-
-    _safe_background_task(_safe_model_prewarm(), name=f"prewarm-model-{conversation.id}")
-    _safe_background_task(_safe_voice_prewarm(), name=f"prewarm-voice-{conversation.id}")
+    conversation_service.prewarm_conversation(conversation)
 
 
 def _touch_conversation(conversation: Conversation) -> None:
-    conversation.last_active_at = time.monotonic()
+    conversation_service.touch(conversation)
 
 
 async def _reap_idle_conversations(now: float | None = None) -> int:
-    """Close local Codex processes for conversations abandoned by every client."""
-    current_time = now if now is not None else time.monotonic()
-    stale_ids = [
-        conversation_id
-        for conversation_id, conversation in conversations.items()
-        if conversation.active_websockets == 0
-        and current_time - conversation.last_active_at >= CONVERSATION_IDLE_TTL_SECONDS
-    ]
-    for conversation_id in stale_ids:
-        await _close_and_delete_conversation(conversation_id)
-    if stale_ids:
-        logger.info("Closed %d idle local conversations", len(stale_ids))
-    return len(stale_ids)
+    closer = getattr(sys.modules[__name__], "_close_and_delete_conversation", conversation_service.close_and_delete)
+    return await conversation_service.reap_idle_conversations(now=now, closer=closer)
 
 
 async def _conversation_reaper() -> None:
     while True:
         await asyncio.sleep(CONVERSATION_REAPER_INTERVAL_SECONDS)
         try:
-            await _reap_idle_conversations()
+            reaper_fn = getattr(sys.modules[__name__], "_reap_idle_conversations", conversation_service.reap_idle_conversations)
+            await reaper_fn()
         except Exception:
             logger.exception("Failed to reap idle conversations")
-
-
-conversations: dict[str, Conversation] = {}
-speech_clips: dict[str, SpeechClip] = {}
 
 
 async def _run_conversation_warmup(
     conversation: Conversation, model_name: str, effort: str
 ) -> None:
-    """Warm the exact Codex thread that will handle the user's first turn."""
-    try:
-        await conversation.model.reply(
-            "Technical warmup. Reply with exactly one word: ready.",
-            model=model_name,
-            effort=effort,
-        )
-        logger.info("Conversation warmup completed for %s (%s)", model_name, effort)
-    except Exception as exc:
-        logger.warning("Conversation warmup failed for %s (%s): %s", model_name, effort, exc)
+    await conversation_service.run_warmup(conversation, model_name, effort)
 
 
 def _schedule_conversation_warmup(
     conversation: Conversation, model_name: str, effort: str
 ) -> str:
-    """Run at most one invisible warmup per model and effort in a conversation."""
-    key = (model_name, effort)
-    if conversation.remote_warmup_key == key:
-        task = conversation.remote_warmup_task
-        return "warming" if task and not task.done() else "warm"
-    if conversation.remote_warmup_task and not conversation.remote_warmup_task.done():
-        conversation.remote_warmup_task.cancel()
-    conversation.remote_warmup_key = key
-    conversation.remote_warmup_task = asyncio.create_task(
-        _run_conversation_warmup(conversation, model_name, effort)
-    )
-    return "warming"
+    return conversation_service.schedule_warmup(conversation, model_name, effort)
 
 
 async def _await_conversation_warmup(conversation: Conversation) -> None:
-    task = conversation.remote_warmup_task
-    if task and not task.done():
-        await asyncio.gather(task, return_exceptions=True)
+    await conversation_service.await_warmup(conversation)
 
 
 def detect_effective_turn_locale(text: str, fallback_locale: str = "ru-RU") -> str:
@@ -391,36 +317,13 @@ def _get_tts_engine(voice_name: str) -> str:
 async def _refresh_conversation_base_instructions(
     conversation: Conversation, override_locale: str | None = None
 ) -> str:
-    plugin = plugin_manager.get(conversation.plugin_id)
-    plugin_override = getattr(plugin, "response_locale_override", None)
-    target_locale = plugin_override or override_locale or conversation.locale
-    if target_locale == "auto":
-        base_instructions = get_base_instructions("auto")
-    else:
-        base_instructions = get_base_instructions(target_locale)
-    plugin_sys = await plugin_manager.get_system_prompt(conversation.plugin_id, conversation.id)
-    if plugin_sys.strip():
-        base_instructions = f"{base_instructions}\n\n{plugin_sys.strip()}"
-    await conversation.model.set_base_instructions(base_instructions)
-    return base_instructions
+    return await conversation_service.refresh_base_instructions(conversation, override_locale=override_locale)
 
 
 async def _apply_plugin_to_conversation(
     conversation: Conversation, plugin_id: str, mode: str = "default"
 ) -> None:
-    if conversation.plugin_id != plugin_id:
-        conversation.plugin_id = plugin_id
-        conversation.plugin_mode = mode
-        pref_locale = plugin_manager.get_preferred_voice_locale(plugin_id)
-        if pref_locale:
-            matching_voice = get_voice_for_locale(pref_locale)
-            if matching_voice:
-                conversation.voice = matching_voice
-        elif plugin_id == "neutral":
-            conversation.voice = get_active_voice()
-        await _refresh_conversation_base_instructions(conversation)
-    else:
-        conversation.plugin_mode = mode
+    await conversation_service.apply_plugin(conversation, plugin_id, mode=mode)
 
 
 async def _get_view_context(request: Request, conversation: Conversation | None = None) -> dict[str, object]:
@@ -555,37 +458,11 @@ def _get_voice_context(request: Request, conversation: Conversation | None = Non
 
 
 async def _close_and_delete_conversation(conversation_id: str) -> bool:
-    conversation = conversations.pop(conversation_id, None)
-    if conversation is not None:
-        await plugin_manager.on_conversation_reset(conversation.plugin_id, conversation.id)
-        try:
-            await asyncio.wait_for(conversation.model.close(), timeout=2.0)
-        except Exception as exc:
-            logger.warning("Error closing conversation model: %s", exc)
-    for clip_id, clip in list(speech_clips.items()):
-        if clip.conversation_id == conversation_id:
-            _remove_temporary_audio(clip.path)
-            del speech_clips[clip_id]
-    return conversation is not None
+    return await conversation_service.close_and_delete(conversation_id)
 
 
 class TurnInput(BaseModel):
     text: str = Field(min_length=1, max_length=8_000)
-
-
-MAX_AUDIO_BYTES = 12 * 1024 * 1024
-AUDIO_SUFFIXES = {
-    "audio/webm": ".webm",
-    "audio/ogg": ".ogg",
-    "audio/mp4": ".m4a",
-    "audio/mpeg": ".mp3",
-    "audio/wav": ".wav",
-    "audio/x-wav": ".wav",
-}
-
-
-class AudioConversionError(RuntimeError):
-    """Raised when a browser recording cannot be decoded locally."""
 
 
 async def _call_reply(
@@ -595,21 +472,13 @@ async def _call_reply(
     model_name: str | None = None,
     effort: str | None = None,
 ) -> str:
-    try:
-        sig = inspect.signature(model.reply)
-        kwargs: dict[str, object] = {}
-        if "context_prompt" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            if context_prompt is not None:
-                kwargs["context_prompt"] = context_prompt
-        if "model" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            if model_name is not None:
-                kwargs["model"] = model_name
-        if "effort" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            if effort is not None:
-                kwargs["effort"] = effort
-        return await model.reply(text, **kwargs)
-    except TypeError:
-        return await model.reply(text)
+    return await call_reply(
+        model=model,
+        text=text,
+        context_prompt=context_prompt,
+        model_name=model_name,
+        effort=effort,
+    )
 
 
 async def _call_reply_stream(
@@ -619,23 +488,14 @@ async def _call_reply_stream(
     model_name: str | None = None,
     effort: str | None = None,
 ) -> AsyncIterator[str]:
-    try:
-        sig = inspect.signature(model.reply_stream)
-        kwargs: dict[str, object] = {}
-        if "context_prompt" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            if context_prompt is not None:
-                kwargs["context_prompt"] = context_prompt
-        if "model" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            if model_name is not None:
-                kwargs["model"] = model_name
-        if "effort" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            if effort is not None:
-                kwargs["effort"] = effort
-        async for chunk in model.reply_stream(text, **kwargs):
-            yield chunk
-    except TypeError:
-        async for chunk in model.reply_stream(text):
-            yield chunk
+    async for chunk in call_reply_stream(
+        model=model,
+        text=text,
+        context_prompt=context_prompt,
+        model_name=model_name,
+        effort=effort,
+    ):
+        yield chunk
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -1225,53 +1085,7 @@ SOURCES_SPLIT_RE = re.compile(
 
 
 def _extract_speech_sentence(buffer: str, is_first_chunk: bool = False) -> tuple[str | None, str]:
-    """Extract the first ready sentence/segment from the streaming buffer.
-
-    If is_first_chunk is True, allows splitting on early clause boundaries
-    (e.g., comma, colon, dash) once an introductory clause (>= 3 words, >= 12 chars)
-    is ready, minimizing time to first spoken audio.
-
-    Returns (sentence_to_deliver, remaining_buffer).
-    If no complete sentence boundary is ready, returns (None, buffer).
-    """
-    clean_buf = buffer.lstrip()
-    if not clean_buf:
-        return None, ""
-
-    split_re = FIRST_CHUNK_SPLIT_RE if is_first_chunk else SENTENCE_SPLIT_RE
-
-    for match in split_re.finditer(clean_buf):
-        split_pos = match.end()
-        candidate = clean_buf[: match.start()].strip()
-
-        is_clause_boundary = bool(re.search(r"[,;:—–]$", clean_buf[: match.start()].rstrip()))
-
-        if is_clause_boundary:
-            words = candidate.split()
-            if len(words) < 3 or len(candidate) < 12:
-                continue
-        else:
-            if len(candidate) < 6:
-                continue
-
-        if re.search(r"\b\d+\.$", candidate):
-            continue
-
-        if candidate.count("(") > candidate.count(")") or candidate.count("[") > candidate.count("]"):
-            continue
-
-        last_word = candidate.split()[-1] if candidate.split() else ""
-        if (
-            last_word.lower().rstrip(".,:;!?") + "." in ABBREVIATIONS
-            or last_word.lower() in ABBREVIATIONS
-        ):
-            continue
-
-        sentence = clean_buf[:split_pos].strip()
-        remainder = clean_buf[split_pos:].lstrip()
-        return sentence, remainder
-
-    return None, clean_buf
+    return extract_speech_sentence(buffer, is_first_chunk=is_first_chunk)
 
 
 async def _stream_and_synthesize(
@@ -1738,74 +1552,20 @@ async def _append_assistant_turn(conversation: Conversation, text: str) -> str |
 
 
 def _recover_html_conversation(conversation_id: str) -> Conversation:
-    """Keep a stale browser form usable after a local --reload restart.
-
-    Conversations intentionally live only in process memory. A page rendered
-    before a development-server restart has an obsolete id, but its next text
-    or audio turn is still safe to use as the first turn of a new conversation.
-    JSON routes remain strict so callers can distinguish a missing resource.
-    """
-
-    conversation = conversations.get(conversation_id)
-    if conversation is not None:
-        _touch_conversation(conversation)
-        return conversation
-    conversation = Conversation(id=str(uuid4()))
-    conversations[conversation.id] = conversation
-    _touch_conversation(conversation)
-    return conversation
+    return conversation_service.recover_html_conversation(conversation_id)
 
 
 def _write_temporary_audio(recording: bytes, suffix: str) -> Path:
-    descriptor, raw_path = tempfile.mkstemp(prefix="voice-of-luna-", suffix=suffix)
-    with os.fdopen(descriptor, "wb") as destination:
-        destination.write(recording)
-    return Path(raw_path)
+    return write_temporary_audio(recording, suffix)
 
 
 def _remove_temporary_audio(path: Path) -> None:
-    path.unlink(missing_ok=True)
+    remove_temporary_audio(path)
 
 
 def _is_16k_mono_wav(path: Path) -> bool:
-    try:
-        with wave.open(str(path), "rb") as reader:
-            return (
-                reader.getnchannels() == 1
-                and reader.getframerate() == 16000
-                and reader.getsampwidth() == 2
-                and reader.getcomptype() == "NONE"
-            )
-    except Exception:
-        return False
+    return is_16k_mono_wav(path)
 
 
 async def _convert_to_wav(source: Path) -> Path:
-    if shutil.which("ffmpeg") is None:
-        raise AudioConversionError("ffmpeg is required to decode this browser recording locally")
-    descriptor, raw_destination = tempfile.mkstemp(prefix="voice-of-luna-", suffix=".wav")
-    os.close(descriptor)
-    destination = Path(raw_destination)
-    process = await asyncio.create_subprocess_exec(
-        "ffmpeg",
-        "-nostdin",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-i",
-        str(source),
-        "-ac",
-        "1",
-        "-ar",
-        "16000",
-        "-c:a",
-        "pcm_s16le",
-        str(destination),
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    if await process.wait() == 0 and destination.stat().st_size:
-        return destination
-    _remove_temporary_audio(destination)
-    raise AudioConversionError("The recording could not be decoded locally")
+    return await convert_to_wav(source)
