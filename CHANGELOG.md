@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-09-08
+
+### Removed
+- Removed the legacy Focus Sprint, Spanish Buddy, and diagnostic Test Plugin registrations and implementations.
+- Removed client-side Spanish Buddy-specific plugin behavior and retired its plugin-specific regression tests.
+
+## [0.21.0] - 2026-09-08
+
+### Added
+- Added local SQLite/FTS5 plugin storage with plugin-scoped memory records.
+- Added the first-party Project Room plugin with persistent memory and safe read-only repository tools.
+
+## [0.20.1] - 2026-09-08
+
+### Changed
+- Use one locale-aware TTS fallback chain and preserve requested, actual, and fallback engine telemetry through streamed turns.
+- Allow the English Piper Lessac model to synthesize English text.
+- Require verified Piper artifacts before loading or prewarming them.
+
 ## [0.19.0] - 2026-09-08
 
 ### Changed

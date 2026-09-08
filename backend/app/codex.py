@@ -8,7 +8,7 @@ import logging
 import os
 import shutil
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -147,10 +147,14 @@ class CodexAppServer:
         command: str = "codex",
         workdir: Path | None = None,
         base_instructions: str | None = None,
+        dynamic_tools: list[dict[str, Any]] | None = None,
+        server_request_handler: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         self.command = command
         self.workdir = workdir or Path("/tmp")
         self.base_instructions = base_instructions or DEFAULT_BASE_INSTRUCTIONS
+        self.dynamic_tools = list(dynamic_tools or [])
+        self.server_request_handler = server_request_handler
         self._process: asyncio.subprocess.Process | None = None
         self._thread_id: str | None = None
         self.thread_generation = 0
@@ -162,6 +166,7 @@ class CodexAppServer:
         # app-server may emit a notification immediately after replying to
         # turn/start. Keep it until _stream_answer has registered its queue.
         self._buffered_turn_events: dict[str, list[dict[str, Any]]] = {}
+        self._server_request_tasks: set[asyncio.Task[None]] = set()
         self._lock: asyncio.Lock | None = None
 
     @property
@@ -249,6 +254,17 @@ class CodexAppServer:
         """Update base instructions. If a thread is running, closes it so next turn uses new instructions."""
         if self.base_instructions != base_instructions:
             self.base_instructions = base_instructions
+            await self.close()
+
+    async def set_dynamic_tools(
+        self,
+        dynamic_tools: list[dict[str, Any]],
+        server_request_handler: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None,
+    ) -> None:
+        """Replace the host-defined tool set and recreate the thread if needed."""
+        if self.dynamic_tools != dynamic_tools or self.server_request_handler is not server_request_handler:
+            self.dynamic_tools = list(dynamic_tools)
+            self.server_request_handler = server_request_handler
             await self.close()
 
     async def reply(
@@ -387,20 +403,27 @@ class CodexAppServer:
             self._ensure_reader()
 
             try:
-                await self._request(
-                    "initialize",
-                    {"clientInfo": {"name": "voice-of-luna", "version": __version__}},
-                )
+                initialize_params: dict[str, Any] = {
+                    "clientInfo": {"name": "voice-of-luna", "version": __version__}
+                }
+                if self.dynamic_tools:
+                    # The app-server marks host-defined tools experimental;
+                    # keep the opt-in scoped to instances that actually use them.
+                    initialize_params["capabilities"] = {"experimentalApi": True}
+                await self._request("initialize", initialize_params)
                 await self._notify("initialized", {})
+                thread_params: dict[str, Any] = {
+                    "cwd": str(self.workdir),
+                    "ephemeral": True,
+                    "approvalPolicy": "never",
+                    "sandbox": "read-only",
+                    "baseInstructions": self.base_instructions,
+                }
+                if self.dynamic_tools:
+                    thread_params["dynamicTools"] = self.dynamic_tools
                 thread = await self._request(
                     "thread/start",
-                    {
-                        "cwd": str(self.workdir),
-                        "ephemeral": True,
-                        "approvalPolicy": "never",
-                        "sandbox": "read-only",
-                        "baseInstructions": self.base_instructions,
-                    },
+                    thread_params,
                 )
                 self._thread_id = thread["thread"]["id"]
                 return self._thread_id
@@ -427,6 +450,15 @@ class CodexAppServer:
                     break
 
                 if not isinstance(message, dict):
+                    continue
+
+                # Server-initiated JSON-RPC requests (currently dynamic tools)
+                # have both an id and a method. They must be answered on the
+                # same stream and must not enter the turn event queue.
+                if message.get("id") is not None and message.get("method"):
+                    task = asyncio.create_task(self._handle_server_request(message))
+                    self._server_request_tasks.add(task)
+                    task.add_done_callback(self._server_request_tasks.discard)
                     continue
 
                 # 1. Resolve pending request future by message 'id'
@@ -467,6 +499,26 @@ class CodexAppServer:
             # Signal EOF to turn listeners
             for queue in list(self._turn_listeners.values()):
                 await queue.put(None)
+
+    async def _handle_server_request(self, message: dict[str, Any]) -> None:
+        request_id = message.get("id")
+        method = str(message.get("method", ""))
+        params = message.get("params")
+        if not isinstance(params, dict):
+            params = {}
+        try:
+            if self.server_request_handler is None:
+                raise CodexUnavailable(f"Unsupported server request: {method}")
+            result = await self.server_request_handler(method, params)
+            response: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id, "result": result}
+        except Exception as exc:
+            logger.warning("Codex server request %s failed: %s", method, exc)
+            response = {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {"code": -32000, "message": str(exc)},
+            }
+        await self._write(response)
 
     async def _wait_for_answer(self, thread_id: str, turn_id: str) -> str:
         chunks: list[str] = []
@@ -619,6 +671,9 @@ class CodexAppServer:
         self._pending_requests.clear()
         self._turn_listeners.clear()
         self._buffered_turn_events.clear()
+        for task in list(self._server_request_tasks):
+            task.cancel()
+        self._server_request_tasks.clear()
 
         if self._process is not None:
             stdin = getattr(self._process, "stdin", None)

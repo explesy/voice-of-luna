@@ -4,9 +4,8 @@ import asyncio
 import logging
 from typing import Any
 
-from .base import Plugin, PluginTurnResult, TurnContext
-from .focus_sprint import FocusSprintPlugin
-from .spanish_buddy import SpanishBuddyPlugin
+from .base import Plugin, PluginTurnResult, ToolCallContext, ToolResult, ToolSpec, TurnContext
+from .project_room import ProjectRoomPlugin
 
 logger = logging.getLogger("voice_of_luna.plugins")
 
@@ -22,65 +21,13 @@ class LunaCorePlugin(Plugin):
         return [{"id": "default", "label": "Normal"}]
 
 
-class TestContextPlugin(Plugin):
-    """Test and diagnostic plugin for verifying prompt injection and turn telemetry."""
-
-    __test__ = False
-
-    id = "test_plugin"
-    name = "Test Plugin"
-    description = "Diagnostic plugin verifying context injection and turn metadata"
-
-    def __init__(self) -> None:
-        self.turn_counts: dict[str, int] = {}
-        self.session_logs: dict[str, list[dict[str, str]]] = {}
-
-    def get_modes(self) -> list[dict[str, str]]:
-        return [
-            {"id": "default", "label": "Standard"},
-            {"id": "echo_metric", "label": "Echo Metric"},
-        ]
-
-    async def system_prompt(self, conversation_id: str) -> str:
-        return (
-            "You are running with Test Plugin active. "
-            "Reply naturally and concisely in 1 short spoken sentence. "
-            "Acknowledge test mode if the user asks about it."
-        )
-
-    async def before_turn(self, ctx: TurnContext) -> PluginTurnResult:
-        count = self.turn_counts.get(ctx.conversation_id, 0) + 1
-        self.turn_counts[ctx.conversation_id] = count
-        prompt_context = f"[TEST CONTEXT // Turn #{count} | Mode: {ctx.active_mode}]"
-        mode_label = f"TEST // #{count}"
-        return PluginTurnResult(
-            prompt_context=prompt_context,
-            mode_label=mode_label,
-            metadata={"turn_count": count},
-        )
-
-    async def after_turn(self, ctx: TurnContext, assistant_response: str) -> None:
-        if ctx.conversation_id not in self.session_logs:
-            self.session_logs[ctx.conversation_id] = []
-        self.session_logs[ctx.conversation_id].append({
-            "user": ctx.user_message,
-            "assistant": assistant_response,
-        })
-
-    async def on_conversation_reset(self, conversation_id: str) -> None:
-        self.turn_counts.pop(conversation_id, None)
-        self.session_logs.pop(conversation_id, None)
-
-
 class PluginManager:
     """Manages plugin registration, lifecycle execution, and safety boundaries."""
 
     def __init__(self) -> None:
         self._plugins: dict[str, Plugin] = {}
         self.register(LunaCorePlugin())
-        self.register(FocusSprintPlugin())
-        self.register(SpanishBuddyPlugin())
-        self.register(TestContextPlugin())
+        self.register(ProjectRoomPlugin())
 
     def register(self, plugin: Plugin) -> None:
         if not plugin.id:
@@ -101,6 +48,56 @@ class PluginManager:
             }
             for p in self._plugins.values()
         ]
+
+    def get_tools(self, plugin_id: str) -> list[ToolSpec]:
+        return self.get(plugin_id).tools()
+
+    def dynamic_tools(self, plugin_id: str) -> list[dict[str, Any]]:
+        return [tool.as_dynamic_tool() for tool in self.get_tools(plugin_id)]
+
+    async def call_tool(
+        self,
+        plugin_id: str,
+        name: str,
+        arguments: dict[str, Any],
+        ctx: ToolCallContext,
+        timeout: float = 5.0,
+    ) -> ToolResult:
+        """Dispatch one model-requested tool with isolation and a bounded wait."""
+        plugin = self.get(plugin_id)
+        declared = {tool.name: tool for tool in plugin.tools()}
+        tool = declared.get(name) or next(
+            (item for item in plugin.tools() if item.qualified_name == name), None
+        )
+        if tool is None:
+            return ToolResult(
+                content_items=[
+                    {"type": "text", "text": f"Unknown tool: {name}"}
+                ],
+                metadata={"ok": False, "error": "unknown_tool"},
+            )
+        try:
+            qualified = name if "." in name else tool.qualified_name
+            call_ctx = ToolCallContext(
+                conversation_id=ctx.conversation_id,
+                plugin_id=ctx.plugin_id,
+                active_mode=ctx.active_mode,
+                metadata={**ctx.metadata, "tool_qualified_name": qualified},
+                storage=ctx.storage,
+            )
+            return await asyncio.wait_for(plugin.call_tool(tool.name, arguments, call_ctx), timeout)
+        except asyncio.TimeoutError:
+            logger.warning("Plugin %s tool %s timed out after %.1fs", plugin_id, name, timeout)
+            return ToolResult(
+                content_items=[{"type": "text", "text": "Tool timed out."}],
+                metadata={"ok": False, "error": "timeout"},
+            )
+        except Exception as exc:
+            logger.warning("Plugin %s tool %s failed: %s", plugin_id, name, exc)
+            return ToolResult(
+                content_items=[{"type": "text", "text": "Tool failed safely."}],
+                metadata={"ok": False, "error": "tool_failed"},
+            )
 
     def get_stt_language(self, plugin_id: str) -> str | None:
         plugin = self.get(plugin_id)

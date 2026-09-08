@@ -88,7 +88,7 @@ def test_plugin_switch_preserves_selected_voice(monkeypatch) -> None:
     monkeypatch.setattr("app.conversation_service.plugin_manager.get_system_prompt", fake_get_system_prompt)
 
     async def exercise() -> None:
-        await service.apply_plugin(conversation, "spanish_buddy")
+        await service.apply_plugin(conversation, "project_room")
         await service.apply_plugin(conversation, "neutral")
 
     asyncio.run(exercise())
@@ -104,10 +104,10 @@ def test_resolve_stt_config_matches_locale_and_plugin_policy() -> None:
     assert resolve_stt_config(english).language == "en"
     assert resolve_stt_config(english).prompt == ""
 
-    spanish = Conversation(id="stt-es", locale="auto", plugin_id="spanish_buddy")
-    config = resolve_stt_config(spanish)
+    auto = Conversation(id="stt-auto", locale="auto", plugin_id="project_room")
+    config = resolve_stt_config(auto)
     assert config.language == "auto"
-    assert "español" in config.prompt
+    assert config.prompt == ""
 
 
 def test_write_and_remove_temporary_audio(tmp_path: Path) -> None:

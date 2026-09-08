@@ -269,8 +269,7 @@ function normalizeLocale(tag) {
 
 function languageFor(text) {
   if (/\p{Script=Cyrillic}/u.test(text)) return "ru-RU";
-  const activePlugin = document.querySelector(".plugin-select")?.value || localStorage.getItem("voice_of_luna_plugin");
-  if (activePlugin === "spanish_buddy" || /[áéíóúüñ¿¡]/i.test(text)) return "es-ES";
+  if (/[áéíóúüñ¿¡]/i.test(text)) return "es-ES";
   return "en-US";
 }
 
@@ -1662,22 +1661,6 @@ function initPluginSelector() {
         const chosenMode = modeSelect ? modeSelect.value : "default";
         localStorage.setItem("voice_of_luna_plugin_mode", chosenMode);
         document.cookie = `voice_of_luna_plugin_mode=${encodeURIComponent(chosenMode)}; path=/; max-age=31536000; SameSite=Lax`;
-
-        if (chosenPlugin === "spanish_buddy") {
-          const voiceSelect = document.querySelector("#voice-select");
-          if (voiceSelect) {
-            expandOtherVoices();
-            const spanishOpt = Array.from(voiceSelect.options).find(
-              (opt) => /mónica|monica|paulina|es_/i.test(opt.text) || /es_/i.test(opt.value)
-            );
-            if (spanishOpt) {
-              voiceSelect.value = spanishOpt.value;
-              voiceSelect.dataset.lastVoice = spanishOpt.value;
-              updateVoiceAttributes(spanishOpt.value);
-              sendVoiceUpdate(spanishOpt.value);
-            }
-          }
-        }
 
         sendPluginUpdate(chosenPlugin, chosenMode);
         showToast(`// PLUGIN: ${chosenPlugin.toUpperCase()}`);

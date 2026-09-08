@@ -21,11 +21,12 @@ from typing import Any
 from uuid import uuid4
 
 from app.codex import CodexAppServer, get_base_instructions
+from app.plugin_storage import PluginStorage
 import os
 
 CONVERSATION_IDLE_TTL_SECONDS = int(os.environ.get("VOICE_OF_LUNA_CONVERSATION_IDLE_TTL_SECONDS", "900"))
 CONVERSATION_REAPER_INTERVAL_SECONDS = 60
-from app.plugins import plugin_manager
+from app.plugins import ToolCallContext, plugin_manager
 from app.speak import (
     get_active_voice,
     get_default_voice_for_locale,
@@ -38,6 +39,11 @@ from app.speech_pipeline import (
 )
 
 logger = logging.getLogger("voice_of_luna")
+
+
+def _configured_project_root() -> Path | None:
+    configured = os.environ.get("VOICE_OF_LUNA_PROJECT_ROOT", "").strip()
+    return Path(configured).expanduser().resolve() if configured else None
 
 
 @dataclass(frozen=True)
@@ -143,6 +149,7 @@ class Conversation:
     remote_warmup_task: asyncio.Task[None] | None = field(default=None, repr=False)
     thread_generation: int = 0
     binary_audio: bool = False
+    project_root: Path | None = field(default_factory=_configured_project_root)
 
     def set_selected_voice(self, voice: str) -> None:
         """Persist the user's voice choice while keeping legacy ``voice`` callers in sync."""
@@ -334,11 +341,43 @@ class ConversationService:
             conversation.plugin_id = plugin_id
             conversation.plugin_mode = mode
             await self.refresh_base_instructions(conversation)
+
+            selected_plugin = plugin_id
+
+            async def handle_server_request(method: str, params: dict[str, Any]) -> dict[str, Any]:
+                if method != "item/tool/call":
+                    raise ValueError(f"Unsupported app-server request: {method}")
+                tool_name = str(params.get("tool", ""))
+                arguments = params.get("arguments", {})
+                if not isinstance(arguments, dict):
+                    raise ValueError("Tool arguments must be an object")
+                result = await plugin_manager.call_tool(
+                    selected_plugin,
+                    tool_name,
+                    arguments,
+                    ToolCallContext(
+                        conversation_id=conversation.id,
+                        plugin_id=selected_plugin,
+                        active_mode=conversation.plugin_mode,
+                        metadata={
+                            "project_root": str(conversation.project_root)
+                            if conversation.project_root
+                            else None
+                        },
+                        storage=plugin_storage,
+                    ),
+                )
+                return result.as_rpc_result()
+
+            await conversation.model.set_dynamic_tools(
+                plugin_manager.dynamic_tools(plugin_id), handle_server_request
+            )
         else:
             conversation.plugin_mode = mode
 
 
 conversation_service = ConversationService()
+plugin_storage = PluginStorage()
 
 
 async def call_reply(

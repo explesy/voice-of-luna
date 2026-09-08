@@ -1,18 +1,18 @@
 """Plugin subsystem for Voice of Luna."""
 
-from .base import Plugin, PluginTurnResult, TurnContext
-from .focus_sprint import FocusSprintPlugin
-from .manager import LunaCorePlugin, PluginManager, TestContextPlugin, plugin_manager
-from .spanish_buddy import SpanishBuddyPlugin
+from .base import Plugin, PluginTurnResult, ToolCallContext, ToolResult, ToolSpec, TurnContext
+from .manager import LunaCorePlugin, PluginManager, plugin_manager
+from .project_room import ProjectRoomPlugin
 
 __all__ = [
-    "FocusSprintPlugin",
     "LunaCorePlugin",
     "Plugin",
     "PluginManager",
     "PluginTurnResult",
-    "SpanishBuddyPlugin",
-    "TestContextPlugin",
+    "ProjectRoomPlugin",
+    "ToolCallContext",
+    "ToolResult",
+    "ToolSpec",
     "TurnContext",
     "plugin_manager",
 ]

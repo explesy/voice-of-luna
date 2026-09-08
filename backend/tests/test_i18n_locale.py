@@ -218,22 +218,6 @@ def test_websocket_auto_locale_and_tts_engine(monkeypatch) -> None:
         assert completed["tts_engine"] in ("EDGE_TTS", "MACOS_SAY")
 
 
-def test_resolve_turn_language_with_spanish_buddy_override() -> None:
-    from app.conversation_service import Conversation, resolve_turn_language
-
-    # Scenario: AUTO locale + Spanish Buddy plugin + Russian user prompt
-    conv = Conversation(id="test-conv-es", locale="auto", plugin_id="spanish_buddy")
-    conv.voice = "Milena (Enhanced)"  # Russian voice currently set
-
-    # User speaks Russian
-    lang = resolve_turn_language(conv, user_text="как сказать я сегодня очень устал?")
-    assert lang.input_locale == "ru-RU"
-    assert lang.response_locale == "es-ES"
-    assert lang.voice_locale in ("es", "es-ES")
-    # TTS voice must NOT be Russian Milena! It must be a Spanish voice (Elvira or Mónica)
-    assert any(es in lang.speaker_voice.lower() for es in ("elvira", "mónica", "monica", "alvaro"))
-
-
 def test_resolve_turn_language_auto_english() -> None:
     from app.conversation_service import Conversation, resolve_turn_language
 
@@ -275,4 +259,3 @@ def test_spanish_fuentes_source_pipeline() -> None:
     assert '<div class="sources-tag">// FUENTES:</div>' in html
     assert 'class="term-link"' in html
     assert "https://es.wikipedia.org/wiki/Madrid" in html
-

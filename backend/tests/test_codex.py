@@ -58,6 +58,82 @@ def test_reuses_one_process_and_thread_for_multiple_turns(monkeypatch) -> None:
     assert [method for method, _ in requests].count("turn/start") == 2
 
 
+def test_dynamic_tools_are_opt_in_and_server_requests_round_trip(monkeypatch) -> None:
+    responses = []
+
+    async def handler(method, params):
+        assert method == "item/tool/call"
+        assert params["tool"] == "memory.search"
+        return {"contentItems": [{"type": "text", "text": "found"}]}
+
+    provider = CodexAppServer(
+        dynamic_tools=[
+            {
+                "name": "memory.search",
+                "description": "Search memory",
+                "inputSchema": {"type": "object"},
+            }
+        ],
+        server_request_handler=handler,
+    )
+
+    async def write(message):
+        responses.append(message)
+
+    monkeypatch.setattr(provider, "_write", write)
+
+    async def exercise() -> None:
+        await provider._handle_server_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 41,
+                "method": "item/tool/call",
+                "params": {"tool": "memory.search", "arguments": {"query": "tools"}},
+            }
+        )
+
+    asyncio.run(exercise())
+
+    assert responses == [
+        {
+            "jsonrpc": "2.0",
+            "id": 41,
+            "result": {"contentItems": [{"type": "text", "text": "found"}]},
+        }
+    ]
+
+
+def test_dynamic_tools_are_sent_only_when_configured(monkeypatch) -> None:
+    provider = CodexAppServer(dynamic_tools=[{"name": "repo.search"}])
+    requests = []
+
+    async def fake_request(method, params):
+        requests.append((method, params))
+        return {"thread": {"id": "thread-tools"}}
+
+    async def fake_status():
+        return RuntimeStatus(True, "Local Codex is connected")
+
+    async def fake_create_process(*_args, **_kwargs):
+        return FakeProcess()
+
+    monkeypatch.setattr(provider, "status", fake_status)
+    monkeypatch.setattr("app.codex.asyncio.create_subprocess_exec", fake_create_process)
+    monkeypatch.setattr(provider, "_request", fake_request)
+    monkeypatch.setattr(provider, "_notify", lambda *_args: asyncio.sleep(0))
+
+    async def exercise() -> None:
+        await provider.prewarm()
+        await provider.close()
+
+    asyncio.run(exercise())
+
+    initialize = next(params for method, params in requests if method == "initialize")
+    thread = next(params for method, params in requests if method == "thread/start")
+    assert initialize["capabilities"]["experimentalApi"] is True
+    assert thread["dynamicTools"] == [{"name": "repo.search"}]
+
+
 def test_reply_stream_yields_deltas(monkeypatch) -> None:
     provider = CodexAppServer()
 
