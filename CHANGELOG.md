@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.6] - 2026-09-09
+
+### Added
+- Exposed plugin-owned panel metadata and Project Room action declarations through the generic plugin listing API.
+
 ## [0.28.5] - 2026-09-09
 
 ### Added

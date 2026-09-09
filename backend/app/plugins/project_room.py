@@ -42,6 +42,10 @@ class ProjectRoomPlugin(Plugin):
         return {
             "type": "object",
             "fields": [{"name": "root", "type": "directory", "label": "Project root"}],
+            "actions": [
+                {"name": "refresh", "label": "Refresh"},
+                {"name": "forget", "label": "Forget"},
+            ],
         }
 
     def tool_context_metadata(self, settings: dict[str, Any]) -> dict[str, Any]:

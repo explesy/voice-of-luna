@@ -72,6 +72,7 @@ class PluginManager:
                     }
                     for tool in p.tools()
                 ],
+                "panel": p.panel_schema(),
             }
             for p in self._plugins.values()
         ]
