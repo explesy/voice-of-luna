@@ -14,6 +14,7 @@ class TurnContext:
     turns_history: list[dict[str, str]]
     active_mode: str = "default"
     metadata: dict[str, Any] = field(default_factory=dict)
+    state: Any = None
 
 
 @dataclass

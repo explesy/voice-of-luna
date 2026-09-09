@@ -47,6 +47,7 @@ from .conversation_service import (
     approve_pending_tool,
     resolve_stt_config,
     resolve_turn_language,
+    plugin_storage,
 )
 from .project_context import resolve_project_context
 from .i18n import get_ui_text
@@ -589,6 +590,7 @@ async def create_turn_fragment(
         user_message=text,
         turns_history=conversation.turns,
         active_mode=conversation.plugin_mode,
+        state=plugin_storage.for_plugin(conversation.plugin_id, conversation.id),
     )
     plugin_res = await plugin_manager.execute_before_turn(conversation.plugin_id, turn_ctx)
     t_start = time.perf_counter()
@@ -655,6 +657,7 @@ async def create_audio_turn_fragment(
             user_message=transcript,
             turns_history=conversation.turns,
             active_mode=conversation.plugin_mode,
+            state=plugin_storage.for_plugin(conversation.plugin_id, conversation.id),
         )
         plugin_res = await plugin_manager.execute_before_turn(conversation.plugin_id, turn_ctx)
         reply = await _call_reply(
@@ -1001,6 +1004,7 @@ async def create_turn(conversation_id: str, body: TurnInput) -> dict[str, str]:
         user_message=body.text,
         turns_history=conversation.turns,
         active_mode=conversation.plugin_mode,
+        state=plugin_storage.for_plugin(conversation.plugin_id, conversation.id),
     )
     plugin_res = await plugin_manager.execute_before_turn(conversation.plugin_id, turn_ctx)
     try:
@@ -1229,6 +1233,7 @@ async def _stream_and_synthesize(
         user_message=prompt_text,
         turns_history=conversation.turns,
         active_mode=conversation.plugin_mode,
+        state=plugin_storage.for_plugin(conversation.plugin_id, conversation.id),
     )
     plugin_res = await plugin_manager.execute_before_turn(conversation.plugin_id, turn_ctx)
     mode_label = plugin_res.mode_label or "THINKING // CODEX"

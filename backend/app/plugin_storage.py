@@ -15,10 +15,48 @@ from pathlib import Path
 from typing import Any
 
 
+class PluginState:
+    """Plugin-scoped state facade used by hooks and tools.
+
+    The facade owns the plugin and conversation namespaces so plugin code does
+    not need to pass internal identifiers (or accidentally read another
+    plugin's records).
+    """
+
+    def __init__(self, storage: "PluginStorage", plugin_id: str, conversation_id: str, project_scope: str = "project") -> None:
+        self._storage = storage
+        self.plugin_id = plugin_id
+        self.conversation_id = conversation_id
+        self.project_scope = project_scope
+
+    async def get(self, key: str, *, scope: str = "conversation") -> str | None:
+        return await self._storage.get(self.plugin_id, self._scope(scope), key)
+
+    async def set(self, key: str, value: str, *, scope: str = "conversation") -> None:
+        await self._storage.set(self.plugin_id, self._scope(scope), key, value)
+
+    async def remember(self, text: str, *, kind: str = "note", tags: list[str] | None = None, scope: str = "project") -> int:
+        return await self._storage.remember(self.plugin_id, self._scope(scope), text, kind, tags)
+
+    async def search(self, query: str, *, limit: int = 8, scope: str | None = "project") -> list[dict[str, Any]]:
+        resolved_scope = self._scope(scope) if scope else None
+        return await self._storage.search(self.plugin_id, query, limit, resolved_scope)
+
+    def _scope(self, scope: str | None) -> str:
+        if scope in {"project", "plugin"}:
+            return self.project_scope
+        if scope == "conversation":
+            return f"conversation:{self.conversation_id}"
+        raise ValueError(f"Unsupported plugin state scope: {scope}")
+
+
 class PluginStorage:
     def __init__(self, path: Path | None = None) -> None:
         configured = os.environ.get("VOICE_OF_LUNA_PLUGIN_DB")
         self.path = path or Path(configured or "data/voice_of_luna_plugins.sqlite3")
+
+    def for_plugin(self, plugin_id: str, conversation_id: str, project_scope: str = "project") -> PluginState:
+        return PluginState(self, plugin_id, conversation_id, project_scope)
 
     def _connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)

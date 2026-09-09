@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from importlib import metadata as importlib_metadata
 from typing import Any
 
 from .base import Plugin, PluginTurnResult, ToolCallContext, ToolResult, ToolSpec, TurnContext
@@ -28,10 +29,29 @@ class PluginManager:
         self._plugins: dict[str, Plugin] = {}
         self.register(LunaCorePlugin())
         self.register(ProjectRoomPlugin())
+        self._load_external_plugins()
 
-    def register(self, plugin: Plugin) -> None:
+    def _load_external_plugins(self) -> None:
+        """Discover trusted, installed plugins through the Python package API."""
+        try:
+            entries = importlib_metadata.entry_points(group="voice_of_luna.plugins")
+        except TypeError:  # pragma: no cover - compatibility with older metadata
+            entries = importlib_metadata.entry_points().get("voice_of_luna.plugins", ())
+        for entry in entries:
+            try:
+                loaded = entry.load()
+                plugin = loaded() if isinstance(loaded, type) else loaded() if callable(loaded) else loaded
+                if not isinstance(plugin, Plugin):
+                    raise TypeError("entry point did not return a Plugin")
+                self.register(plugin, external=True)
+            except Exception as exc:
+                logger.error("Failed to load external plugin %s: %s", entry.name, exc)
+
+    def register(self, plugin: Plugin, *, external: bool = False) -> None:
         if not plugin.id:
             raise ValueError("Plugin must have a non-empty id")
+        if external and plugin.id in self._plugins:
+            raise ValueError(f"Plugin id already registered: {plugin.id}")
         self._plugins[plugin.id] = plugin
         logger.info("Registered plugin: %s (%s)", plugin.name, plugin.id)
 
