@@ -67,7 +67,7 @@ Tool evidence также принадлежит plugin: Project Room возвр�
 общем шаблоне. Если Project Room отключён, нейтральное приложение должно
 полностью работать без Git-логики и project-specific state.
 
-Plugin — локальный пакет с manifest и одной или несколькими ограниченными точками расширения: `systemPrompt`, `beforeTurn`, `afterTurn`, `renderPanel`, `tools` и `call_tool`. Он получает нормализованный transcript и capability context, но никогда не получает аудио stream, OAuth credential, app-server transport или возможность писать в core database вне своего namespace.
+Plugin — доверенный локальный пакет, загружаемый в тот же Python process, с одной или несколькими ограниченными точками расширения: `systemPrompt`, `beforeTurn`, `afterTurn`, `renderPanel`, `tools` и `call_tool`. Через обычный API он получает нормализованный transcript и capability context, но это не sandbox: недоверенный Python-код не следует устанавливать, пока не появится отдельная process/IPC-изоляция.
 
 Для native tools используется opt-in `dynamicTools` app-server protocol. `CodexAppServer` остаётся общим bidirectional bridge: server-initiated `item/tool/call` маршрутизируется через `PluginManager`, где проверяются объявление инструмента, permission и timeout. MCP пока остаётся адаптером для внешних интеграций; first-party Project Room не зависит от MCP.
 

@@ -78,9 +78,9 @@ class ToolCallContext:
 class Plugin(ABC):
     """Abstract base class for Voice of Luna plugins.
 
-    Plugins have capability-limited access: they receive only normalized text
-    and conversation metadata. They never receive raw audio, process handles,
-    or authentication tokens.
+    Plugins are trusted in-process extensions. The host exposes capability-
+    oriented contexts and does not intentionally pass raw audio, process
+    handles, or authentication tokens, but this is not a Python sandbox.
     """
 
     id: str = ""

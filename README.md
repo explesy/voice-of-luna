@@ -112,8 +112,8 @@ For an opt-in local browser capture, run `setVadTraceCapture(true)` in DevTools 
 
 > GPT-5.4 and GPT-5.4 Mini retired from Codex sessions authenticated with ChatGPT on 31 August 2026. They are not shown in the live picker. The retirement does not apply to Codex authenticated with an OpenAI API key.
 
-### 5. Capability-Isolated Plugins
-Extend Lúna's capabilities without granting plugins access to credentials or raw audio:
+### 5. Trusted In-Process Plugins
+Extend Lúna through trusted, in-process packages. The host exposes capability-oriented contexts and does not intentionally grant plugins raw audio or credentials, but Python entry-point plugins are not a security sandbox:
 - **`Lúna (Core)`**: Neutral conversation core with no plugin tools.
 - **`Project Room`**: Persistent plugin-scoped memory, read-only access to a user-selected project root, and optional GitHub issue tools. Repository reads are constrained to the selected root; GitHub issue creation requires a one-shot approval.
 
@@ -298,7 +298,7 @@ uv run pytest tests/test_version.py
 - **Localhost Boundary**: Voice of Lúna binds exclusively to `127.0.0.1`. It is designed as a personal companion, never to be exposed directly to the public internet without an authentication layer.
 - **No Token Storage**: The application never copies or exposes your OAuth credentials. All LLM calls pass through the local `codex app-server` binary already authorized on your machine.
 - **Ephemeral Audio Lifecycle**: Recorded audio chunks, temporary WAV conversions, and synthesized reply audio are wiped immediately after turn delivery.
-- **Isolated Plugins**: Plugins run in restricted turn contexts and have no access to credentials or raw audio. Project Room's repository tools are the explicit exception: they can read only the selected project root and never write repository files.
+- **Trusted Plugins**: Plugins run in restricted turn contexts and are not intentionally given credentials or raw audio. They execute in the Luna Python process, so this is not a sandbox; Project Room's repository tools can read only the selected project root and never write repository files.
 
 ---
 

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.15] - 2026-09-09
+
+### Fixed
+- Исправлена обработка read-only dynamic tools: capability metadata теперь создаётся для каждого вызова, а не только для `external.write`.
+- Добавлена end-to-end регрессия server-side tool handler и базовая runtime-проверка аргументов tools.
+- `memory.search` теперь соблюдает переданный лимит результатов.
+
+### Changed
+- Документация уточняет, что Python-плагины являются trusted in-process extensions, а не sandboxed security boundary.
+
 ## [0.28.14] - 2026-09-09
 
 ### Fixed
