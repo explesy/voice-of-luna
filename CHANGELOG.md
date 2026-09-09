@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-09-09
+
+### Fixed
+- Removed retired GPT-5.4 model IDs from the local fallback catalog and default settings.
+- Keep the model picker limited to the live local Codex model list; unavailable saved values are no longer inserted back into the picker.
+
+### Documentation
+- Document the ChatGPT-authenticated Codex retirement of GPT-5.4 Mini.
+
 ## [0.26.0] - 2026-09-09
 
 ### Changed

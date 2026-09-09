@@ -72,6 +72,7 @@ from starlette.background import BackgroundTask
 from . import __version__
 from .codex import (
     DEFAULT_BASE_INSTRUCTIONS,
+    DEFAULT_MODEL,
     CodexAppServer,
     CodexUnavailable,
     get_base_instructions,
@@ -388,15 +389,10 @@ async def _get_view_context(request: Request, conversation: Conversation | None 
     else:
         models = await CodexAppServer().list_models()
 
-    active_model = (conversation.model_name if conversation else None) or (cookie_model.strip('"') if cookie_model else None) or (models[0]["id"] if models else "gpt-5.4-mini")
+    requested_model = (conversation.model_name if conversation else None) or (cookie_model.strip('"') if cookie_model else None)
+    available_model_ids = {str(model.get("id")) for model in models if model.get("id")}
+    active_model = requested_model if requested_model in available_model_ids else (models[0]["id"] if models else DEFAULT_MODEL)
     active_effort = (conversation.reasoning_effort if conversation else None) or (cookie_effort.strip('"') if cookie_effort else "low")
-    if active_model and not any(m.get("id") == active_model for m in models):
-        models = list(models) + [{
-            "id": active_model,
-            "displayName": active_model,
-            "description": "",
-            "supportedReasoningEfforts": [],
-        }]
     if conversation:
         conversation.model_name = active_model
         conversation.reasoning_effort = active_effort
@@ -460,7 +456,7 @@ def _get_voice_context(request: Request, conversation: Conversation | None = Non
         "other_voices": [v for v in all_voices if not v["is_russian"]],
         "all_voices": all_voices,
         "models": [],
-        "active_model": "gpt-5.4-mini",
+        "active_model": DEFAULT_MODEL,
         "active_effort": "low",
         "supported_efforts": ["low", "medium", "high", "xhigh"],
         "plugins": plugin_manager.list_plugins(),
@@ -763,11 +759,9 @@ async def list_available_models(request: Request) -> dict[str, object]:
         await provider.close()
     cookie_model = request.cookies.get("voice_of_luna_model")
     cookie_effort = request.cookies.get("voice_of_luna_effort")
-    active_model = (
-        cookie_model.strip('"')
-        if cookie_model
-        else (models[0]["id"] if models else "gpt-5.4-mini")
-    )
+    requested_model = cookie_model.strip('"') if cookie_model else None
+    available_model_ids = {str(model.get("id")) for model in models if model.get("id")}
+    active_model = requested_model if requested_model in available_model_ids else (models[0]["id"] if models else DEFAULT_MODEL)
     return {
         "models": models,
         "active_model": active_model,
@@ -825,13 +819,13 @@ async def update_settings(body: SettingsInput, response: Response) -> dict[str, 
             httponly=False,
             samesite="lax",
         )
-    active_model = body.model or "gpt-5.4-mini"
+    active_model = body.model or DEFAULT_MODEL
     active_effort = body.effort or "low"
     remote_warmup_enabled = body.remote_warmup is not False
     warmup_status = "enabled" if remote_warmup_enabled else "off"
     return {
         "ok": True,
-        "model": body.model,
+        "model": active_model,
         "effort": body.effort,
         "voice": body.voice or get_active_voice(),
         "locale": body.locale,
@@ -1512,7 +1506,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                     if payload.get("remote_warmup") is True:
                         warmup_status = _schedule_conversation_warmup(
                             conversation,
-                            conversation.model_name or "gpt-5.4-mini",
+                            conversation.model_name or DEFAULT_MODEL,
                             conversation.reasoning_effort,
                         )
                     elif payload.get("remote_warmup") is False:

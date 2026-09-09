@@ -745,6 +745,23 @@ def test_api_models_closes_temporary_discovery_client(monkeypatch) -> None:
     assert len(closed) == 1
 
 
+def test_api_models_does_not_reinsert_an_unavailable_saved_model(monkeypatch) -> None:
+    async def fake_list_models(_):
+        return [{"id": "gpt-5.6-luna"}]
+
+    async def fake_close(_):
+        return None
+
+    monkeypatch.setattr(main_module.CodexAppServer, "list_models", fake_list_models)
+    monkeypatch.setattr(main_module.CodexAppServer, "close", fake_close)
+
+    response = client.get("/api/models", cookies={"voice_of_luna_model": "gpt-5.4-mini"})
+
+    assert response.status_code == 200
+    assert response.json()["models"] == [{"id": "gpt-5.6-luna"}]
+    assert response.json()["active_model"] == "gpt-5.6-luna"
+
+
 def test_voice_selection_does_not_change_another_conversations_default_voice() -> None:
     from app.speak import get_default_voice, reset_active_voice
 
@@ -800,7 +817,7 @@ def test_remote_warmup_setting_is_enabled_by_default_and_can_be_disabled(monkeyp
 
     enabled = client.post(
         "/api/settings",
-        json={"model": "gpt-5.4-mini", "effort": "low", "remote_warmup": True},
+        json={"model": "gpt-5.6-luna", "effort": "low", "remote_warmup": True},
     )
     assert enabled.status_code == 200
     assert enabled.json()["remote_warmup"] is True
@@ -819,13 +836,13 @@ def test_remote_warmup_setting_is_enabled_by_default_and_can_be_disabled(monkeyp
         ws.receive_json()
         ws.send_json({
             "type": "set_settings",
-            "model": "gpt-5.4-mini",
+            "model": "gpt-5.6-luna",
             "effort": "low",
             "remote_warmup": True,
         })
         response = ws.receive_json()
     assert response["remote_warmup_status"] == "warming"
-    assert scheduled[-1] == (conv_id, "gpt-5.4-mini", "low")
+    assert scheduled[-1] == (conv_id, "gpt-5.6-luna", "low")
 
 
 def test_htmx_shell_renders_model_and_effort_selectors() -> None:

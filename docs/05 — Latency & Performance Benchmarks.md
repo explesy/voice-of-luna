@@ -115,6 +115,8 @@ remain uncontrolled.
 
 ## Historical numbers
 
+GPT-5.4 Mini figures below are historical only. GPT-5.4 and GPT-5.4 Mini retired from Codex sessions authenticated with ChatGPT on 31 August 2026 and are not shown in the live model picker.
+
 The tables that previously listed fixed LLM × TTS latency values were a mixture
 of single local observations and formula-derived estimates. They are retired
 from this document: they are neither a current measurement nor a basis for

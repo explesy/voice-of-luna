@@ -41,7 +41,6 @@ AI_MODELS_MATRIX = [
     ("gpt-5.6-terra", ["low", "medium", "high", "xhigh"]),
     ("gpt-6-astra", ["low", "medium", "high", "xhigh"]),
     ("gpt-5.5", ["low", "medium", "high"]),
-    ("gpt-5.4-mini", ["low", "medium", "high"]),
 ]
 
 
@@ -295,7 +294,6 @@ CROSS_MATRIX_CASES = [
     ("gpt-5.6-sol", "medium", "Ksenia (Silero Neural · Offline)", False, "Тест Сола с Силеро"),
     ("gpt-6-astra", "high", "Dmitri (Piper Neural · Offline)", True, "Тест Астры с Пайпером и бинарным аудио"),
     ("gpt-5.5", "medium", "Milena", False, "Тест GPT-5.5 с macOS Say"),
-    ("gpt-5.4-mini", "low", "Jenny (Neural · Edge)", True, "Test Mini with Jenny and binary frames"),
 ]
 
 

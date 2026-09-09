@@ -106,9 +106,11 @@ To compare VAD endpointing profiles on captured traces, run `npm run experiment:
 For an opt-in local browser capture, run `setVadTraceCapture(true)` in DevTools before speaking. The trace stores only timestamps, normalized volume, threshold, speech state, silence start, and stop/restart markers; it never stores audio or transcripts. Export it with `downloadVadTrace()`, then disable capture with `setVadTraceCapture(false)`.
 
 ### 4. Live Codex Discovery & Warmup
-- **Dynamic Model Discovery**: Queries `/api/models` directly from your local Codex runtime (`gpt-5.6-sol`, `gpt-5.4-mini`, `gpt-5.6-terra`, `gpt-6-astra`).
+- **Dynamic Model Discovery**: Queries `/api/models` directly from your local Codex runtime and only displays models available to the current Codex sign-in.
 - **Adjustable Reasoning**: Configure reasoning effort (`low`, `medium`, `high`) per session.
 - **Hidden Warmup (`WARM: ON/OFF`)**: Executes an invisible one-turn background ping when opening a session. It may reduce first-turn thread latency, but consumes a short Codex turn and does not guarantee a fixed response time.
+
+> GPT-5.4 and GPT-5.4 Mini retired from Codex sessions authenticated with ChatGPT on 31 August 2026. They are not shown in the live picker. The retirement does not apply to Codex authenticated with an OpenAI API key.
 
 ### 5. Capability-Isolated Plugins
 Extend Lúna's capabilities without granting plugins access to credentials or raw audio:

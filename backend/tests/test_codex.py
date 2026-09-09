@@ -414,13 +414,13 @@ def test_turn_start_passes_model_and_effort(monkeypatch) -> None:
     monkeypatch.setattr(provider, "_wait_for_answer", fake_wait_for_answer)
 
     async def exercise() -> None:
-        await provider.reply("Привет", model="gpt-5.4-mini", effort="low")
+        await provider.reply("Привет", model="gpt-5.6-luna", effort="low")
         await provider.close()
 
     asyncio.run(exercise())
 
     assert len(turn_params) == 1
-    assert turn_params[0]["model"] == "gpt-5.4-mini"
+    assert turn_params[0]["model"] == "gpt-5.6-luna"
     assert turn_params[0]["effort"] == "low"
 
 
@@ -481,8 +481,8 @@ def test_list_models(monkeypatch) -> None:
             return {
                 "data": [
                     {
-                        "id": "gpt-5.4-mini",
-                        "displayName": "GPT-5.4-Mini",
+                        "id": "gpt-5.6-luna",
+                        "displayName": "GPT-5.6-Luna",
                         "supportedReasoningEfforts": [{"reasoningEffort": "low", "description": "Fast"}],
                     }
                 ]
@@ -500,7 +500,7 @@ def test_list_models(monkeypatch) -> None:
     async def exercise() -> None:
         models = await provider.list_models()
         assert len(models) == 1
-        assert models[0]["id"] == "gpt-5.4-mini"
+        assert models[0]["id"] == "gpt-5.6-luna"
         await provider.close()
 
     asyncio.run(exercise())
