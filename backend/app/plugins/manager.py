@@ -196,6 +196,9 @@ class PluginManager:
         plugin = self.get(plugin_id)
         try:
             return await asyncio.wait_for(plugin.configure(dict(settings)), timeout=1.5)
+        except ValueError as exc:
+            logger.warning("Plugin %s configuration failed: %s", plugin_id, exc)
+            raise
         except Exception as exc:
             logger.warning("Plugin %s configuration failed: %s", plugin_id, exc)
             raise ValueError("Plugin configuration is invalid") from exc

@@ -952,12 +952,18 @@ async def select_plugin(
     # Backward-compatible input while clients migrate to plugin-owned settings.
     if body.project_root is not None and "root" not in settings:
         settings["root"] = body.project_root
-    await _apply_plugin_to_conversation(
-        conversation,
-        body.plugin_id,
-        body.mode or "default",
-        settings=settings,
-    )
+    try:
+        await _apply_plugin_to_conversation(
+            conversation,
+            body.plugin_id,
+            body.mode or "default",
+            settings=settings,
+        )
+    except ValueError as exc:
+        # Configuration errors must be visible to the client (for example an
+        # invalid/non-repository Project Room root), rather than becoming an
+        # opaque 500 that looks like Apply simply did nothing.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     response.set_cookie(
         key="voice_of_luna_plugin",
         value=conversation.plugin_id,
@@ -1567,13 +1573,22 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                 elif msg_type == "set_plugin":
                     new_plugin = payload.get("plugin_id", "neutral").strip()
                     new_mode = payload.get("mode", "default").strip()
-                    await _apply_plugin_to_conversation(conversation, new_plugin, new_mode)
+                    raw_settings = payload.get("settings")
+                    plugin_settings = raw_settings if isinstance(raw_settings, dict) else None
+                    try:
+                        await _apply_plugin_to_conversation(
+                            conversation, new_plugin, new_mode, settings=plugin_settings
+                        )
+                    except ValueError as exc:
+                        await websocket.send_json({"type": "error", "message": str(exc)})
+                        continue
                     effective_voice = resolve_turn_language(conversation).speaker_voice
                     await websocket.send_json({
                         "type": "plugin_updated",
                         "plugin_id": conversation.plugin_id,
                         "mode": conversation.plugin_mode,
                         "panel": plugin_manager.panel_schema(conversation.plugin_id),
+                        "settings": conversation.plugin_settings,
                         "voice": effective_voice,
                         "tts_engine": _get_tts_engine(effective_voice),
                     })

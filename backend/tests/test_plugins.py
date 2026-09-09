@@ -219,6 +219,20 @@ def test_api_select_project_room_and_turn_execution(monkeypatch):
     assert captured_context[0] == ""
 
 
+def test_api_select_project_room_reports_invalid_root(tmp_path):
+    created = client.post("/api/conversations")
+    assert created.status_code == 201
+    conv_id = created.json()["id"]
+
+    res = client.post(
+        f"/api/conversations/{conv_id}/plugin",
+        json={"plugin_id": "project_room", "settings": {"root": str(tmp_path)}},
+    )
+
+    assert res.status_code == 400
+    assert "Git repository" in res.json()["detail"]
+
+
 def test_htmx_turn_with_plugin(monkeypatch):
     created = client.post("/api/conversations")
     conv_id = created.json()["id"]

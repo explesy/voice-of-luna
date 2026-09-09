@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.12] - 2026-09-09
+
+### Fixed
+- Показывать понятную ошибку при некорректном корне Project Room вместо молчаливого исчезновения результата Apply.
+- Передавать настройки плагина через WebSocket и сохранять выбранный путь в динамической панели после Apply.
+
 ## [0.28.11] - 2026-09-09
 
 ### Fixed

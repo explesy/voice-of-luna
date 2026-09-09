@@ -636,7 +636,7 @@ function handleSocketMessage(event) {
       updateFooterStatus(data.tts_engine);
     }
   } else if (data.type === "plugin_updated") {
-    if (Object.prototype.hasOwnProperty.call(data, "panel")) renderPluginPanel(data.panel, data.plugin_id);
+    if (Object.prototype.hasOwnProperty.call(data, "panel")) renderPluginPanel(data.panel, data.plugin_id, data.settings || {});
     if (data.plugin_id) {
       document.querySelectorAll(".plugin-select, #plugin-select, #session-plugin-select").forEach((el) => {
         el.value = data.plugin_id;
@@ -1715,7 +1715,7 @@ function sendPluginUpdate(pluginId, mode = "default") {
     if (value) settings[input.dataset.pluginSetting] = value;
   });
   if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: "set_plugin", plugin_id: pluginId, mode: mode }));
+    socket.send(JSON.stringify({ type: "set_plugin", plugin_id: pluginId, mode: mode, settings }));
   }
   const convElem = document.querySelector("[data-conversation-id]");
   const convId = convElem?.dataset?.conversationId;
@@ -1725,9 +1725,15 @@ function sendPluginUpdate(pluginId, mode = "default") {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ plugin_id: pluginId, mode: mode, settings }),
     })
-      .then((res) => (res.ok ? res.json() : null))
+      .then(async (res) => {
+        if (res.ok) return res.json();
+        const payload = await res.json().catch(() => ({}));
+        const message = payload.detail || `HTTP ${res.status}`;
+        showToast(`// PLUGIN ERROR: ${message}`);
+        throw new Error(message);
+      })
       .then((data) => {
-        if (data && Object.prototype.hasOwnProperty.call(data, "panel")) renderPluginPanel(data.panel, data.plugin_id);
+        if (data && Object.prototype.hasOwnProperty.call(data, "panel")) renderPluginPanel(data.panel, data.plugin_id, data.settings || {});
         if (data && data.voice) {
           const voiceSelect = document.querySelector("#voice-select");
           if (voiceSelect) {
@@ -1742,7 +1748,7 @@ function sendPluginUpdate(pluginId, mode = "default") {
   }
 }
 
-function renderPluginPanel(panel, pluginId) {
+function renderPluginPanel(panel, pluginId, settings = {}) {
   const existing = document.querySelector("[data-plugin-panel]");
   if (existing) existing.remove();
   if (!panel || !Array.isArray(panel.fields) && !Array.isArray(panel.actions)) return;
@@ -1760,6 +1766,9 @@ function renderPluginPanel(panel, pluginId) {
     input.dataset.pluginSetting = field.name;
     input.type = field.type === "directory" ? "text" : (field.type || "text");
     input.placeholder = `${field.label || field.name}…`;
+    if (settings[field.name] !== undefined && settings[field.name] !== null) {
+      input.value = String(settings[field.name]);
+    }
     wrapper.append(label, input);
   });
   const apply = document.createElement("button");
