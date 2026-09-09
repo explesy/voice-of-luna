@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from importlib import metadata as importlib_metadata
 from typing import Any
 
@@ -116,6 +117,7 @@ class PluginManager:
                     {"type": "text", "text": f"Unknown tool: {name}"}
                 ],
                 metadata={"ok": False, "error": "unknown_tool"},
+                success=False,
             )
         try:
             self._validate_tool_arguments(tool.input_schema, arguments)
@@ -123,6 +125,7 @@ class PluginManager:
             return ToolResult(
                 content_items=[{"type": "text", "text": "Invalid tool arguments."}],
                 metadata={"ok": False, "error": "invalid_arguments", "detail": str(exc)},
+                success=False,
             )
         granted = set(ctx.metadata.get("permissions", ()))
         checker = ctx.metadata.get("permission_checker")
@@ -134,6 +137,7 @@ class PluginManager:
                     {"type": "text", "text": "Permission required for this tool."}
                 ],
                 metadata={"ok": False, "error": "permission_denied", "permission": tool.required_permission},
+                success=False,
             )
         try:
             qualified = name if "." in name else tool.qualified_name
@@ -145,19 +149,33 @@ class PluginManager:
                 storage=ctx.storage,
                 github=ctx.github,
             )
-            result = await asyncio.wait_for(plugin.call_tool(tool.name, arguments, call_ctx), timeout)
-            return self._bound_result(result)
+            started_at = time.monotonic()
+            logger.debug("Plugin tool > %s argument_keys=%s", qualified, sorted(arguments))
+            result = self._bound_result(
+                await asyncio.wait_for(plugin.call_tool(tool.name, arguments, call_ctx), timeout)
+            )
+            text_size = sum(len(item.get("text", "")) for item in result.content_items if isinstance(item.get("text"), str))
+            logger.debug(
+                "Plugin tool < %s success=%s bytes=%d duration_ms=%d",
+                qualified,
+                result.success,
+                text_size,
+                (time.monotonic() - started_at) * 1_000,
+            )
+            return result
         except asyncio.TimeoutError:
             logger.warning("Plugin %s tool %s timed out after %.1fs", plugin_id, name, timeout)
             return ToolResult(
                 content_items=[{"type": "text", "text": "Tool timed out."}],
                 metadata={"ok": False, "error": "timeout"},
+                success=False,
             )
         except Exception as exc:
             logger.warning("Plugin %s tool %s failed: %s", plugin_id, name, exc)
             return ToolResult(
                 content_items=[{"type": "text", "text": "Tool failed safely."}],
                 metadata={"ok": False, "error": "tool_failed"},
+                success=False,
             )
 
     @staticmethod
@@ -172,7 +190,7 @@ class PluginManager:
             items.append(bounded)
             if budget <= 0:
                 break
-        return ToolResult(content_items=items, metadata=result.metadata)
+        return ToolResult(content_items=items, metadata=result.metadata, success=result.success)
 
     @staticmethod
     def _validate_tool_arguments(schema: dict[str, Any], arguments: dict[str, Any]) -> None:

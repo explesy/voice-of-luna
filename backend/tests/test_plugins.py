@@ -95,14 +95,20 @@ async def test_plugin_manager_dispatches_declared_tools_and_isolates_unknown_too
     assert mgr.dynamic_tools("tool_plugin")[0]["name"] == "memory_search"
     result = await mgr.call_tool("tool_plugin", "memory.search", {"query": "decision"}, ctx)
     assert result.content_items == [{"type": "text", "text": "decision"}]
+    assert result.as_rpc_result() == {
+        "contentItems": [{"type": "inputText", "text": "decision"}],
+        "success": True,
+    }
     wire_result = await mgr.call_tool("tool_plugin", "memory_search", {"query": "decision"}, ctx)
     assert wire_result.content_items == [{"type": "text", "text": "decision"}]
 
     invalid = await mgr.call_tool("tool_plugin", "memory.search", {}, ctx)
     assert invalid.metadata["error"] == "invalid_arguments"
+    assert invalid.as_rpc_result()["success"] is False
 
     unknown = await mgr.call_tool("tool_plugin", "repo.read", {}, ctx)
     assert unknown.metadata["error"] == "unknown_tool"
+    assert unknown.as_rpc_result()["success"] is False
 
     restricted = ToolPlugin()
     restricted.tools = lambda: [ToolSpec(
@@ -112,6 +118,7 @@ async def test_plugin_manager_dispatches_declared_tools_and_isolates_unknown_too
     mgr.register(restricted)
     denied = await mgr.call_tool("tool_plugin", "external.write", {}, ctx)
     assert denied.metadata["error"] == "permission_denied"
+    assert denied.as_rpc_result()["success"] is False
 
 
 @pytest.mark.anyio

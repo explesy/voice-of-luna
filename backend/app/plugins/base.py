@@ -60,9 +60,17 @@ class ToolResult:
 
     content_items: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    success: bool = True
 
     def as_rpc_result(self) -> dict[str, Any]:
-        return {"contentItems": self.content_items}
+        """Adapt the internal plugin result to the app-server wire contract."""
+        items = []
+        for item in self.content_items:
+            wire_item = dict(item)
+            if wire_item.get("type") == "text":
+                wire_item["type"] = "inputText"
+            items.append(wire_item)
+        return {"contentItems": items, "success": self.success}
 
 
 @dataclass(frozen=True)

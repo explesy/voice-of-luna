@@ -454,7 +454,12 @@ class ConversationService:
                         arguments,
                         plugin_metadata.get("github_repository"),
                     ):
-                        return {"contentItems": [{"type": "text", "text": "External action was not approved."}]}
+                        return {
+                            "contentItems": [
+                                {"type": "inputText", "text": "External action was not approved."}
+                            ],
+                            "success": False,
+                        }
                 granted_permissions = ("storage.read", "storage.write", "repo.read", "network.read", "external.write") if tool_spec and tool_spec.required_permission == "external.write" else ("storage.read", "storage.write", "repo.read", "network.read")
                 result = await plugin_manager.call_tool(
                     selected_plugin,

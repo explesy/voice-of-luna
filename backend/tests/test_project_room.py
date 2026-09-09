@@ -67,6 +67,10 @@ def test_project_room_repo_tools_cannot_escape_root(tmp_path: Path) -> None:
             ),
         )
         assert "dynamic tools" in safe.content_items[0]["text"]
+        assert safe.as_rpc_result() == {
+            "contentItems": [{"type": "inputText", "text": "dynamic tools are here"}],
+            "success": True,
+        }
 
         with pytest.raises(ValueError, match="outside"):
             await plugin.call_tool(

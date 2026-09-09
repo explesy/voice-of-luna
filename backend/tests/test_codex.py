@@ -66,7 +66,7 @@ def test_dynamic_tools_are_opt_in_and_server_requests_round_trip(monkeypatch) ->
     async def handler(method, params):
         assert method == "item/tool/call"
         assert params["tool"] == "memory.search"
-        return {"contentItems": [{"type": "text", "text": "found"}]}
+        return {"contentItems": [{"type": "inputText", "text": "found"}], "success": True}
 
     provider = CodexAppServer(
         dynamic_tools=[
@@ -100,7 +100,7 @@ def test_dynamic_tools_are_opt_in_and_server_requests_round_trip(monkeypatch) ->
         {
             "jsonrpc": "2.0",
             "id": 41,
-            "result": {"contentItems": [{"type": "text", "text": "found"}]},
+            "result": {"contentItems": [{"type": "inputText", "text": "found"}], "success": True},
         }
     ]
 

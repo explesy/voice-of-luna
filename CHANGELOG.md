@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-09-09
+
+### Fixed
+- Dynamic plugin-tool responses now follow the Codex app-server contract: text output is emitted as `inputText` and every response includes an explicit success status.
+- Failed tool dispatches and declined external-write approvals now return `success: false`, allowing Codex to distinguish failures from usable tool output.
+
+### Changed
+- Debug logs record only plugin tool name, argument keys, output size, status, and duration; tool output and argument values remain out of logs.
+
 ## [0.29.0] - 2026-09-09
 
 ### Added
