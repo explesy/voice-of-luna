@@ -1771,9 +1771,12 @@ function renderPluginPanel(panel, pluginId, settings = {}) {
     }
     wrapper.append(label, input);
     if (field.help) {
-      const help = document.createElement("small");
+      const help = document.createElement("button");
+      help.type = "button";
       help.className = "plugin-field-help";
-      help.textContent = field.help;
+      help.textContent = "?";
+      help.title = field.help;
+      help.setAttribute("aria-label", field.help);
       wrapper.appendChild(help);
     }
   });

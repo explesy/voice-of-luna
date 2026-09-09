@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.16] - 2026-09-09
+
+### Changed
+- Подсказка Project Room перенесена из постоянной строки в компактную доступную иконку `?`.
+
 ## [0.28.15] - 2026-09-09
 
 ### Fixed

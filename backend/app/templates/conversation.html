@@ -94,7 +94,7 @@
                    data-plugin-setting="{{ field.name }}"
                    value="{{ conversation.plugin_settings.get(field.name, '') if conversation.plugin_settings else '' }}"
                    placeholder="{{ field.placeholder or (field.label ~ '…') }}" aria-label="{{ field.label }}">
-            {% if field.help %}<small class="plugin-field-help">{{ field.help }}</small>{% endif %}
+            {% if field.help %}<button type="button" class="plugin-field-help" title="{{ field.help }}" aria-label="{{ field.help }}">?</button>{% endif %}
             {% endfor %}
             <button type="button" class="sys-chip-button plugin-settings-apply">APPLY</button>
             {% for action in current_p.panel.actions %}

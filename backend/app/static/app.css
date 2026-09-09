@@ -529,12 +529,27 @@ body::after {
 }
 
 .plugin-panel .plugin-field-help {
-  flex-basis: 100%;
-  display: block;
-  white-space: normal;
-  color: var(--text-dark);
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--text-dark);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
   font-size: 10px;
-  line-height: 1.35;
+  font-weight: 800;
+  line-height: 1;
+  cursor: help;
+}
+
+.plugin-panel .plugin-field-help:hover,
+.plugin-panel .plugin-field-help:focus-visible {
+  border-color: var(--term-cyan);
+  color: var(--term-cyan);
+  outline: none;
 }
 
 .plugin-panel .plugin-action {
