@@ -36,6 +36,15 @@ def test_project_room_memory_survives_new_storage_instance(tmp_path: Path) -> No
     asyncio.run(exercise())
 
 
+def test_project_room_memory_is_scoped(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        storage = PluginStorage(tmp_path / "plugins.sqlite")
+        await storage.remember("project_room", "project:a", "Postgres decision")
+        assert await storage.search("project_room", "Postgres", scope="project:b") == []
+        assert (await storage.search("project_room", "Postgres", scope="project:a"))[0]["text"] == "Postgres decision"
+    asyncio.run(exercise())
+
+
 def test_project_room_repo_tools_cannot_escape_root(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("dynamic tools are here\n", encoding="utf-8")
     outside = tmp_path.parent / "outside-secret.txt"
@@ -67,5 +76,22 @@ def test_project_room_repo_tools_cannot_escape_root(tmp_path: Path) -> None:
                     metadata={"project_root": str(tmp_path), "tool_qualified_name": "repo.read"},
                 ),
             )
+
+    asyncio.run(exercise())
+
+
+def test_project_room_repo_tools_hide_secret_files(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("TOKEN is documented here\n", encoding="utf-8")
+    (tmp_path / ".env.local").write_text("TOKEN=do-not-disclose\n", encoding="utf-8")
+    (tmp_path / "credentials.json").write_text('{"TOKEN":"hidden"}\n', encoding="utf-8")
+
+    async def exercise() -> None:
+        plugin = ProjectRoomPlugin()
+        ctx = ToolCallContext("one", plugin.id, "default", metadata={"project_root": str(tmp_path), "tool_qualified_name": "repo.search"})
+        found = await plugin.call_tool("search", {"query": "TOKEN"}, ctx)
+        assert ".env.local" not in found.content_items[0]["text"]
+        assert "credentials.json" not in found.content_items[0]["text"]
+        with pytest.raises(ValueError):
+            await plugin.call_tool("read", {"path": ".env.local"}, ToolCallContext("one", plugin.id, "default", metadata={"project_root": str(tmp_path), "tool_qualified_name": "repo.read"}))
 
     asyncio.run(exercise())

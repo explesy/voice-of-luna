@@ -57,10 +57,13 @@ test("text turn, settings, and fake microphone stay on one browser session", asy
   await expect.poll(() => sent.filter((message) => message.type === "text").length).toBe(1);
   await expect(page.locator(".log-entry.assistant .log-text")).toContainText("Mock browser response.");
 
-  const recordButton = page.locator(".btn-record").first();
+  const recordButton = page.locator(".radar-trigger").first();
   await recordButton.click();
   await expect(page.locator(".radar-stage")).toHaveClass(/state-listening/);
   await recordButton.click();
+
+  await expect(page.locator(".btn-record")).toHaveCount(0);
+  await expect(page.locator("[data-replay]")).toHaveCount(0);
 
   expect(sent.filter((message) => message.type === "set_settings").length).toBeGreaterThan(0);
   expect(sent.filter((message) => message.type === "set_plugin").length).toBeGreaterThan(0);

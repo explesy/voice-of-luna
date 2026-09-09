@@ -70,6 +70,6 @@ export function runExperiment(traces) {
 
 const inputPath = process.argv[2];
 const traces = inputPath
-  ? JSON.parse(fs.readFileSync(inputPath, "utf8"))
+  ? (() => { const value = JSON.parse(fs.readFileSync(inputPath, "utf8")); return value.traces?.map((trace) => ({ ...trace, samples: trace.samples.map((sample) => Array.isArray(sample) ? sample : [sample.timestamp_ms, sample.normalizedVolume]) })) || value; })()
   : BUILTIN_TRACES;
 console.log(JSON.stringify({ source: inputPath || "builtin-synthetic", results: runExperiment(traces) }, null, 2));

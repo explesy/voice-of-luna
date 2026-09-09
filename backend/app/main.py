@@ -43,9 +43,12 @@ from .conversation_service import (
     call_reply_stream,
     conversation_service,
     approve_tool_permission,
+    pending_tool_approvals,
+    approve_pending_tool,
     resolve_stt_config,
     resolve_turn_language,
 )
+from .project_context import resolve_project_context
 from .i18n import get_ui_text
 
 from fastapi import (
@@ -924,7 +927,8 @@ class PluginSelectInput(BaseModel):
 
 
 class ToolApprovalInput(BaseModel):
-    permission: str = Field(min_length=1, max_length=80)
+    request_id: str = Field(min_length=1, max_length=100)
+    args_hash: str = Field(min_length=64, max_length=64)
 
 
 @app.post("/api/conversations/{conversation_id}/plugin")
@@ -935,10 +939,11 @@ async def select_plugin(
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     if body.project_root is not None:
-        candidate = Path(body.project_root).expanduser().resolve()
-        if not candidate.is_dir():
-            raise HTTPException(status_code=400, detail="Project root must be an existing directory")
-        conversation.project_root = candidate
+        try:
+            conversation.project_context = resolve_project_context(Path(body.project_root))
+            conversation.project_root = conversation.project_context.root
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     await _apply_plugin_to_conversation(
         conversation, body.plugin_id, body.mode or "default"
     )
@@ -970,6 +975,8 @@ async def select_plugin(
         "plugin_id": conversation.plugin_id,
         "mode": conversation.plugin_mode,
         "voice": effective_voice,
+        "project_root": str(conversation.project_context.root) if conversation.project_context else None,
+        "github_repository": conversation.project_context.github_repository if conversation.project_context else None,
     }
 
 
@@ -977,10 +984,16 @@ async def select_plugin(
 async def approve_tool(conversation_id: str, body: ToolApprovalInput) -> dict[str, object]:
     if conversation_id not in conversations:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    if body.permission != "external.write":
-        raise HTTPException(status_code=400, detail="Only external.write requires explicit approval")
-    approve_tool_permission(conversation_id, body.permission)
-    return {"ok": True, "permission": body.permission, "expires_in_seconds": 60}
+    if not approve_pending_tool(body.request_id, body.args_hash):
+        raise HTTPException(status_code=409, detail="Approval request is unknown, expired, or changed")
+    return {"ok": True, "request_id": body.request_id}
+
+
+@app.get("/api/conversations/{conversation_id}/tool-approval")
+async def list_pending_tool_approvals(conversation_id: str) -> dict[str, object]:
+    if conversation_id not in conversations:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"requests": pending_tool_approvals(conversation_id)}
 
 
 @app.post("/api/conversations/{conversation_id}/turns")

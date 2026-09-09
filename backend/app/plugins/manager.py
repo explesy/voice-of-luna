@@ -84,6 +84,9 @@ class PluginManager:
                 metadata={"ok": False, "error": "unknown_tool"},
             )
         granted = set(ctx.metadata.get("permissions", ()))
+        checker = ctx.metadata.get("permission_checker")
+        if tool.required_permission and callable(checker) and checker(tool.required_permission):
+            granted.add(tool.required_permission)
         if tool.required_permission and tool.required_permission not in granted:
             return ToolResult(
                 content_items=[
@@ -101,7 +104,8 @@ class PluginManager:
                 storage=ctx.storage,
                 github=ctx.github,
             )
-            return await asyncio.wait_for(plugin.call_tool(tool.name, arguments, call_ctx), timeout)
+            result = await asyncio.wait_for(plugin.call_tool(tool.name, arguments, call_ctx), timeout)
+            return self._bound_result(result)
         except asyncio.TimeoutError:
             logger.warning("Plugin %s tool %s timed out after %.1fs", plugin_id, name, timeout)
             return ToolResult(
@@ -114,6 +118,20 @@ class PluginManager:
                 content_items=[{"type": "text", "text": "Tool failed safely."}],
                 metadata={"ok": False, "error": "tool_failed"},
             )
+
+    @staticmethod
+    def _bound_result(result: ToolResult) -> ToolResult:
+        items = []
+        budget = 16_000
+        for item in result.content_items[:8]:
+            bounded = dict(item)
+            if isinstance(bounded.get("text"), str):
+                bounded["text"] = bounded["text"][: min(8_000, budget)]
+                budget -= len(bounded["text"])
+            items.append(bounded)
+            if budget <= 0:
+                break
+        return ToolResult(content_items=items, metadata=result.metadata)
 
     def get_stt_language(self, plugin_id: str) -> str | None:
         plugin = self.get(plugin_id)

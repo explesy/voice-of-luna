@@ -36,7 +36,8 @@ function getVadTrace() {
 }
 
 function downloadVadTrace() {
-  const blob = new Blob([JSON.stringify({ version: 1, traces: getVadTrace() }, null, 2)], { type: "application/json" });
+  const samples = getVadTrace();
+  const blob = new Blob([JSON.stringify({ version: "vad-trace-v1", session_id: crypto.randomUUID(), parameters: { threshold: window.VAD_VOLUME_THRESHOLD, silence_timeout_ms: window.VAD_SILENCE_TIMEOUT_MS, min_speech_ms: window.VAD_MIN_SPEECH_DURATION_MS }, traces: [{ id: "session", samples }] }, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

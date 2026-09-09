@@ -28,11 +28,13 @@
             </svg>
 
             <!-- Centered HUD State Tag -->
-            <div class="radar-center-glyph">
+            <div class="radar-center-glyph" aria-live="polite">
               <span class="glyph-idle">● READY</span>
-              <span class="glyph-listening">● REC</span>
-              <span class="glyph-thinking">◌ WAIT</span>
-              <span class="glyph-speaking">▲ TALK</span>
+              <span class="glyph-listening">● LISTENING</span>
+              <span class="glyph-transcribing">◌ TRANSCRIBING</span>
+              <span class="glyph-thinking">◌ THINKING</span>
+              <span class="glyph-speaking">▲ SPEAKING</span>
+              <span class="glyph-error">! ERROR</span>
             </div>
           </button>
         </div>
@@ -45,7 +47,7 @@
               <span class="latency-pill" data-latency-hud>⚡ <span data-latency-val>--</span></span>
             </span>
           </div>
-          <p class="telemetry-desc" data-voice-status>Press [Space] or click radar to speak</p>
+          <p class="telemetry-desc" data-voice-status>SPACE · TALK</p>
         </div>
 
         {% if error %}
@@ -81,11 +83,13 @@
             </select>
           </div>
           <div class="sys-chip project-root-chip" title="Локальный каталог Project Room">
-            <label for="project-root-input" class="session-plugin-label">ROOT:</label>
+            <label for="project-root-input" class="session-plugin-label">WORKSPACE:</label>
             <input id="project-root-input" class="voice-input project-root-input" type="text"
-                   value="{{ conversation.project_root or '' }}" placeholder="/path/to/project"
+                   value="{{ conversation.project_root or '' }}" placeholder="Select workspace…"
                    aria-label="Локальный корень проекта">
+            <button id="project-root-apply" type="button" class="sys-chip-button">APPLY</button>
           </div>
+          <div id="tool-approval-dialog" class="tool-approval-dialog" hidden></div>
           {% set current_p = none %}
           {% for p in plugins %}
             {% if p.id == active_plugin %}
@@ -119,8 +123,9 @@
       <div class="console-feed" id="messages-feed">
         {% if conversation.turns|length == 0 %}
         <div class="empty-console">
-          <p class="console-line">// session ready. no dialogue turns yet.</p>
-          <p class="console-line">// press spacebar to speak or enter text below.</p>
+          <p class="console-line empty-title">LÚNA READY</p>
+          <p class="console-line">SPACE · TALK</p>
+          <p class="console-line">or type below</p>
         </div>
         {% endif %}
 
@@ -134,6 +139,7 @@
             {% if message.audio_url %}
             <div class="log-audio">
               <audio class="reply-audio" data-server-audio controls preload="none" src="{{ message.audio_url }}">Browser cannot play local audio.</audio>
+              <button type="button" class="btn-inline-replay" data-replay title="Replay this response">↻ REPLAY</button>
             </div>
             {% endif %}
           </div>
@@ -144,29 +150,18 @@
       <!-- Command Prompt Dock -->
       <div class="prompt-dock">
         <form class="cmd-form" hx-post="/conversations/{{ conversation.id }}/turns" hx-target="#conversation" hx-swap="innerHTML" hx-disabled-elt="find button">
-          <!-- Record button -->
-          <button type="button" class="btn-cmd btn-record" data-record data-audio-url="/conversations/{{ conversation.id }}/audio" title="Record (Space)">
-            <span class="rec-led"></span>
-            <span class="rec-text">REC</span>
-          </button>
-
           <!-- Stop speaking -->
-          <button type="button" class="btn-cmd stop-speaking" data-stop-speaking title="Stop speaking (Esc)">
+          <button type="button" class="btn-cmd stop-speaking" data-stop-speaking title="Stop speaking (Esc)" hidden>
             <span>STOP</span>
-          </button>
-
-          <!-- Replay -->
-          <button type="button" class="btn-cmd" data-replay title="Replay response">
-            <span>REPLAY</span>
           </button>
 
           <!-- Command input line -->
           <div class="cmd-input-field">
             <span class="prompt-carat">></span>
             <label for="message" class="sr-only">Command Input</label>
-            <input type="text" id="message" name="text" maxlength="8000" placeholder="Type prompt or command... (Enter)" required autocomplete="off" />
+            <input type="text" id="message" name="text" maxlength="8000" placeholder="Ask Lúna… (Enter)" required autocomplete="off" />
             <button type="submit" class="btn-exec" title="Send (Enter)">
-              EXEC ↵
+              SEND ↵
             </button>
           </div>
         </form>

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import fnmatch
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +25,7 @@ class ProjectRoomPlugin(Plugin):
         return [
             ToolSpec(
                 "memory", "search", "Search persistent project memory.",
-                {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+                {"type": "object", "properties": {"query": {"type": "string"}, "max_matches": {"type": "integer", "maximum": 40}}, "required": ["query"]},
                 "storage.read",
             ),
             ToolSpec(
@@ -46,7 +48,7 @@ class ProjectRoomPlugin(Plugin):
             ),
             ToolSpec(
                 "repo", "read", "Read a UTF-8 text file from the selected project.",
-                {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+                {"type": "object", "properties": {"path": {"type": "string"}, "start_line": {"type": "integer"}, "max_lines": {"type": "integer", "maximum": 200}}, "required": ["path"]},
                 "repo.read",
             ),
             ToolSpec(
@@ -66,14 +68,15 @@ class ProjectRoomPlugin(Plugin):
         if qualified == "memory.search":
             if ctx.storage is None:
                 raise RuntimeError("Plugin storage is unavailable")
-            rows = await ctx.storage.search(self.id, str(arguments.get("query", "")))
+            scope = str(ctx.metadata.get("project_scope", "plugin"))
+            rows = await ctx.storage.search(self.id, str(arguments.get("query", "")), scope=scope)
             return ToolResult(content_items=[_text(rows or "No matching project memory found.")])
         if qualified == "memory.remember":
             if ctx.storage is None:
                 raise RuntimeError("Plugin storage is unavailable")
             doc_id = await ctx.storage.remember(
                 self.id,
-                "plugin",
+                str(ctx.metadata.get("project_scope", "plugin")),
                 str(arguments.get("text", "")),
                 str(arguments.get("kind", "note")),
                 arguments.get("tags") if isinstance(arguments.get("tags"), list) else [],
@@ -86,22 +89,26 @@ class ProjectRoomPlugin(Plugin):
                 raise ValueError("Path is outside the selected project")
             if not path.is_file() or path.stat().st_size > 512_000:
                 raise ValueError("File is missing or too large")
-            return ToolResult(content_items=[_text(path.read_text(encoding="utf-8"))])
+            start_line = max(1, int(arguments.get("start_line", 1)))
+            max_lines = min(200, max(1, int(arguments.get("max_lines", 120))))
+            lines = path.read_text(encoding="utf-8").splitlines()
+            return ToolResult(content_items=[_text("\n".join(lines[start_line - 1:start_line - 1 + max_lines]))])
         if qualified == "repo.search":
             query = str(arguments.get("query", "")).strip()
             if not query:
                 return ToolResult(content_items=[_text("Search query is empty")])
-            matches = await asyncio.to_thread(self._search_repo, root, query)
+            matches = await asyncio.to_thread(self._search_repo, root, query, min(40, max(1, int(arguments.get("max_matches", 20)))))
             return ToolResult(content_items=[_text("\n".join(matches) or "No repository matches found.")])
         if qualified == "github.issues":
             if ctx.github is None:
                 raise RuntimeError("GitHub gateway is unavailable")
-            issues = await ctx.github.issues(str(arguments.get("state", "open")))
-            return ToolResult(content_items=[_text(issues)])
+            issues = await ctx.github.issues(str(arguments.get("state", "open")), ctx.metadata.get("github_repository"))
+            summary = [{"number": item.get("number"), "title": str(item.get("title", ""))[:200], "state": item.get("state"), "url": item.get("html_url")} for item in issues[:10]]
+            return ToolResult(content_items=[_text(summary)])
         if qualified == "github.create_issue":
             if ctx.github is None:
                 raise RuntimeError("GitHub gateway is unavailable")
-            issue = await ctx.github.create_issue(str(arguments.get("title", "")), str(arguments.get("body", "")))
+            issue = await ctx.github.create_issue(str(arguments.get("title", "")), str(arguments.get("body", "")), ctx.metadata.get("github_repository"))
             return ToolResult(content_items=[_text({"number": issue.get("number"), "url": issue.get("html_url")})])
         raise ValueError(f"Unknown Project Room tool: {name}")
 
@@ -122,16 +129,16 @@ class ProjectRoomPlugin(Plugin):
             candidate.relative_to(root)
         except ValueError:
             return None
-        if any(part in {".env", ".git"} for part in candidate.relative_to(root).parts):
+        if not cls_is_allowed_project_file(root, candidate):
             return None
         return candidate
 
     @classmethod
-    def _search_repo(cls, root: Path, query: str) -> list[str]:
+    def _search_repo(cls, root: Path, query: str, max_matches: int = 20) -> list[str]:
         results: list[str] = []
-        ignored = {".git", "node_modules", ".venv", "__pycache__", "data"}
+        ignored = {".git", "node_modules", ".venv", "__pycache__", "data", ".aws", ".ssh", ".gnupg"}
         for path in root.rglob("*"):
-            if len(results) >= 40 or not path.is_file() or any(part in ignored for part in path.parts):
+            if len(results) >= max_matches or not path.is_file() or any(part in ignored for part in path.relative_to(root).parts) or not cls_is_allowed_project_file(root, path):
                 continue
             try:
                 if path.stat().st_size > 512_000:
@@ -139,8 +146,32 @@ class ProjectRoomPlugin(Plugin):
                 for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                     if query.casefold() in line.casefold():
                         results.append(f"{path.relative_to(root)}:{line_no}: {line[:300]}")
-                        if len(results) >= 40:
+                        if len(results) >= max_matches:
                             break
             except (OSError, UnicodeDecodeError):
                 continue
         return results
+
+
+def cls_is_allowed_project_file(root: Path, candidate: Path) -> bool:
+    """Default-deny local credentials and ignored files before model access."""
+    try:
+        rel = candidate.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    parts = rel.parts
+    if any(part in {".git", ".aws", ".ssh", ".gnupg", "node_modules", ".venv", "__pycache__", "data"} for part in parts):
+        return False
+    name = candidate.name.lower()
+    blocked = {".npmrc", ".netrc", "credentials.json", "credentials.yml", "secrets.json"}
+    if name in blocked or name.startswith(".env") or any(fnmatch.fnmatch(name, pattern) for pattern in ("*.pem", "*.key", "*.p12", "*.pfx", "*credentials*", "*secret*")):
+        return False
+    if candidate.is_symlink() or not candidate.is_file():
+        return False
+    try:
+        ignored = subprocess.run(["git", "check-ignore", "-q", "--", str(candidate)], cwd=root, capture_output=True, check=False)
+        if ignored.returncode == 0:
+            return False
+    except OSError:
+        pass
+    return True

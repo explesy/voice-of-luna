@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-09-09
+
+### Changed
+- Unified voice interaction around the radar and keyboard shortcut with explicit ready, listening, transcribing, thinking, speaking, and error states.
+- Made replay contextual to each assistant response, hid the stop control until speech is active, and simplified the text composer for conversational use.
+- Scoped workspace context visibility to the Project Room plugin and refreshed the empty-session guidance.
+
+## [0.25.0] - 2026-09-09
+
+### Added
+- Added project-scoped Project Room memory and Git repository context resolution.
+- Added default-deny repository file access for credentials, ignored files, and secret paths.
+- Added exact pending tool-call approval for external writes with argument-hash verification.
+- Added bounded repository, memory, and GitHub tool results.
+- Added direct browser VAD trace export compatibility with the experiment harness and explicit ROOT apply control.
+
+### Changed
+- Dynamic tool instructions now allow only active plugin host tools and reject capability expansion from untrusted content.
+
 ## [0.24.2] - 2026-09-08
 
 ### Documentation

@@ -643,6 +643,15 @@ body::after {
 .state-thinking .glyph-idle { display: none; }
 .state-thinking .glyph-thinking { display: block; color: var(--term-amber); }
 
+/* State: Transcribing */
+.state-transcribing .radar-sweep {
+  stroke: var(--term-amber);
+  animation: radarSpin 1.8s linear infinite;
+}
+.state-transcribing .radar-core { stroke: var(--term-amber); }
+.state-transcribing .glyph-idle { display: none; }
+.state-transcribing .glyph-transcribing { display: block; color: var(--term-amber); }
+
 /* State: Speaking */
 .state-speaking .radar-sweep {
   stroke: var(--term-green);
@@ -662,6 +671,12 @@ body::after {
 
 .state-speaking .glyph-idle { display: none; }
 .state-speaking .glyph-speaking { display: block; color: var(--term-green); }
+
+/* State: Error */
+.state-error .radar-sweep { stroke: var(--term-red); opacity: 0.9; animation: none; }
+.state-error .radar-core { stroke: var(--term-red); }
+.state-error .glyph-idle { display: none; }
+.state-error .glyph-error { display: block; color: var(--term-red); }
 
 /* Telemetry Bar */
 .telemetry-bar {
@@ -872,6 +887,20 @@ body::after {
   width: 100%;
   max-width: 320px;
 }
+
+.btn-inline-replay {
+  margin-left: 6px;
+  padding: 3px 6px;
+  border: 1px solid var(--term-border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.btn-inline-replay:hover,
+.btn-inline-replay:focus-visible { color: var(--term-cyan); border-color: var(--term-cyan); }
 
 /* ==================== Command Prompt Dock ==================== */
 .prompt-dock {

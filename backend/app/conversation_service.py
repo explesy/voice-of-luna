@@ -23,7 +23,10 @@ from uuid import uuid4
 from app.codex import CodexAppServer, get_base_instructions
 from app.plugin_storage import PluginStorage
 from app.github_gateway import GitHubGateway
+from app.project_context import ProjectContext, resolve_project_context
 import os
+import hashlib
+import json
 
 CONVERSATION_IDLE_TTL_SECONDS = int(os.environ.get("VOICE_OF_LUNA_CONVERSATION_IDLE_TTL_SECONDS", "900"))
 CONVERSATION_REAPER_INTERVAL_SECONDS = 60
@@ -41,6 +44,40 @@ from app.speech_pipeline import (
 
 logger = logging.getLogger("voice_of_luna")
 _tool_approvals: dict[tuple[str, str], float] = {}
+_pending_tool_approvals: dict[str, dict[str, Any]] = {}
+
+
+def tool_args_hash(tool_name: str, arguments: dict[str, Any]) -> str:
+    payload = json.dumps({"tool": tool_name, "arguments": arguments}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+async def wait_for_tool_approval(conversation_id: str, tool_name: str, arguments: dict[str, Any], target: str | None = None) -> bool:
+    request_id = str(uuid4())
+    event = asyncio.Event()
+    record = {"id": request_id, "conversation_id": conversation_id, "tool": tool_name, "target": target, "arguments": arguments, "args_hash": tool_args_hash(tool_name, arguments), "event": event, "approved": False, "expires_at": time.monotonic() + 60}
+    _pending_tool_approvals[request_id] = record
+    try:
+        await asyncio.wait_for(event.wait(), timeout=60)
+        return bool(record["approved"])
+    except asyncio.TimeoutError:
+        return False
+    finally:
+        _pending_tool_approvals.pop(request_id, None)
+
+
+def pending_tool_approvals(conversation_id: str) -> list[dict[str, Any]]:
+    now = time.monotonic()
+    return [{k: v for k, v in item.items() if k not in {"event", "arguments"}} | {"arguments": item["arguments"], "expires_in_seconds": max(0, int(item["expires_at"] - now))} for item in _pending_tool_approvals.values() if item["conversation_id"] == conversation_id and item["expires_at"] > now]
+
+
+def approve_pending_tool(request_id: str, args_hash: str) -> bool:
+    item = _pending_tool_approvals.get(request_id)
+    if not item or item["args_hash"] != args_hash or item["expires_at"] <= time.monotonic():
+        return False
+    item["approved"] = True
+    item["event"].set()
+    return True
 
 
 def approve_tool_permission(conversation_id: str, permission: str, ttl: float = 60.0) -> None:
@@ -167,6 +204,7 @@ class Conversation:
     thread_generation: int = 0
     binary_audio: bool = False
     project_root: Path | None = field(default_factory=_configured_project_root)
+    project_context: ProjectContext | None = None
 
     def set_selected_voice(self, voice: str) -> None:
         """Persist the user's voice choice while keeping legacy ``voice`` callers in sync."""
@@ -361,6 +399,12 @@ class ConversationService:
     async def apply_plugin(
         self, conversation: Conversation, plugin_id: str, mode: str = "default"
     ) -> None:
+        if conversation.project_context is None and conversation.project_root is not None:
+            try:
+                conversation.project_context = resolve_project_context(conversation.project_root)
+                conversation.project_root = conversation.project_context.root
+            except ValueError:
+                conversation.project_root = None
         if conversation.plugin_id != plugin_id:
             conversation.plugin_id = plugin_id
             conversation.plugin_mode = mode
@@ -375,6 +419,11 @@ class ConversationService:
                 arguments = params.get("arguments", {})
                 if not isinstance(arguments, dict):
                     raise ValueError("Tool arguments must be an object")
+                tool_spec = next((tool for tool in plugin_manager.get_tools(selected_plugin) if tool.qualified_name == tool_name or tool.name == tool_name), None)
+                if tool_spec and tool_spec.required_permission == "external.write":
+                    if not await wait_for_tool_approval(conversation.id, tool_spec.qualified_name, arguments, conversation.project_context.github_repository if conversation.project_context else None):
+                        return {"contentItems": [{"type": "text", "text": "External action was not approved."}]}
+                granted_permissions = ("storage.read", "storage.write", "repo.read", "network.read", "external.write") if tool_spec and tool_spec.required_permission == "external.write" else ("storage.read", "storage.write", "repo.read", "network.read")
                 result = await plugin_manager.call_tool(
                     selected_plugin,
                     tool_name,
@@ -384,14 +433,14 @@ class ConversationService:
                         plugin_id=selected_plugin,
                         active_mode=conversation.plugin_mode,
                         metadata={
-                            "project_root": str(conversation.project_root)
-                            if conversation.project_root
-                            else None,
-                            "permissions": (
-                                ("storage.read", "storage.write", "repo.read", "network.read", "external.write")
-                                if consume_tool_permission(conversation.id, "external.write")
-                                else ("storage.read", "storage.write", "repo.read", "network.read")
-                            ),
+                            "project_root": str(conversation.project_context.root)
+                            if conversation.project_context else None,
+                            "project_scope": conversation.project_context.scope
+                            if conversation.project_context else "plugin",
+                            "github_repository": conversation.project_context.github_repository
+                            if conversation.project_context else None,
+                            "permissions": granted_permissions,
+                            "permission_checker": lambda permission: consume_tool_permission(conversation.id, permission),
                         },
                         storage=plugin_storage,
                         github=github_gateway,

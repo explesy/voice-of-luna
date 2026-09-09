@@ -101,7 +101,7 @@ class PluginStorage:
 
         return await asyncio.to_thread(write)
 
-    async def search(self, plugin_id: str, query: str, limit: int = 8) -> list[dict[str, Any]]:
+    async def search(self, plugin_id: str, query: str, limit: int = 8, scope: str | None = None) -> list[dict[str, Any]]:
         query = query.strip()
         if not query:
             return []
@@ -111,13 +111,18 @@ class PluginStorage:
             with self._connect() as db:
                 # FTS syntax is intentionally constrained to plain terms.
                 terms = " ".join(f'"{part.replace(chr(34), "")}"' for part in query.split()[:12])
+                scope_clause = " AND d.scope=?" if scope else ""
+                params: tuple[Any, ...] = (plugin_id, terms)
+                if scope:
+                    params += (scope,)
+                params += (safe_limit,)
                 rows = db.execute(
-                    """SELECT d.id, d.scope, d.kind, d.text, d.tags, d.created_at
+                    f"""SELECT d.id, d.scope, d.kind, substr(d.text, 1, 2000) AS text, d.tags, d.created_at
                        FROM plugin_documents_fts f
                        JOIN plugin_documents d ON d.id=f.rowid
-                       WHERE d.plugin_id=? AND plugin_documents_fts MATCH ?
+                       WHERE d.plugin_id=? AND plugin_documents_fts MATCH ?{scope_clause}
                        ORDER BY rank LIMIT ?""",
-                    (plugin_id, terms, safe_limit),
+                    params,
                 ).fetchall()
                 return [dict(row) for row in rows]
 

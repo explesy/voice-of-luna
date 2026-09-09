@@ -171,6 +171,8 @@ function stopAudioAnalyser() {
 
 // UI State Management
 function setVoiceState(state, statusMessage, modeLabel) {
+  const stateMap = { ready: "idle", idle: "idle", listening: "listening", transcribing: "transcribing", thinking: "thinking", speaking: "speaking", error: "error" };
+  const uiState = stateMap[state] || "error";
   const stage = document.querySelector(".radar-stage");
   const modePill = document.querySelector("[data-mode-pill]");
   const statusEl = document.querySelector("[data-voice-status]");
@@ -178,8 +180,8 @@ function setVoiceState(state, statusMessage, modeLabel) {
   const stopBtns = document.querySelectorAll("[data-stop-speaking]");
 
   if (stage) {
-    stage.classList.remove("state-idle", "state-listening", "state-thinking", "state-speaking");
-    stage.classList.add(`state-${state}`);
+    stage.classList.remove("state-idle", "state-listening", "state-transcribing", "state-thinking", "state-speaking", "state-error");
+    stage.classList.add(`state-${uiState}`);
   }
 
   if (modePill && modeLabel) {
@@ -214,10 +216,12 @@ function setVoiceState(state, statusMessage, modeLabel) {
 
   // Highlight Stop Speaking Button
   stopBtns.forEach((btn) => {
-    if (state === "speaking") {
+    if (uiState === "speaking") {
       btn.classList.add("is-active");
+      btn.hidden = false;
     } else {
       btn.classList.remove("is-active");
+      btn.hidden = true;
     }
   });
 }
@@ -686,7 +690,7 @@ function handleSocketMessage(event) {
     updateTurnsCount();
   } else if (data.type === "error") {
     showToast(`// error: ${data.message}`);
-    setVoiceState("idle", data.message, "ERR // SERVER");
+    setVoiceState("error", data.message, "ERR // SERVER");
   }
 }
 
@@ -762,10 +766,10 @@ function speakLatestResponse() {
   window.speechSynthesis.speak(utterance);
 }
 
-async function replayLatestResponse() {
+async function replayLatestResponse(targetEntry = null) {
   stopSpeaking();
   const responses = document.querySelectorAll("[data-spoken-response]");
-  const latest = responses[responses.length - 1];
+  const latest = targetEntry || responses[responses.length - 1];
   if (!latest) {
     showToast("// buffer empty. no response to replay");
     return;
@@ -1049,9 +1053,10 @@ document.addEventListener("click", (event) => {
     return;
   }
 
-  // Replay Last Response
-  if (event.target.closest("[data-replay]")) {
-    replayLatestResponse();
+  // Replay the response whose control was activated.
+  const replayTrigger = event.target.closest("[data-replay]");
+  if (replayTrigger) {
+    replayLatestResponse(replayTrigger.closest("[data-spoken-response]"));
     return;
   }
 
@@ -1622,6 +1627,13 @@ function initPluginSelector() {
   if (pluginSelectors.length === 0) return;
 
   const pluginsData = window._PLUGINS || [];
+  const projectRootChip = document.querySelector(".project-root-chip");
+  const updateProjectRootVisibility = (pluginId) => {
+    if (!projectRootChip) return;
+    const hidden = pluginId !== "project_room";
+    projectRootChip.hidden = hidden;
+    projectRootChip.setAttribute("aria-hidden", String(hidden));
+  };
 
   function updateModeOptions(pluginId, selectedMode) {
     if (!modeSelect) return;
@@ -1667,6 +1679,7 @@ function initPluginSelector() {
         localStorage.setItem("voice_of_luna_plugin", chosenPlugin);
         document.cookie = `voice_of_luna_plugin=${encodeURIComponent(chosenPlugin)}; path=/; max-age=31536000; SameSite=Lax`;
         updateModeOptions(chosenPlugin, "default");
+        updateProjectRootVisibility(chosenPlugin);
         const chosenMode = modeSelect ? modeSelect.value : "default";
         localStorage.setItem("voice_of_luna_plugin_mode", chosenMode);
         document.cookie = `voice_of_luna_plugin_mode=${encodeURIComponent(chosenMode)}; path=/; max-age=31536000; SameSite=Lax`;
@@ -1678,6 +1691,7 @@ function initPluginSelector() {
   });
 
   updateModeOptions(pluginSelectors[0].value, savedMode);
+  updateProjectRootVisibility(pluginSelectors[0].value);
 
   if (modeSelect && !modeSelect.dataset.initialized) {
     modeSelect.dataset.initialized = "true";
@@ -1720,6 +1734,34 @@ function sendPluginUpdate(pluginId, mode = "default") {
       .catch((err) => console.warn("// plugin sync error:", err));
   }
 }
+
+function initProjectRootApply() {
+  const input = document.querySelector("#project-root-input");
+  const button = document.querySelector("#project-root-apply");
+  if (!input || !button || button.dataset.initialized) return;
+  button.dataset.initialized = "true";
+  button.addEventListener("click", () => {
+    const selector = document.querySelector("#session-plugin-select, #plugin-select, .plugin-select");
+    sendPluginUpdate(selector?.value || "project_room", document.querySelector("#mode-select")?.value || "default");
+  });
+}
+
+async function pollToolApprovals() {
+  const convId = document.querySelector("[data-conversation-id]")?.dataset?.conversationId;
+  const dialog = document.querySelector("#tool-approval-dialog");
+  if (!convId || !dialog) return;
+  const response = await fetch(`/api/conversations/${convId}/tool-approval`).catch(() => null);
+  const data = response?.ok ? await response.json() : null;
+  const request = data?.requests?.[0];
+  if (!request) { dialog.hidden = true; return; }
+  dialog.hidden = false;
+  dialog.textContent = `Разрешить ${request.tool} в ${request.target || "выбранном проекте"}? `;
+  const approve = document.createElement("button"); approve.textContent = "APPROVE";
+  approve.onclick = async () => { await fetch(`/api/conversations/${convId}/tool-approval`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({request_id: request.id, args_hash: request.args_hash})}); pollToolApprovals(); };
+  dialog.appendChild(approve);
+}
+window.initProjectRootApply = initProjectRootApply;
+window.pollToolApprovals = pollToolApprovals;
 
 function sendLocaleUpdate(locale) {
   if (socket && socket.readyState === WebSocket.OPEN) {
@@ -1777,6 +1819,9 @@ document.addEventListener("DOMContentLoaded", () => {
   initVoiceSelector();
   initSettingsSelectors();
   initPluginSelector();
+  initProjectRootApply();
+  pollToolApprovals();
+  window.setInterval(pollToolApprovals, 1000);
   initVadToggle();
   initRemoteWarmupToggle();
   document.querySelectorAll(".log-text").forEach((el) => {
