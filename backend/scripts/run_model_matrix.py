@@ -80,6 +80,8 @@ async def run_tts_benchmarks(runs: int, include_edge: bool) -> list[TTSBenchmark
         ("piper", "Dmitri (Piper Neural · Offline)"),
         ("piper", "Irina (Piper Neural · Offline)"),
         ("silero", "Ksenia (Silero Neural · Offline)"),
+        ("silero", "Baya (Silero Neural · Offline)"),
+        ("silero", "Aidar (Silero Neural · Offline)"),
         ("silero", "Eugene (Silero Neural · Offline)"),
         ("macos", "Milena"),
     ]

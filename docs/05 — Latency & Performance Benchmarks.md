@@ -81,6 +81,44 @@ observation in seven runs). This is evidence for continued measurement, not a
 basis for automatic voice selection. The local results keep the focus on
 Codex TTFT and turn coordination rather than premature local TTS optimization.
 
+### Current full local TTS matrix — 2026-09-09
+
+This repeat used the current checkout, seven measured warm repetitions after
+one excluded warm-up call, and explicitly opted in to Edge. It verified every
+supported voice and recorded only timing and the requested/actual engine — no
+generated audio is retained. `p95` is nearest-rank and therefore the maximum
+of seven samples; it is a spread indicator, not a stable tail percentile.
+
+| Voice | Requested / actual engine | First chunk median / p95 | Full sentence median / p95 | Status |
+|---|---|---:|---:|---|
+| Dmitri | Piper / Piper | 418.2 / 1378.5 ms | 1432.1 / 1610.3 ms | PASS |
+| Irina | Piper / Piper | 730.0 / 825.3 ms | 1528.9 / 1881.5 ms | PASS |
+| Ksenia | Silero / Silero | 331.5 / 3540.0 ms | 1157.8 / 1480.6 ms | PASS |
+| Baya | Silero / Silero | 713.3 / 1102.0 ms | 1001.6 / 1219.8 ms | PASS |
+| Aidar | Silero / Silero | 479.8 / 707.9 ms | 897.0 / 908.9 ms | PASS |
+| Eugene | Silero / Silero | 833.6 / 1450.8 ms | 861.3 / 1062.5 ms | PASS |
+| Milena | macOS say / macOS say | 2107.1 / 3383.0 ms | 2020.0 / 3608.7 ms | PASS |
+| Svetlana | Edge / Edge | 770.1 / 1063.1 ms | 769.6 / 831.7 ms | PASS |
+
+All eight requested voice configurations were actually used, so no fallback result is being
+attributed to a different voice. Compared with the full 2026-09-08 snapshot,
+the current medians are lower for every listed voice, but this is **not** a
+causal performance claim: the runs use different Python/runtime revisions and
+uncontrolled machine and network state. The local-only earlier run on the same
+date also differs for several voices, which confirms that seven samples are
+too few to rank defaults. Ksenia continues to have a roughly one-second
+first-chunk tail despite a low median; Edge has lower observed tails than the
+previous snapshot but remains network-dependent.
+
+Baya and Aidar were added to this run after the earlier snapshot had omitted
+them. Baya shows the same kind of single long first-chunk tail as Ksenia;
+Aidar stayed within a narrower first-chunk spread in the focused check. Both
+are valid Silero results, but the sample is too small to make a default-voice
+decision. The focused Baya/Aidar run under lighter load measured Baya at
+33.3/70.3 ms and Aidar at 29.7/74.2 ms (first chunk/full sentence medians);
+the difference from this full-matrix run is runtime variance, not a change in
+voice implementation.
+
 STT has no valid built-in synthetic fixture. Supplying silence would measure
 silence handling rather than recognition. Use a licensed, known-speech 16 kHz
 mono WAV when running an operator experiment:
@@ -133,6 +171,31 @@ Every warm observation was faster in this snapshot. That supports measuring
 thread warm-up separately, but it does not establish a cross-model ranking:
 remote queue state, account load, generation length, and network conditions
 remain uncontrolled.
+
+### Current live Codex matrix — 2026-09-09
+
+The local runtime was queried with `model/list` immediately before testing.
+It returned five models: GPT-6-Astra, GPT-5.6-Sol, GPT-5.6-Terra,
+GPT-5.6-Luna, and GPT-5.5. GPT-5.4 and GPT-5.4 Mini were absent, so they were
+not retried or represented as failures. Each current model received one fixed
+short Russian prompt at `reasoning_effort="low"`: `cold` is a new ephemeral
+thread and `warm` is the immediately following turn on that same thread.
+Each row is one observation per state and consumes two Codex turns.
+
+| Model | Cold TTFT / total | Warm TTFT / total | Stream chunks | Status |
+|---|---:|---:|---:|---|
+| GPT-6-Astra | 6304.0 / 6603.1 ms | 4958.5 / 6392.1 ms | 6 / 6 | PASS |
+| GPT-5.6-Sol | 6123.6 / 6341.8 ms | 2978.0 / 3553.9 ms | 6 / 6 | PASS |
+| GPT-5.6-Terra | 5553.8 / 5755.9 ms | 2760.6 / 3048.7 ms | 6 / 6 | PASS |
+| GPT-5.6-Luna | 4108.8 / 4291.6 ms | 2325.3 / 2525.2 ms | 6 / 6 | PASS |
+| GPT-5.5 | 5396.0 / 6292.6 ms | 3647.2 / 3855.2 ms | 6 / 6 | PASS |
+
+All current models streamed non-empty responses in both states, and every
+warm observation was faster. Relative to 2026-09-08, the model set changed
+only by removal of GPT-5.4 Mini. The most visible timing changes are not
+uniform: Luna's cold/warm TTFT improved, Astra's warm TTFT increased, and
+Sol/Terra/5.5 remain in the same broad range. This supports keeping warmup
+optional and measured, not selecting a permanent winner from one sample.
 
 ## Historical numbers
 

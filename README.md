@@ -133,16 +133,19 @@ single machine's snapshot as an SLA or a universal model ranking.
 
 These are point-in-time results, not a product guarantee. TTS rows are seven
 warm samples after an excluded warm-up; all requested engines were actually
-used (no fallback). The range is min–max.
+used (no fallback). The p95 is the largest of seven observations, so it shows
+spread rather than a stable tail percentile.
 
 | Voice | Engine | First chunk, median | Full sentence, median | Range across both measurements |
 |---|---|---:|---:|---:|
-| Eugene | Silero | **80.2 ms** | **237.1 ms** | 67.3–255.6 ms |
-| Ksenia | Silero | 154.1 ms | 272.4 ms | 105.0–1800.4 ms |
-| Dmitri | Piper | 402.2 ms | 908.2 ms | 240.2–958.2 ms |
-| Irina | Piper | 471.7 ms | 1213.6 ms | 413.7–1280.2 ms |
-| Milena | macOS say | 1356.7 ms | 1396.4 ms | 1309.1–1452.1 ms |
-| Svetlana | Edge | 975.1 ms | 889.7 ms | 701.5–3813.9 ms |
+| Eugene | Silero | **833.6 ms** | **861.3 ms** | 363.6–1450.8 ms |
+| Ksenia | Silero | 331.5 ms | 1157.8 ms | 278.4–3540.0 ms |
+| Baya | Silero | 713.3 ms | 1001.6 ms | 457.1–1219.8 ms |
+| Aidar | Silero | 479.8 ms | 897.0 ms | 397.5–908.9 ms |
+| Dmitri | Piper | 418.2 ms | 1432.1 ms | 342.0–1610.3 ms |
+| Irina | Piper | 730.0 ms | 1528.9 ms | 542.4–1881.5 ms |
+| Milena | macOS say | 2107.1 ms | 2020.0 ms | 934.7–3608.7 ms |
+| Svetlana | Edge | 770.1 ms | 769.6 ms | 605.9–1063.1 ms |
 
 STT was also checked with a private real Russian speech recording: transcription
 returned non-empty speech in **864 ms**. The audio and transcript are not
@@ -155,15 +158,16 @@ milliseconds.
 
 | Model | Cold | Warm |
 |---|---:|---:|
-| GPT-5.4-Mini | 6098 / 6391 | 4801 / 5097 |
-| GPT-5.6-Sol | 6495 / 6835 | 3854 / 4187 |
-| GPT-5.6-Terra | 5552 / 5706 | **2132 / 2549** |
-| GPT-5.6-Luna | 6479 / 6708 | 3968 / 4726 |
-| GPT-5.5 | 5404 / 5447 | 3660 / 3664 |
-| GPT-6-Astra | 6463 / 6845 | 3786 / 4144 |
+| GPT-6-Astra | 6304.0 / 6603.1 | 4958.5 / 6392.1 |
+| GPT-5.6-Sol | 6123.6 / 6341.8 | 2978.0 / 3553.9 |
+| GPT-5.6-Terra | 5553.8 / 5755.9 | 2760.6 / 3048.7 |
+| GPT-5.6-Luna | 4108.8 / 4291.6 | **2325.3 / 2525.2** |
+| GPT-5.5 | 5396.0 / 6292.6 | 3647.2 / 3855.2 |
 
-Every warm observation was faster in this run. This supports optional warmup,
-but not a fixed latency promise or a permanent model ranking. See the
+The live picker returned these five models; GPT-5.4 and GPT-5.4 Mini are no
+longer available in this Codex session and are retained only in historical
+documentation. Every warm observation was faster in this run. This supports
+optional warmup, but not a fixed latency promise or a permanent model ranking. See the
 [full methodology and limits](docs/05%20%E2%80%94%20Latency%20&%20Performance%20Benchmarks.md)
 before making a configuration decision.
 
@@ -264,7 +268,7 @@ Voice of Lúna works out of the box with zero configuration, but can be customiz
 
 ## 🧪 Testing & Verification
 
-The comprehensive Python test suite currently collects 223 unit and integration tests. It runs offline with mocked model calls — running tests will **never consume your Codex quota**:
+The comprehensive Python test suite currently collects 234 unit and integration tests. It runs offline with mocked model calls — running tests will **never consume your Codex quota**:
  
 ```bash
 make test

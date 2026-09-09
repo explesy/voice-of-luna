@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.4] - 2026-09-09
+
+### Added
+- В полную локальную TTS-матрицу добавлены голоса Baya и Aidar (Silero) с отдельными результатами и ограничениями выбросов.
+
+### Changed
+- Полностью повторена матрица TTS и live Codex после прекращения доступности GPT-5.4; обновлены README и канонический benchmark.
+
 ## [0.29.3] - 2026-09-09
 
 ### Fixed
