@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..plugin_storage import PluginStorage
-from ..project_context import resolve_project_context
+from .project_room_context import resolve_project_context
 from .base import Plugin, ToolCallContext, ToolResult, ToolSpec
 
 

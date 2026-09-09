@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.3] - 2026-09-09
+
+### Changed
+- Kept the Project Room Git context implementation entirely under the plugin package.
+
+## [0.28.2] - 2026-09-09
+
+### Changed
+- Kept Project Room's Git context resolver inside the Project Room plugin package.
+
 ## [0.28.1] - 2026-09-09
 
 ### Changed

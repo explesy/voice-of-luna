@@ -23,14 +23,18 @@ def resolve_project_context(root: Path) -> ProjectContext:
     if not root.is_dir():
         raise ValueError("Selected project root does not exist")
     try:
-        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=root, text=True, capture_output=True, check=True).stdout.strip()
+        top = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], cwd=root, text=True,
+            capture_output=True, check=True,
+        ).stdout.strip()
     except (OSError, subprocess.CalledProcessError) as exc:
         raise ValueError("Project root must be inside a Git repository") from exc
     root = Path(top).resolve()
-    remote = subprocess.run(["git", "config", "--get", "remote.origin.url"], cwd=root, text=True, capture_output=True, check=False).stdout.strip()
-    repository = None
+    remote = subprocess.run(
+        ["git", "config", "--get", "remote.origin.url"], cwd=root, text=True,
+        capture_output=True, check=False,
+    ).stdout.strip()
     match = re.search(r"github\.com[/:]([^/ :]+/[^/ .]+?)(?:\.git)?$", remote, re.I)
-    if match:
-        repository = match.group(1)
+    repository = match.group(1) if match else None
     project_id = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:20]
     return ProjectContext(root=root, project_id=project_id, github_repository=repository)
