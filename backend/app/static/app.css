@@ -445,6 +445,8 @@ body::after {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
   margin-bottom: 12px;
   padding-bottom: 8px;
   border-bottom: 1px dashed var(--term-border);
@@ -454,12 +456,15 @@ body::after {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 0 0 auto;
+  min-width: max-content;
 }
 
 .session-id {
   color: var(--term-cyan);
   font-size: 11px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .counter-badge {
@@ -471,6 +476,10 @@ body::after {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1 1 620px;
+  min-width: 0;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 /* Project context uses the same compact terminal language as the other chips. */
@@ -481,7 +490,7 @@ body::after {
 }
 
 .project-root-input {
-  width: clamp(150px, 18vw, 280px);
+  width: clamp(130px, 14vw, 220px);
   min-width: 0;
   height: 26px;
   padding: 2px 7px;

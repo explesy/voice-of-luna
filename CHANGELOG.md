@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-09-09
+
+### Added
+- Added entry-point discovery for separately installed, trusted Voice of Luna plugins.
+- Added a plugin-scoped state facade for hook persistence without exposing internal namespaces.
+- Started the separately versioned `voice-of-luna-relationships` plugin repository.
+
+### Changed
+- Plugin identifiers must be unique; duplicate registrations now fail explicitly.
+
+## [0.26.3] - 2026-09-09
+
+### Fixed
+- Made the session toolbar wrap cleanly at constrained widths and kept session metadata from breaking mid-label.
+
 ## [0.26.2] - 2026-09-09
 
 ### Fixed
