@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.7] - 2026-09-09
+
+### Changed
+- Render plugin settings and actions from generic panel metadata instead of Project Room-specific markup in the conversation template.
+
 ## [0.28.6] - 2026-09-09
 
 ### Added

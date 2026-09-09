@@ -1,6 +1,6 @@
 [project]
 name = "voice-of-luna-backend"
-version = "0.28.6"
+version = "0.28.7"
 description = "Local-first conversation bridge for Voice of Luna"
 requires-python = ">=3.12"
 dependencies = [

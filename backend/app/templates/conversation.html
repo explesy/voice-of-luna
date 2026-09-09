@@ -82,22 +82,26 @@
               {% endif %}
             </select>
           </div>
-          <div class="sys-chip project-root-chip" title="Локальный каталог Project Room">
-            <label for="project-root-input" class="session-plugin-label">WORKSPACE:</label>
-            <input id="project-root-input" class="voice-input project-root-input" type="text"
-                   value="{{ conversation.plugin_settings.get('root', '') if conversation.plugin_settings else '' }}" placeholder="Select workspace…"
-                   aria-label="Локальный корень проекта">
-            <button id="project-root-apply" type="button" class="sys-chip-button">APPLY</button>
-            <button id="project-room-refresh" type="button" class="sys-chip-button">REFRESH</button>
-            <button id="project-room-forget" type="button" class="sys-chip-button">FORGET</button>
-          </div>
-          <div id="tool-approval-dialog" class="tool-approval-dialog" hidden></div>
           {% set current_p = none %}
           {% for p in plugins %}
-            {% if p.id == active_plugin %}
-              {% set current_p = p %}
-            {% endif %}
+            {% if p.id == active_plugin %}{% set current_p = p %}{% endif %}
           {% endfor %}
+          {% if current_p and current_p.panel %}
+          <div class="sys-chip plugin-panel" data-plugin-panel="{{ current_p.id }}">
+            {% for field in current_p.panel.fields %}
+            <label for="plugin-setting-{{ field.name }}" class="session-plugin-label">{{ field.label }}:</label>
+            <input id="plugin-setting-{{ field.name }}" class="voice-input plugin-setting" type="text"
+                   data-plugin-setting="{{ field.name }}"
+                   value="{{ conversation.plugin_settings.get(field.name, '') if conversation.plugin_settings else '' }}"
+                   placeholder="{{ field.label }}…" aria-label="{{ field.label }}">
+            {% endfor %}
+            <button type="button" class="sys-chip-button plugin-settings-apply">APPLY</button>
+            {% for action in current_p.panel.actions %}
+            <button type="button" class="sys-chip-button plugin-action" data-plugin-action="{{ action.name }}">{{ action.label }}</button>
+            {% endfor %}
+          </div>
+          {% endif %}
+          <div id="tool-approval-dialog" class="tool-approval-dialog" hidden></div>
           <div class="sys-chip mode-selector-chip session-mode-chip" id="mode-chip" title="Режим плагина" {% if not current_p or not current_p.modes or current_p.modes|length <= 1 %}style="display: none;"{% endif %}>
             <span class="chip-led chip-led-mode"></span>
             <label for="mode-select" class="session-plugin-label">MODE:</label>

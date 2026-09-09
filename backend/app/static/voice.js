@@ -1627,10 +1627,11 @@ function initPluginSelector() {
   if (pluginSelectors.length === 0) return;
 
   const pluginsData = window._PLUGINS || [];
-  const projectRootChip = document.querySelector(".project-root-chip");
+  const projectRootChip = document.querySelector(".plugin-panel");
   const updateProjectRootVisibility = (pluginId) => {
     if (!projectRootChip) return;
-    const hidden = pluginId !== "project_room";
+    const plugin = pluginsData.find((p) => p.id === pluginId);
+    const hidden = !plugin?.panel;
     projectRootChip.hidden = hidden;
     projectRootChip.setAttribute("aria-hidden", String(hidden));
   };
@@ -1707,7 +1708,11 @@ function initPluginSelector() {
 }
 
 function sendPluginUpdate(pluginId, mode = "default") {
-  const projectRoot = document.querySelector("#project-root-input")?.value.trim() || null;
+  const settings = {};
+  document.querySelectorAll("[data-plugin-setting]").forEach((input) => {
+    const value = input.value.trim();
+    if (value) settings[input.dataset.pluginSetting] = value;
+  });
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "set_plugin", plugin_id: pluginId, mode: mode }));
   }
@@ -1717,7 +1722,7 @@ function sendPluginUpdate(pluginId, mode = "default") {
     fetch(`/api/conversations/${convId}/plugin`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plugin_id: pluginId, mode: mode, project_root: projectRoot }),
+      body: JSON.stringify({ plugin_id: pluginId, mode: mode, settings }),
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -1736,34 +1741,27 @@ function sendPluginUpdate(pluginId, mode = "default") {
 }
 
 function initProjectRootApply() {
-  const input = document.querySelector("#project-root-input");
-  const button = document.querySelector("#project-root-apply");
-  if (!input || !button || button.dataset.initialized) return;
+  const button = document.querySelector(".plugin-settings-apply");
+  if (!button || button.dataset.initialized) return;
   button.dataset.initialized = "true";
   button.addEventListener("click", () => {
     const selector = document.querySelector("#session-plugin-select, #plugin-select, .plugin-select");
-    sendPluginUpdate(selector?.value || "project_room", document.querySelector("#mode-select")?.value || "default");
+    sendPluginUpdate(selector?.value || "neutral", document.querySelector("#mode-select")?.value || "default");
   });
 }
 
 function initProjectRoomActions() {
   const convId = document.querySelector("[data-conversation-id]")?.dataset?.conversationId;
   if (!convId) return;
-  document.querySelector("#project-room-refresh")?.addEventListener("click", async () => {
+  document.querySelectorAll("[data-plugin-action]").forEach((button) => button.addEventListener("click", async () => {
+    const action = button.dataset.pluginAction;
+    if (action === "forget" && !window.confirm("Forget this plugin data?")) return;
     const response = await fetch(`/api/conversations/${convId}/plugin/action`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "refresh" }),
+      body: JSON.stringify({ action }),
     });
-    if (response.ok) showToast("// PROJECT CARD: REFRESHED");
-  });
-  document.querySelector("#project-room-forget")?.addEventListener("click", async () => {
-    if (!window.confirm("Forget the Project Room card for this project?")) return;
-    const response = await fetch(`/api/conversations/${convId}/plugin/action`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "forget" }),
-    });
-    if (response.ok) showToast("// PROJECT CARD: FORGOTTEN");
-  });
+    if (response.ok) showToast(`// PLUGIN ACTION: ${action.toUpperCase()}`);
+  }));
 }
 
 async function pollToolApprovals() {
