@@ -86,9 +86,11 @@ async def test_plugin_manager_dispatches_declared_tools_and_isolates_unknown_too
     mgr.register(ToolPlugin())
     ctx = ToolCallContext("conv-1", "tool_plugin", "default")
 
-    assert mgr.dynamic_tools("tool_plugin")[0]["name"] == "memory.search"
+    assert mgr.dynamic_tools("tool_plugin")[0]["name"] == "memory_search"
     result = await mgr.call_tool("tool_plugin", "memory.search", {"query": "decision"}, ctx)
     assert result.content_items == [{"type": "text", "text": "decision"}]
+    wire_result = await mgr.call_tool("tool_plugin", "memory_search", {"query": "decision"}, ctx)
+    assert wire_result.content_items == [{"type": "text", "text": "decision"}]
 
     unknown = await mgr.call_tool("tool_plugin", "repo.read", {}, ctx)
     assert unknown.metadata["error"] == "unknown_tool"

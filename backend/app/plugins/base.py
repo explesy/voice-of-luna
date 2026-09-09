@@ -40,10 +40,15 @@ class ToolSpec:
     def qualified_name(self) -> str:
         return f"{self.namespace}.{self.name}"
 
+    @property
+    def wire_name(self) -> str:
+        """Responses API-compatible name used in the model-visible schema."""
+        return self.qualified_name.replace(".", "_")
+
     def as_dynamic_tool(self) -> dict[str, Any]:
         """Return the app-server dynamicTools wire shape."""
         return {
-            "name": self.qualified_name,
+            "name": self.wire_name,
             "description": self.description,
             "inputSchema": self.input_schema,
         }

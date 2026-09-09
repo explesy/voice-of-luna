@@ -94,7 +94,7 @@ class PluginManager:
         plugin = self.get(plugin_id)
         declared = {tool.name: tool for tool in plugin.tools()}
         tool = declared.get(name) or next(
-            (item for item in plugin.tools() if item.qualified_name == name), None
+            (item for item in plugin.tools() if item.qualified_name == name or item.wire_name == name), None
         )
         if tool is None:
             return ToolResult(

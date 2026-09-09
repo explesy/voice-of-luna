@@ -104,7 +104,7 @@ def test_dynamic_tools_are_opt_in_and_server_requests_round_trip(monkeypatch) ->
 
 
 def test_dynamic_tools_are_sent_only_when_configured(monkeypatch) -> None:
-    provider = CodexAppServer(dynamic_tools=[{"name": "repo.search"}])
+    provider = CodexAppServer(dynamic_tools=[{"name": "repo_search"}])
     requests = []
 
     async def fake_request(method, params):
@@ -131,7 +131,7 @@ def test_dynamic_tools_are_sent_only_when_configured(monkeypatch) -> None:
     initialize = next(params for method, params in requests if method == "initialize")
     thread = next(params for method, params in requests if method == "thread/start")
     assert initialize["capabilities"]["experimentalApi"] is True
-    assert thread["dynamicTools"] == [{"name": "repo.search"}]
+    assert thread["dynamicTools"] == [{"name": "repo_search"}]
 
 
 def test_reply_stream_yields_deltas(monkeypatch) -> None:

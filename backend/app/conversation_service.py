@@ -419,7 +419,16 @@ class ConversationService:
                 arguments = params.get("arguments", {})
                 if not isinstance(arguments, dict):
                     raise ValueError("Tool arguments must be an object")
-                tool_spec = next((tool for tool in plugin_manager.get_tools(selected_plugin) if tool.qualified_name == tool_name or tool.name == tool_name), None)
+                tool_spec = next(
+                    (
+                        tool
+                        for tool in plugin_manager.get_tools(selected_plugin)
+                        if tool.qualified_name == tool_name
+                        or tool.wire_name == tool_name
+                        or tool.name == tool_name
+                    ),
+                    None,
+                )
                 if tool_spec and tool_spec.required_permission == "external.write":
                     if not await wait_for_tool_approval(conversation.id, tool_spec.qualified_name, arguments, conversation.project_context.github_repository if conversation.project_context else None):
                         return {"contentItems": [{"type": "text", "text": "External action was not approved."}]}
