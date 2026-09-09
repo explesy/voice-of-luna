@@ -1568,6 +1568,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         "type": "plugin_updated",
                         "plugin_id": conversation.plugin_id,
                         "mode": conversation.plugin_mode,
+                        "panel": plugin_manager.panel_schema(conversation.plugin_id),
                         "voice": effective_voice,
                         "tts_engine": _get_tts_engine(effective_voice),
                     })

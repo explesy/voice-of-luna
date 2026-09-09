@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.8] - 2026-09-09
+
+### Changed
+- Re-render plugin-owned settings panels dynamically when the active plugin changes, including through the realtime WebSocket path.
+
 ## [0.28.7] - 2026-09-09
 
 ### Changed

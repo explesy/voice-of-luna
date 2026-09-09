@@ -636,6 +636,7 @@ function handleSocketMessage(event) {
       updateFooterStatus(data.tts_engine);
     }
   } else if (data.type === "plugin_updated") {
+    if (data.panel) renderPluginPanel(data.panel, data.plugin_id);
     if (data.plugin_id) {
       document.querySelectorAll(".plugin-select, #plugin-select, #session-plugin-select").forEach((el) => {
         el.value = data.plugin_id;
@@ -1726,6 +1727,7 @@ function sendPluginUpdate(pluginId, mode = "default") {
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
+        if (data && data.panel) renderPluginPanel(data.panel, data.plugin_id);
         if (data && data.voice) {
           const voiceSelect = document.querySelector("#voice-select");
           if (voiceSelect) {
@@ -1738,6 +1740,44 @@ function sendPluginUpdate(pluginId, mode = "default") {
       })
       .catch((err) => console.warn("// plugin sync error:", err));
   }
+}
+
+function renderPluginPanel(panel, pluginId) {
+  const existing = document.querySelector("[data-plugin-panel]");
+  if (existing) existing.remove();
+  if (!panel || !Array.isArray(panel.fields) && !Array.isArray(panel.actions)) return;
+  const wrapper = document.createElement("div");
+  wrapper.className = "sys-chip plugin-panel";
+  wrapper.dataset.pluginPanel = pluginId || "";
+  (panel.fields || []).forEach((field) => {
+    const label = document.createElement("label");
+    label.className = "session-plugin-label";
+    label.htmlFor = `plugin-setting-${field.name}`;
+    label.textContent = `${field.label || field.name}:`;
+    const input = document.createElement("input");
+    input.id = label.htmlFor;
+    input.className = "voice-input plugin-setting";
+    input.dataset.pluginSetting = field.name;
+    input.type = field.type === "directory" ? "text" : (field.type || "text");
+    input.placeholder = `${field.label || field.name}…`;
+    wrapper.append(label, input);
+  });
+  const apply = document.createElement("button");
+  apply.type = "button";
+  apply.className = "sys-chip-button plugin-settings-apply";
+  apply.textContent = "APPLY";
+  wrapper.appendChild(apply);
+  (panel.actions || []).forEach((action) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "sys-chip-button plugin-action";
+    button.dataset.pluginAction = action.name;
+    button.textContent = action.label || action.name;
+    wrapper.appendChild(button);
+  });
+  document.querySelector(".session-plugin-chip")?.after(wrapper);
+  initProjectRootApply();
+  initProjectRoomActions();
 }
 
 function initProjectRootApply() {
