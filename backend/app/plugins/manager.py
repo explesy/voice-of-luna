@@ -58,6 +58,17 @@ class PluginManager:
     def get(self, plugin_id: str) -> Plugin:
         return self._plugins.get(plugin_id, self._plugins["neutral"])
 
+    def has(self, plugin_id: str) -> bool:
+        return plugin_id in self._plugins
+
+    def validate_mode(self, plugin_id: str, mode: str) -> str:
+        if not self.has(plugin_id):
+            raise ValueError(f"Unknown plugin: {plugin_id}")
+        allowed = {str(item.get("id")) for item in self.get(plugin_id).get_modes()}
+        if mode not in allowed:
+            raise ValueError(f"Unknown mode {mode!r} for plugin {plugin_id!r}")
+        return mode
+
     def list_plugins(self) -> list[dict[str, Any]]:
         return [
             {
@@ -103,6 +114,13 @@ class PluginManager:
                     {"type": "text", "text": f"Unknown tool: {name}"}
                 ],
                 metadata={"ok": False, "error": "unknown_tool"},
+            )
+        try:
+            self._validate_tool_arguments(tool.input_schema, arguments)
+        except ValueError as exc:
+            return ToolResult(
+                content_items=[{"type": "text", "text": "Invalid tool arguments."}],
+                metadata={"ok": False, "error": "invalid_arguments", "detail": str(exc)},
             )
         granted = set(ctx.metadata.get("permissions", ()))
         checker = ctx.metadata.get("permission_checker")
@@ -153,6 +171,34 @@ class PluginManager:
             if budget <= 0:
                 break
         return ToolResult(content_items=items, metadata=result.metadata)
+
+    @staticmethod
+    def _validate_tool_arguments(schema: dict[str, Any], arguments: dict[str, Any]) -> None:
+        if schema.get("type") not in (None, "object") or not isinstance(arguments, dict):
+            raise ValueError("Tool arguments must be an object")
+        for key in schema.get("required", []):
+            if key not in arguments:
+                raise ValueError(f"Missing required argument: {key}")
+        for key, value in arguments.items():
+            spec = schema.get("properties", {}).get(key)
+            if not isinstance(spec, dict):
+                continue
+            expected = spec.get("type")
+            valid = {
+                "string": isinstance(value, str),
+                "integer": isinstance(value, int) and not isinstance(value, bool),
+                "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+                "boolean": isinstance(value, bool),
+                "array": isinstance(value, list),
+                "object": isinstance(value, dict),
+            }
+            if expected in valid and not valid[expected]:
+                raise ValueError(f"Argument {key!r} must be {expected}")
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                if "minimum" in spec and value < spec["minimum"]:
+                    raise ValueError(f"Argument {key!r} is below minimum")
+                if "maximum" in spec and value > spec["maximum"]:
+                    raise ValueError(f"Argument {key!r} exceeds maximum")
 
     def get_stt_language(self, plugin_id: str) -> str | None:
         plugin = self.get(plugin_id)

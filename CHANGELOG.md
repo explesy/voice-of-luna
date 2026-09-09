@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.14] - 2026-09-09
+
+### Fixed
+- Добавлена строгая проверка режимов плагинов и аргументов plugin tools до выполнения вызова.
+
 ## [0.28.13] - 2026-09-09
 
 ### Changed

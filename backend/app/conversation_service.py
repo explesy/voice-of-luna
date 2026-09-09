@@ -398,12 +398,14 @@ class ConversationService:
         mode: str = "default",
         settings: dict[str, Any] | None = None,
     ) -> None:
+        plugin_manager.validate_mode(plugin_id, mode)
         normalized_settings = await plugin_manager.configure(
             plugin_id, settings if settings is not None else conversation.plugin_settings
         )
         settings_changed = normalized_settings != conversation.plugin_settings
+        mode_changed = mode != conversation.plugin_mode
         conversation.plugin_settings = normalized_settings
-        if conversation.plugin_id != plugin_id or settings_changed:
+        if conversation.plugin_id != plugin_id or settings_changed or mode_changed:
             conversation.plugin_id = plugin_id
             conversation.plugin_mode = mode
             await self.refresh_base_instructions(conversation)
@@ -427,10 +429,10 @@ class ConversationService:
                     ),
                     None,
                 )
+                plugin_metadata = plugin_manager.tool_context_metadata(
+                    selected_plugin, conversation.plugin_settings
+                )
                 if tool_spec and tool_spec.required_permission == "external.write":
-                    plugin_metadata = plugin_manager.tool_context_metadata(
-                        selected_plugin, conversation.plugin_settings
-                    )
                     if not await wait_for_tool_approval(
                         conversation.id,
                         tool_spec.qualified_name,

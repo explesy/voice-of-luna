@@ -56,7 +56,7 @@ class ToolPlugin(Plugin):
                 namespace="memory",
                 name="search",
                 description="Search test memory",
-                input_schema={"type": "object"},
+                input_schema={"type": "object", "required": ["query"]},
             )
         ]
 
@@ -96,6 +96,9 @@ async def test_plugin_manager_dispatches_declared_tools_and_isolates_unknown_too
     wire_result = await mgr.call_tool("tool_plugin", "memory_search", {"query": "decision"}, ctx)
     assert wire_result.content_items == [{"type": "text", "text": "decision"}]
 
+    invalid = await mgr.call_tool("tool_plugin", "memory.search", {}, ctx)
+    assert invalid.metadata["error"] == "invalid_arguments"
+
     unknown = await mgr.call_tool("tool_plugin", "repo.read", {}, ctx)
     assert unknown.metadata["error"] == "unknown_tool"
 
@@ -107,6 +110,15 @@ async def test_plugin_manager_dispatches_declared_tools_and_isolates_unknown_too
     mgr.register(restricted)
     denied = await mgr.call_tool("tool_plugin", "external.write", {}, ctx)
     assert denied.metadata["error"] == "permission_denied"
+
+
+@pytest.mark.anyio
+async def test_plugin_manager_rejects_unknown_plugins_and_modes():
+    mgr = PluginManager()
+    with pytest.raises(ValueError, match="Unknown plugin"):
+        mgr.validate_mode("missing", "default")
+    with pytest.raises(ValueError, match="Unknown mode"):
+        mgr.validate_mode("neutral", "missing")
 
 
 @pytest.mark.anyio
@@ -217,6 +229,26 @@ def test_api_select_project_room_and_turn_execution(monkeypatch):
     assert turn_res.json()["text"] == "Echo: Check plugin"
     assert len(captured_context) == 1
     assert captured_context[0] == ""
+
+
+def test_api_dynamic_read_tool_reaches_plugin_handler():
+    created = client.post("/api/conversations")
+    conv_id = created.json()["id"]
+    selected = client.post(
+        f"/api/conversations/{conv_id}/plugin",
+        json={"plugin_id": "project_room", "mode": "default"},
+    )
+    assert selected.status_code == 200
+    conversation = main_module.conversations[conv_id]
+    assert conversation.model.server_request_handler is not None
+
+    result = asyncio.run(
+        conversation.model.server_request_handler(
+            "item/tool/call",
+            {"tool": "memory.search", "arguments": {"query": "not-found"}},
+        )
+    )
+    assert result["contentItems"]
 
 
 def test_api_select_project_room_reports_invalid_root(tmp_path):
