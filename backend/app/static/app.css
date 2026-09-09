@@ -473,6 +473,58 @@ body::after {
   gap: 8px;
 }
 
+/* Project context uses the same compact terminal language as the other chips. */
+.project-root-chip {
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.project-root-input {
+  width: clamp(150px, 18vw, 280px);
+  min-width: 0;
+  height: 26px;
+  padding: 2px 7px;
+  box-sizing: border-box;
+  border: 1px solid var(--term-border);
+  border-radius: 2px;
+  background: var(--term-bg);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.project-root-input::placeholder {
+  color: var(--text-dark);
+}
+
+.project-root-input:focus {
+  outline: none;
+  border-color: var(--term-cyan);
+  box-shadow: 0 0 0 1px var(--term-cyan);
+}
+
+.sys-chip-button {
+  height: 26px;
+  padding: 2px 8px;
+  border: 1px solid var(--term-border);
+  border-radius: 2px;
+  background: var(--term-surface-elevated);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.sys-chip-button:hover,
+.sys-chip-button:focus-visible {
+  color: var(--term-cyan);
+  border-color: var(--term-cyan);
+  outline: none;
+}
+
 .btn-term {
   background: transparent;
   border: 1px solid var(--term-border);
