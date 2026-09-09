@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.4] - 2026-09-09
+
+### Added
+- Project Room now builds a bounded, plugin-owned project card during `before_turn` from safe Git metadata and tracked document names.
+
 ## [0.28.3] - 2026-09-09
 
 ### Changed

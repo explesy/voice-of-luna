@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
 from ..plugin_storage import PluginStorage
 from .project_room_context import resolve_project_context
-from .base import Plugin, ToolCallContext, ToolResult, ToolSpec
+from .base import Plugin, PluginTurnResult, ToolCallContext, ToolResult, ToolSpec
 
 
 def _text(value: Any) -> dict[str, Any]:
@@ -51,6 +52,36 @@ class ProjectRoomPlugin(Plugin):
             "project_scope": f"project:{project_id}" if project_id else "plugin",
             "github_repository": settings.get("github_repository"),
         }
+
+    async def before_turn(self, ctx) -> Any:
+        """Inject a small, plugin-owned project card when a root is configured."""
+        settings = ctx.metadata.get("plugin_settings", {})
+        root = str(settings.get("root") or "").strip()
+        if not root or ctx.state is None:
+            return PluginTurnResult()
+        card = await ctx.state.get("project_card")
+        if not card:
+            card = await asyncio.to_thread(self._build_project_card, Path(root))
+            await ctx.state.set("project_card", card)
+        return PluginTurnResult(prompt_context=card)
+
+    @staticmethod
+    def _build_project_card(root: Path) -> str:
+        """Build bounded metadata only; source files are read on demand by tools."""
+        try:
+            branch = subprocess.run(["git", "branch", "--show-current"], cwd=root, text=True, capture_output=True, check=False).stdout.strip() or "(detached)"
+            status = subprocess.run(["git", "status", "--short"], cwd=root, text=True, capture_output=True, check=False).stdout.splitlines()
+            tracked = subprocess.run(["git", "ls-files"], cwd=root, text=True, capture_output=True, check=False).stdout.splitlines()
+        except OSError:
+            return "Project card unavailable: Git metadata could not be read."
+        important = [p for p in tracked if Path(p).name.lower() in {"readme.md", "agents.md", "pyproject.toml", "package.json", "changelog.md"}][:12]
+        dirty = f"{len(status)} changed path(s)" if status else "clean"
+        return (
+            f"Project card (generated {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}). "
+            f"Git branch: {branch}; working tree: {dirty}. "
+            f"Important tracked documents: {', '.join(important) or 'none detected'}. "
+            "Treat this as metadata, not proof of implementation; read relevant files with repo tools before making current code claims."
+        )
 
     def tools(self) -> list[ToolSpec]:
         return [

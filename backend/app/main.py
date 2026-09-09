@@ -594,6 +594,7 @@ async def create_turn_fragment(
         user_message=text,
         turns_history=conversation.turns,
         active_mode=conversation.plugin_mode,
+        metadata={"plugin_settings": conversation.plugin_settings},
         state=plugin_storage.for_plugin(conversation.plugin_id, conversation.id),
     )
     plugin_res = await plugin_manager.execute_before_turn(conversation.plugin_id, turn_ctx)
@@ -661,6 +662,7 @@ async def create_audio_turn_fragment(
             user_message=transcript,
             turns_history=conversation.turns,
             active_mode=conversation.plugin_mode,
+            metadata={"plugin_settings": conversation.plugin_settings},
             state=plugin_storage.for_plugin(conversation.plugin_id, conversation.id),
         )
         plugin_res = await plugin_manager.execute_before_turn(conversation.plugin_id, turn_ctx)
@@ -1010,6 +1012,7 @@ async def create_turn(conversation_id: str, body: TurnInput) -> dict[str, str]:
         user_message=body.text,
         turns_history=conversation.turns,
         active_mode=conversation.plugin_mode,
+        metadata={"plugin_settings": conversation.plugin_settings},
         state=plugin_storage.for_plugin(conversation.plugin_id, conversation.id),
     )
     plugin_res = await plugin_manager.execute_before_turn(conversation.plugin_id, turn_ctx)
@@ -1239,6 +1242,7 @@ async def _stream_and_synthesize(
         user_message=prompt_text,
         turns_history=conversation.turns,
         active_mode=conversation.plugin_mode,
+        metadata={"plugin_settings": conversation.plugin_settings},
         state=plugin_storage.for_plugin(conversation.plugin_id, conversation.id),
     )
     plugin_res = await plugin_manager.execute_before_turn(conversation.plugin_id, turn_ctx)
