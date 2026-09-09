@@ -60,6 +60,27 @@ All requested engines were actually used; no row is a fallback result. The
 single 1.8 s Ksenia outlier and Edge's multi-second tail call for a larger
 sample (20–30 repetitions) before any default-selection decision.
 
+### Recorded local TTS run — 2026-09-09
+
+Environment: macOS 26.6.2, Apple Silicon arm64, Python 3.12.13, project
+revision `c9c3305`. This run used seven warm repetitions per phrase, excluded
+the warm-up call, and did not call Codex or network-backed Edge TTS. It is a
+fresh point-in-time measurement, not a before/after comparison with the
+previous table.
+
+| Voice | Actual engine | First chunk median / p95 | Full sentence median / p95 |
+|---|---|---:|---:|
+| Dmitri | Piper | 219.7 / 250.4 ms | 565.1 / 752.9 ms |
+| Irina | Piper | 197.7 / 308.4 ms | 678.7 / 986.6 ms |
+| Ksenia | Silero | 49.0 / 1105.6 ms | 102.6 / 229.6 ms |
+| Eugene | Silero | 44.2 / 75.1 ms | 109.6 / 125.1 ms |
+| Milena | macOS say | 1012.4 / 1117.9 ms | 1024.3 / 1181.6 ms |
+
+Ksenia shows a large first-chunk tail despite a low median (one 1.1-second
+observation in seven runs). This is evidence for continued measurement, not a
+basis for automatic voice selection. The local results keep the focus on
+Codex TTFT and turn coordination rather than premature local TTS optimization.
+
 STT has no valid built-in synthetic fixture. Supplying silence would measure
 silence handling rather than recognition. Use a licensed, known-speech 16 kHz
 mono WAV when running an operator experiment:
