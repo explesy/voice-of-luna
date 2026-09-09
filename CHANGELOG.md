@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.13] - 2026-09-09
+
+### Changed
+- Добавлена подсказка Project Room с форматом пути и примером значения для поля Project root.
+
 ## [0.28.12] - 2026-09-09
 
 ### Fixed

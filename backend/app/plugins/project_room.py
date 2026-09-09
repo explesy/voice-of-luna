@@ -41,7 +41,13 @@ class ProjectRoomPlugin(Plugin):
     def panel_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
-            "fields": [{"name": "root", "type": "directory", "label": "Project root"}],
+            "fields": [{
+                "name": "root",
+                "type": "directory",
+                "label": "Project root",
+                "placeholder": "/Users/you/projects/my-repo",
+                "help": "Вставьте полный путь к корню Git-репозитория, затем нажмите APPLY.",
+            }],
             "actions": [
                 {"name": "refresh", "label": "Refresh"},
                 {"name": "forget", "label": "Forget"},
@@ -150,7 +156,12 @@ class ProjectRoomPlugin(Plugin):
             if ctx.storage is None:
                 raise RuntimeError("Plugin storage is unavailable")
             scope = str(ctx.metadata.get("project_scope", "plugin"))
-            rows = await ctx.storage.search(self.id, str(arguments.get("query", "")), scope=scope)
+            rows = await ctx.storage.search(
+                self.id,
+                str(arguments.get("query", "")),
+                limit=min(40, max(1, int(arguments.get("max_matches", 8)))),
+                scope=scope,
+            )
             return ToolResult(content_items=[_text(rows or "No matching project memory found.")])
         if qualified == "memory.remember":
             if ctx.storage is None:

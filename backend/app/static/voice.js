@@ -1765,11 +1765,17 @@ function renderPluginPanel(panel, pluginId, settings = {}) {
     input.className = "voice-input plugin-setting";
     input.dataset.pluginSetting = field.name;
     input.type = field.type === "directory" ? "text" : (field.type || "text");
-    input.placeholder = `${field.label || field.name}…`;
+    input.placeholder = field.placeholder || `${field.label || field.name}…`;
     if (settings[field.name] !== undefined && settings[field.name] !== null) {
       input.value = String(settings[field.name]);
     }
     wrapper.append(label, input);
+    if (field.help) {
+      const help = document.createElement("small");
+      help.className = "plugin-field-help";
+      help.textContent = field.help;
+      wrapper.appendChild(help);
+    }
   });
   const apply = document.createElement("button");
   apply.type = "button";
