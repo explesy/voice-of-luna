@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.10] - 2026-09-09
+
+### Fixed
+- Restored the terminal visual language for dynamically rendered plugin panels and added a stylesheet cache-bust for the new panel styles.
+
 ## [0.28.9] - 2026-09-09
 
 ### Added

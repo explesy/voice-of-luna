@@ -482,14 +482,17 @@ body::after {
   flex-wrap: wrap;
 }
 
-/* Project context uses the same compact terminal language as the other chips. */
-.project-root-chip {
+/* Plugin panels use the same compact terminal language as the other chips. */
+.plugin-panel {
   align-items: baseline;
   gap: 8px;
   min-width: 0;
+  flex-wrap: wrap;
 }
 
-.project-root-input {
+.plugin-panel .plugin-setting {
+  appearance: none;
+  -webkit-appearance: none;
   width: clamp(130px, 14vw, 220px);
   min-width: 0;
   height: 26px;
@@ -497,21 +500,33 @@ body::after {
   box-sizing: border-box;
   border: 1px solid var(--term-border);
   border-radius: 2px;
-  background: var(--term-bg);
-  color: var(--text-main);
+  background: var(--term-bg) !important;
+  color: var(--text-main) !important;
   font: inherit;
   font-size: 11px;
   line-height: 1.2;
 }
 
-.project-root-input::placeholder {
+.plugin-panel .plugin-setting::placeholder {
   color: var(--text-dark);
 }
 
-.project-root-input:focus {
+.plugin-panel .plugin-setting:focus {
   outline: none;
   border-color: var(--term-cyan);
   box-shadow: 0 0 0 1px var(--term-cyan);
+}
+
+.plugin-panel .session-plugin-label {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.plugin-panel .plugin-action {
+  text-transform: uppercase;
 }
 
 .sys-chip-button {
