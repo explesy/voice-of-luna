@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-09-09
+
+### Changed
+- Moved Project Room repository configuration behind the plugin-owned settings contract; the conversation core no longer resolves or stores `ProjectContext`.
+- Exposed generic plugin settings and panel metadata in the plugin selection API.
+
 ## [0.28.0] - 2026-09-09
 
 ### Added

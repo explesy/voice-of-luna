@@ -23,7 +23,6 @@ from uuid import uuid4
 from app.codex import CodexAppServer, get_base_instructions
 from app.plugin_storage import PluginStorage
 from app.github_gateway import GitHubGateway
-from app.project_context import ProjectContext, resolve_project_context
 import os
 import hashlib
 import json
@@ -92,11 +91,6 @@ def consume_tool_permission(conversation_id: str, permission: str) -> bool:
         return False
     _tool_approvals.pop(key, None)
     return True
-
-
-def _configured_project_root() -> Path | None:
-    configured = os.environ.get("VOICE_OF_LUNA_PROJECT_ROOT", "").strip()
-    return Path(configured).expanduser().resolve() if configured else None
 
 
 @dataclass(frozen=True)
@@ -205,8 +199,6 @@ class Conversation:
     remote_warmup_status: str = "cold"
     thread_generation: int = 0
     binary_audio: bool = False
-    project_root: Path | None = field(default_factory=_configured_project_root)
-    project_context: ProjectContext | None = None
 
     def set_selected_voice(self, voice: str) -> None:
         """Persist the user's voice choice while keeping legacy ``voice`` callers in sync."""
@@ -405,12 +397,6 @@ class ConversationService:
         mode: str = "default",
         settings: dict[str, Any] | None = None,
     ) -> None:
-        if conversation.project_context is None and conversation.project_root is not None:
-            try:
-                conversation.project_context = resolve_project_context(conversation.project_root)
-                conversation.project_root = conversation.project_context.root
-            except ValueError:
-                conversation.project_root = None
         normalized_settings = await plugin_manager.configure(
             plugin_id, settings if settings is not None else conversation.plugin_settings
         )
@@ -441,12 +427,17 @@ class ConversationService:
                     None,
                 )
                 if tool_spec and tool_spec.required_permission == "external.write":
-                    if not await wait_for_tool_approval(conversation.id, tool_spec.qualified_name, arguments, conversation.project_context.github_repository if conversation.project_context else None):
+                    plugin_metadata = plugin_manager.tool_context_metadata(
+                        selected_plugin, conversation.plugin_settings
+                    )
+                    if not await wait_for_tool_approval(
+                        conversation.id,
+                        tool_spec.qualified_name,
+                        arguments,
+                        plugin_metadata.get("github_repository"),
+                    ):
                         return {"contentItems": [{"type": "text", "text": "External action was not approved."}]}
                 granted_permissions = ("storage.read", "storage.write", "repo.read", "network.read", "external.write") if tool_spec and tool_spec.required_permission == "external.write" else ("storage.read", "storage.write", "repo.read", "network.read")
-                plugin_metadata = plugin_manager.tool_context_metadata(
-                    selected_plugin, conversation.plugin_settings
-                )
                 result = await plugin_manager.call_tool(
                     selected_plugin,
                     tool_name,
@@ -457,12 +448,6 @@ class ConversationService:
                         active_mode=conversation.plugin_mode,
                         metadata={
                             **plugin_metadata,
-                            "project_root": str(conversation.project_context.root)
-                            if conversation.project_context else None,
-                            "project_scope": conversation.project_context.scope
-                            if conversation.project_context else "plugin",
-                            "github_repository": conversation.project_context.github_repository
-                            if conversation.project_context else None,
                             "permissions": granted_permissions,
                             "permission_checker": lambda permission: consume_tool_permission(conversation.id, permission),
                         },

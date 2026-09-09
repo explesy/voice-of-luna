@@ -85,7 +85,7 @@
           <div class="sys-chip project-root-chip" title="Локальный каталог Project Room">
             <label for="project-root-input" class="session-plugin-label">WORKSPACE:</label>
             <input id="project-root-input" class="voice-input project-root-input" type="text"
-                   value="{{ conversation.project_root or '' }}" placeholder="Select workspace…"
+                   value="{{ conversation.plugin_settings.get('root', '') if conversation.plugin_settings else '' }}" placeholder="Select workspace…"
                    aria-label="Локальный корень проекта">
             <button id="project-root-apply" type="button" class="sys-chip-button">APPLY</button>
           </div>

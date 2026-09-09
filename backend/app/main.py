@@ -49,7 +49,6 @@ from .conversation_service import (
     resolve_turn_language,
     plugin_storage,
 )
-from .project_context import resolve_project_context
 from .i18n import get_ui_text
 
 from fastapi import (
@@ -941,17 +940,15 @@ async def select_plugin(
     conversation = conversations.get(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    if body.project_root is not None:
-        try:
-            conversation.project_context = resolve_project_context(Path(body.project_root))
-            conversation.project_root = conversation.project_context.root
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    settings = dict(body.settings)
+    # Backward-compatible input while clients migrate to plugin-owned settings.
+    if body.project_root is not None and "root" not in settings:
+        settings["root"] = body.project_root
     await _apply_plugin_to_conversation(
         conversation,
         body.plugin_id,
         body.mode or "default",
-        settings=body.settings,
+        settings=settings,
     )
     response.set_cookie(
         key="voice_of_luna_plugin",
@@ -981,8 +978,8 @@ async def select_plugin(
         "plugin_id": conversation.plugin_id,
         "mode": conversation.plugin_mode,
         "voice": effective_voice,
-        "project_root": str(conversation.project_context.root) if conversation.project_context else None,
-        "github_repository": conversation.project_context.github_repository if conversation.project_context else None,
+        "settings": conversation.plugin_settings,
+        "panel": plugin_manager.panel_schema(conversation.plugin_id),
     }
 
 

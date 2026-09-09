@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..plugin_storage import PluginStorage
+from ..project_context import resolve_project_context
 from .base import Plugin, ToolCallContext, ToolResult, ToolSpec
 
 
@@ -20,6 +21,36 @@ class ProjectRoomPlugin(Plugin):
     id = "project_room"
     name = "Project Room"
     description = "Persistent project decisions plus safe read-only repository context"
+
+    async def configure(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """Own and normalize Project Room's selected repository configuration."""
+        raw_root = str(settings.get("root") or settings.get("project_root") or "").strip()
+        if not raw_root:
+            return {}
+        try:
+            context = resolve_project_context(Path(raw_root))
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        return {
+            "root": str(context.root),
+            "project_id": context.project_id,
+            "github_repository": context.github_repository,
+        }
+
+    def panel_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "fields": [{"name": "root", "type": "directory", "label": "Project root"}],
+        }
+
+    def tool_context_metadata(self, settings: dict[str, Any]) -> dict[str, Any]:
+        root = str(settings.get("root") or "").strip() or None
+        project_id = str(settings.get("project_id") or "").strip()
+        return {
+            "project_root": root,
+            "project_scope": f"project:{project_id}" if project_id else "plugin",
+            "github_repository": settings.get("github_repository"),
+        }
 
     def tools(self) -> list[ToolSpec]:
         return [
