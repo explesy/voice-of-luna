@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.17] - 2026-09-09
+
+### Added
+- Добавлен first-party `Training` plugin как stateful workflow с режимами Practice/Debrief/Free dialogue, persistent session notes и model-callable observation/history tools.
+- В plugin storage добавлено namespaced чтение последних документов для workflow-плагинов.
+
 ## [0.28.16] - 2026-09-09
 
 ### Changed

@@ -45,6 +45,9 @@ class PluginState:
         resolved_scope = self._scope(scope) if scope else None
         return await self._storage.search(self.plugin_id, query, limit, resolved_scope)
 
+    async def recent(self, *, limit: int = 8, scope: str = "project") -> list[dict[str, Any]]:
+        return await self._storage.recent(self.plugin_id, self._scope(scope), limit)
+
     def _scope(self, scope: str | None) -> str:
         if scope in {"project", "plugin"}:
             return self.project_scope
@@ -170,6 +173,19 @@ class PluginStorage:
                        WHERE d.plugin_id=? AND plugin_documents_fts MATCH ?{scope_clause}
                        ORDER BY rank LIMIT ?""",
                     params,
+                ).fetchall()
+                return [dict(row) for row in rows]
+
+        return await asyncio.to_thread(read)
+
+    async def recent(self, plugin_id: str, scope: str, limit: int = 8) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(int(limit), 20))
+
+        def read() -> list[dict[str, Any]]:
+            with self._connect() as db:
+                rows = db.execute(
+                    "SELECT id, scope, kind, substr(text, 1, 2000) AS text, tags, created_at FROM plugin_documents WHERE plugin_id=? AND scope=? ORDER BY created_at DESC LIMIT ?",
+                    (plugin_id, scope, safe_limit),
                 ).fetchall()
                 return [dict(row) for row in rows]
 

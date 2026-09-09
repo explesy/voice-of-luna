@@ -4,6 +4,7 @@ from .base import Plugin, PluginTurnResult, ToolCallContext, ToolResult, ToolSpe
 from ..plugin_storage import PluginState
 from .manager import LunaCorePlugin, PluginManager, plugin_manager
 from .project_room import ProjectRoomPlugin
+from .training import TrainingPlugin
 
 __all__ = [
     "LunaCorePlugin",
@@ -12,6 +13,7 @@ __all__ = [
     "PluginState",
     "PluginTurnResult",
     "ProjectRoomPlugin",
+    "TrainingPlugin",
     "ToolCallContext",
     "ToolResult",
     "ToolSpec",

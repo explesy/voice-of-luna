@@ -7,6 +7,7 @@ from typing import Any
 
 from .base import Plugin, PluginTurnResult, ToolCallContext, ToolResult, ToolSpec, TurnContext
 from .project_room import ProjectRoomPlugin
+from .training import TrainingPlugin
 
 logger = logging.getLogger("voice_of_luna.plugins")
 
@@ -29,6 +30,7 @@ class PluginManager:
         self._plugins: dict[str, Plugin] = {}
         self.register(LunaCorePlugin())
         self.register(ProjectRoomPlugin())
+        self.register(TrainingPlugin())
         self._load_external_plugins()
 
     def _load_external_plugins(self) -> None:
