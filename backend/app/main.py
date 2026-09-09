@@ -589,6 +589,7 @@ async def create_turn_fragment(
 ) -> HTMLResponse:
     conversation = _recover_html_conversation(conversation_id)
     conversation.turns.append({"role": "user", "text": text})
+    conversation.turn_evidence = []
     turn_ctx = TurnContext(
         conversation_id=conversation.id,
         user_message=text,
@@ -657,6 +658,7 @@ async def create_audio_turn_fragment(
         ).transcribe(wav_path)
         t_stt = time.perf_counter()
         conversation.turns.append({"role": "user", "text": transcript})
+        conversation.turn_evidence = []
         turn_ctx = TurnContext(
             conversation_id=conversation.id,
             user_message=transcript,
@@ -1023,11 +1025,12 @@ async def list_pending_tool_approvals(conversation_id: str) -> dict[str, object]
 
 
 @app.post("/api/conversations/{conversation_id}/turns")
-async def create_turn(conversation_id: str, body: TurnInput) -> dict[str, str]:
+async def create_turn(conversation_id: str, body: TurnInput) -> dict[str, Any]:
     conversation = conversations.get(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     conversation.turns.append({"role": "user", "text": body.text})
+    conversation.turn_evidence = []
     turn_ctx = TurnContext(
         conversation_id=conversation.id,
         user_message=body.text,
@@ -1049,7 +1052,7 @@ async def create_turn(conversation_id: str, body: TurnInput) -> dict[str, str]:
         raise HTTPException(status_code=503, detail=str(error)) from error
     await _append_assistant_turn(conversation, reply)
     await plugin_manager.execute_after_turn(conversation.plugin_id, turn_ctx, reply)
-    return {"text": reply}
+    return {"text": reply, "evidence": list(conversation.turn_evidence)}
 
 
 @app.delete("/api/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1321,6 +1324,8 @@ async def _stream_and_synthesize(
             raise CodexUnavailable("Codex finished without a spoken response")
 
         turn = {"role": "assistant", "text": full_reply}
+        if conversation.turn_evidence:
+            turn["evidence"] = list(conversation.turn_evidence)
         conversation.turns.append(turn)
         _safe_background_task(
             plugin_manager.execute_after_turn(
@@ -1626,6 +1631,8 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
 
 async def _append_assistant_turn(conversation: Conversation, text: str) -> str | None:
     turn = {"role": "assistant", "text": text}
+    if conversation.turn_evidence:
+        turn["evidence"] = list(conversation.turn_evidence)
     source_user_text = next(
         (
             previous_turn.get("text", "")

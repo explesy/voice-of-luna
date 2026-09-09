@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.9] - 2026-09-09
+
+### Added
+- Added host-owned Project Room evidence for repository reads and searches, attached to assistant turns and rendered separately from spoken text.
+
 ## [0.28.8] - 2026-09-09
 
 ### Changed

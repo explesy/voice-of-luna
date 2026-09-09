@@ -173,13 +173,21 @@ class ProjectRoomPlugin(Plugin):
             start_line = max(1, int(arguments.get("start_line", 1)))
             max_lines = min(200, max(1, int(arguments.get("max_lines", 120))))
             lines = path.read_text(encoding="utf-8").splitlines()
-            return ToolResult(content_items=[_text("\n".join(lines[start_line - 1:start_line - 1 + max_lines]))])
+            return ToolResult(
+                content_items=[_text("\n".join(lines[start_line - 1:start_line - 1 + max_lines]))],
+                metadata={"evidence": [{"kind": "file", "path": str(path.relative_to(root)), "start_line": start_line, "end_line": min(len(lines), start_line - 1 + max_lines)}]},
+            )
         if qualified == "repo.search":
             query = str(arguments.get("query", "")).strip()
             if not query:
                 return ToolResult(content_items=[_text("Search query is empty")])
             matches = await asyncio.to_thread(self._search_repo, root, query, min(40, max(1, int(arguments.get("max_matches", 20)))))
-            return ToolResult(content_items=[_text("\n".join(matches) or "No repository matches found.")])
+            evidence = []
+            for match in matches:
+                head = match.split(":", 2)
+                if len(head) >= 2 and head[1].isdigit():
+                    evidence.append({"kind": "search", "path": head[0], "line": int(head[1])})
+            return ToolResult(content_items=[_text("\n".join(matches) or "No repository matches found.")], metadata={"evidence": evidence[:40]})
         if qualified == "github.issues":
             if ctx.github is None:
                 raise RuntimeError("GitHub gateway is unavailable")

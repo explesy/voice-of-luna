@@ -38,6 +38,10 @@ Core и plugin разделены строго. Core владеет только
 Результат и побочные эффекты принадлежат plugin state; core только применяет
 общий timeout/error boundary и возвращает structured result.
 
+Если plugin возвращает evidence, host связывает его с текущим turn. Для
+Project Room это относительный путь и ограниченный диапазон строк; evidence
+не проговаривается через TTS и не заменяет чтение файла.
+
 Plugin может добавить prompt context в `beforeTurn`, сохранить собственную заметку в `afterTurn`, отобразить панель через `renderPanel` или объявить native tools через `tools()`. Core применяет timeout и redaction; hook или tool не может задерживать аудио-путь бесконечно. Tool получает только capability context: raw audio, OAuth tokens, process handles и произвольный shell ему недоступны.
 
 Project Room — первый first-party tool plugin. Он сам владеет выбранным Git-root,

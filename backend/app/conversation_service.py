@@ -192,6 +192,7 @@ class Conversation:
     plugin_mode: str = "default"
     # Opaque settings owned and interpreted by the active plugin.
     plugin_settings: dict[str, Any] = field(default_factory=dict)
+    turn_evidence: list[dict[str, Any]] = field(default_factory=list)
     last_active_at: float = field(default_factory=time.monotonic)
     active_websockets: int = 0
     remote_warmup_key: tuple[str, str, int, int] | None = None
@@ -455,6 +456,11 @@ class ConversationService:
                         github=github_gateway,
                     ),
                 )
+                evidence = result.metadata.get("evidence")
+                if isinstance(evidence, list):
+                    conversation.turn_evidence.extend(
+                        item for item in evidence if isinstance(item, dict)
+                    )
                 return result.as_rpc_result()
 
             await conversation.model.set_dynamic_tools(
