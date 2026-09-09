@@ -487,7 +487,10 @@ body::after {
   align-items: baseline;
   gap: 8px;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   flex-wrap: wrap;
+  white-space: normal;
 }
 
 .plugin-panel .plugin-setting {
@@ -527,6 +530,8 @@ body::after {
 
 .plugin-panel .plugin-field-help {
   flex-basis: 100%;
+  display: block;
+  white-space: normal;
   color: var(--text-dark);
   font-size: 10px;
   line-height: 1.35;
