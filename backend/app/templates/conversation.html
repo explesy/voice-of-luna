@@ -88,6 +88,8 @@
                    value="{{ conversation.plugin_settings.get('root', '') if conversation.plugin_settings else '' }}" placeholder="Select workspace…"
                    aria-label="Локальный корень проекта">
             <button id="project-root-apply" type="button" class="sys-chip-button">APPLY</button>
+            <button id="project-room-refresh" type="button" class="sys-chip-button">REFRESH</button>
+            <button id="project-room-forget" type="button" class="sys-chip-button">FORGET</button>
           </div>
           <div id="tool-approval-dialog" class="tool-approval-dialog" hidden></div>
           {% set current_p = none %}

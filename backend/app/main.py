@@ -935,6 +935,10 @@ class ToolApprovalInput(BaseModel):
     args_hash: str = Field(min_length=64, max_length=64)
 
 
+class PluginActionInput(BaseModel):
+    action: str = Field(min_length=1, max_length=80)
+
+
 @app.post("/api/conversations/{conversation_id}/plugin")
 async def select_plugin(
     conversation_id: str, body: PluginSelectInput, response: Response
@@ -983,6 +987,23 @@ async def select_plugin(
         "settings": conversation.plugin_settings,
         "panel": plugin_manager.panel_schema(conversation.plugin_id),
     }
+
+
+@app.post("/api/conversations/{conversation_id}/plugin/action")
+async def plugin_action(conversation_id: str, body: PluginActionInput) -> dict[str, Any]:
+    conversation = conversations.get(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    try:
+        result = await plugin_manager.action(
+            conversation.plugin_id,
+            body.action,
+            conversation.plugin_settings,
+            plugin_storage.for_plugin(conversation.plugin_id, conversation.id),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "plugin_id": conversation.plugin_id, **result}
 
 
 @app.post("/api/conversations/{conversation_id}/tool-approval")

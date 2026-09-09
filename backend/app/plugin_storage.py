@@ -35,6 +35,9 @@ class PluginState:
     async def set(self, key: str, value: str, *, scope: str = "conversation") -> None:
         await self._storage.set(self.plugin_id, self._scope(scope), key, value)
 
+    async def delete(self, key: str, *, scope: str = "conversation") -> None:
+        await self._storage.delete(self.plugin_id, self._scope(scope), key)
+
     async def remember(self, text: str, *, kind: str = "note", tags: list[str] | None = None, scope: str = "project") -> int:
         return await self._storage.remember(self.plugin_id, self._scope(scope), text, kind, tags)
 
@@ -115,6 +118,12 @@ class PluginStorage:
                 return str(row[0]) if row else None
 
         return await asyncio.to_thread(read)
+
+    async def delete(self, plugin_id: str, scope: str, key: str) -> None:
+        def remove() -> None:
+            with self._connect() as db:
+                db.execute("DELETE FROM plugin_kv WHERE plugin_id=? AND scope=? AND item_key=?", (plugin_id, scope, key))
+        await asyncio.to_thread(remove)
 
     async def remember(
         self,

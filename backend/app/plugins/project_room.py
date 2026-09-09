@@ -65,6 +65,21 @@ class ProjectRoomPlugin(Plugin):
             await ctx.state.set("project_card", card)
         return PluginTurnResult(prompt_context=card)
 
+    async def action(self, name: str, settings: dict[str, Any], state: Any = None) -> dict[str, Any]:
+        if name not in {"refresh", "forget"}:
+            raise ValueError("Unknown Project Room action")
+        if state is None:
+            raise ValueError("Project Room state is unavailable")
+        if name == "forget":
+            await state.delete("project_card")
+            return {"ok": True, "action": name, "card": None}
+        root = str(settings.get("root") or "").strip()
+        if not root:
+            raise ValueError("No project root selected")
+        card = await asyncio.to_thread(self._build_project_card, Path(root))
+        await state.set("project_card", card)
+        return {"ok": True, "action": name, "card": card}
+
     @staticmethod
     def _build_project_card(root: Path) -> str:
         """Build bounded metadata only; source files are read on demand by tools."""

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.5] - 2026-09-09
+
+### Added
+- Added generic plugin actions and Project Room-owned `Refresh`/`Forget` operations for its project card.
+
 ## [0.28.4] - 2026-09-09
 
 ### Added

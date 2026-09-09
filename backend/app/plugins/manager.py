@@ -205,6 +205,14 @@ class PluginManager:
     def tool_context_metadata(self, plugin_id: str, settings: dict[str, Any]) -> dict[str, Any]:
         return dict(self.get(plugin_id).tool_context_metadata(dict(settings)))
 
+    async def action(self, plugin_id: str, name: str, settings: dict[str, Any], state: Any = None) -> dict[str, Any]:
+        plugin = self.get(plugin_id)
+        try:
+            return await asyncio.wait_for(plugin.action(name, dict(settings), state), timeout=5.0)
+        except Exception as exc:
+            logger.warning("Plugin %s action %s failed: %s", plugin_id, name, exc)
+            raise ValueError("Plugin action failed") from exc
+
     async def execute_before_turn(
         self, plugin_id: str, ctx: TurnContext, timeout: float = 1.5
     ) -> PluginTurnResult:

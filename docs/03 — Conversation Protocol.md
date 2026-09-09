@@ -34,6 +34,10 @@ Core и plugin разделены строго. Core владеет только
 `project_root` или `github_repository`); настройки передаются как opaque
 структура и интерпретируются только активным plugin.
 
+Панель плагина может отправлять generic action (`refresh`, `forget` и т.п.).
+Результат и побочные эффекты принадлежат plugin state; core только применяет
+общий timeout/error boundary и возвращает structured result.
+
 Plugin может добавить prompt context в `beforeTurn`, сохранить собственную заметку в `afterTurn`, отобразить панель через `renderPanel` или объявить native tools через `tools()`. Core применяет timeout и redaction; hook или tool не может задерживать аудио-путь бесконечно. Tool получает только capability context: raw audio, OAuth tokens, process handles и произвольный shell ему недоступны.
 
 Project Room — первый first-party tool plugin. Он сам владеет выбранным Git-root,

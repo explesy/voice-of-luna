@@ -53,6 +53,10 @@ read, project-scoped memory, evidence и собственная панель н�
 хранятся только в namespace Project Room; core передаёт plugin-у opaque settings
 и отображает его generic panel/artifacts, не интерпретируя их смысл.
 
+Plugin-owned UI actions (например, `Refresh` и `Forget`) проходят через generic
+plugin action endpoint и исполняются самим plugin. Core не удаляет и не
+пересобирает предметные данные напрямую.
+
 Добавление другого plugin не должно требовать добавления его полей в
 `Conversation`, специальных endpoint-ов в `main.py` или разметки его панели в
 общем шаблоне. Если Project Room отключён, нейтральное приложение должно

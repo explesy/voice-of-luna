@@ -1746,6 +1746,26 @@ function initProjectRootApply() {
   });
 }
 
+function initProjectRoomActions() {
+  const convId = document.querySelector("[data-conversation-id]")?.dataset?.conversationId;
+  if (!convId) return;
+  document.querySelector("#project-room-refresh")?.addEventListener("click", async () => {
+    const response = await fetch(`/api/conversations/${convId}/plugin/action`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "refresh" }),
+    });
+    if (response.ok) showToast("// PROJECT CARD: REFRESHED");
+  });
+  document.querySelector("#project-room-forget")?.addEventListener("click", async () => {
+    if (!window.confirm("Forget the Project Room card for this project?")) return;
+    const response = await fetch(`/api/conversations/${convId}/plugin/action`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "forget" }),
+    });
+    if (response.ok) showToast("// PROJECT CARD: FORGOTTEN");
+  });
+}
+
 async function pollToolApprovals() {
   const convId = document.querySelector("[data-conversation-id]")?.dataset?.conversationId;
   const dialog = document.querySelector("#tool-approval-dialog");
@@ -1761,6 +1781,7 @@ async function pollToolApprovals() {
   dialog.appendChild(approve);
 }
 window.initProjectRootApply = initProjectRootApply;
+window.initProjectRoomActions = initProjectRoomActions;
 window.pollToolApprovals = pollToolApprovals;
 
 function sendLocaleUpdate(locale) {
@@ -1820,6 +1841,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initSettingsSelectors();
   initPluginSelector();
   initProjectRootApply();
+  initProjectRoomActions();
   pollToolApprovals();
   window.setInterval(pollToolApprovals, 1000);
   initVadToggle();

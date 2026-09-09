@@ -111,6 +111,10 @@ class Plugin(ABC):
         """Return capability metadata for tools, without exposing host internals."""
         return {}
 
+    async def action(self, name: str, settings: dict[str, Any], state: Any = None) -> dict[str, Any]:
+        """Execute a bounded plugin-owned UI action."""
+        raise ValueError(f"Plugin {self.id!r} does not provide action {name!r}")
+
     async def before_turn(self, ctx: TurnContext) -> PluginTurnResult:
         """Hook executed before sending the user's turn to the model.
 
