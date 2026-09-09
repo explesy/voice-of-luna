@@ -68,7 +68,7 @@
               <optgroup label="{{ ui.optgroup_edge if ui else 'Нейросеть (Edge Cloud · Бесплатно)' }}">
                 {% for v in edge_voices %}
                 <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
-                  {{ v.name }} ★
+                  {{ v.name }} — {{ v.locale|replace('_', '-') }} ★
                 </option>
                 {% endfor %}
               </optgroup>
@@ -77,7 +77,7 @@
               <optgroup label="{{ ui.optgroup_piper if ui else 'Локальная нейросеть (Piper ONNX · Offline)' }}">
                 {% for v in piper_voices %}
                 <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %} data-engine="{{ v.engine }}" data-installed="{{ 'true' if v.is_downloaded else 'false' }}" data-model-id="{{ v.model_id or '' }}">
-                  {{ v.name }}{% if v.is_downloaded %} ★{% else %} [↓ {{ v.size_mb|int }}MB]{% endif %}
+                  {{ v.name }} — {{ v.locale|replace('_', '-') }}{% if v.is_downloaded %} ★{% else %} [↓ {{ v.size_mb|int }}MB]{% endif %}
                 </option>
                 {% endfor %}
               </optgroup>
@@ -86,7 +86,7 @@
               <optgroup label="{{ ui.optgroup_silero if ui else 'Локальная нейросеть (Silero · Offline)' }}">
                 {% for v in silero_voices %}
                 <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %} data-engine="{{ v.engine }}" data-installed="{{ 'true' if v.is_downloaded else 'false' }}" data-model-id="{{ v.model_id or '' }}">
-                  {{ v.name }}{% if v.is_downloaded %} ★{% else %} [↓ {{ v.size_mb|int }}MB]{% endif %}
+                  {{ v.name }} — {{ v.locale|replace('_', '-') }}{% if v.is_downloaded %} ★{% else %} [↓ {{ v.size_mb|int }}MB]{% endif %}
                 </option>
                 {% endfor %}
               </optgroup>
@@ -95,7 +95,7 @@
               <optgroup label="{{ ui.optgroup_macos if ui else 'Локальные macOS (Offline)' }}">
                 {% for v in local_russian_voices %}
                 <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
-                  {{ v.name }}{% if v.is_enhanced %} ★{% endif %}
+                  {{ v.name }} — {{ v.locale|replace('_', '-') }}{% if v.is_enhanced %} ★{% endif %}
                 </option>
                 {% endfor %}
               </optgroup>
@@ -103,34 +103,30 @@
               <optgroup label="{{ ui.optgroup_russian if ui else 'Русский (Russian)' }}">
                 {% for v in russian_voices %}
                 <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
-                  {{ v.name }}{% if v.is_enhanced %} ★{% endif %}
+                  {{ v.name }} — {{ v.locale|replace('_', '-') }}{% if v.is_enhanced %} ★{% endif %}
                 </option>
                 {% endfor %}
               </optgroup>
               {% endif %}
               {% set active_is_other = other_voices and (other_voices | selectattr("name", "equalto", active_voice) | list | length > 0) %}
               {% if active_is_other %}
-              <optgroup id="other-voices-group" label="{{ ui.optgroup_other if ui else 'Другие языки (Other)' }}">
-                {% for v in other_voices %}
-                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
-                  {{ v.name }} ({{ v.locale }})
-                </option>
-                {% endfor %}
-              </optgroup>
-              <option value="__collapse_other__">{{ ui.collapse_other if ui else '▲ Скрыть другие языки' }}</option>
-              {% elif other_voices %}
+              <option id="active-other-voice" value="{{ active_voice }}" selected>
+                {{ active_voice }} — {{ (other_voices | selectattr('name', 'equalto', active_voice) | first).locale|replace('_', '-') }}
+              </option>
+              {% endif %}
+              {% if other_voices %}
               <option value="__expand_other__">{{ ui.expand_other if ui else '▶ Другие языки' }} (+{{ other_voices|length }})...</option>
               {% endif %}
               {% if not russian_voices and not other_voices %}
               <option value="{{ active_voice }}" selected>{{ active_voice }}</option>
               {% endif %}
             </select>
-            {% if other_voices and not active_is_other %}
+            {% if other_voices %}
             <template id="other-voices-template">
               <optgroup id="other-voices-group" label="{{ ui.optgroup_other if ui else 'Другие языки (Other)' }}">
                 {% for v in other_voices %}
                 <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
-                  {{ v.name }} ({{ v.locale }})
+                  {{ v.name }} — {{ v.locale|replace('_', '-') }}
                 </option>
                 {% endfor %}
               </optgroup>

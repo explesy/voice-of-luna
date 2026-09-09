@@ -1325,6 +1325,7 @@ function expandOtherVoices(keepValue) {
   if (!tpl) return false;
 
   const clone = tpl.content.cloneNode(true);
+  select.querySelector("#active-other-voice")?.remove();
   const expandOpt = select.querySelector('option[value="__expand_other__"]');
   if (expandOpt) {
     expandOpt.remove();
@@ -1359,6 +1360,8 @@ function collapseOtherVoices(fallbackValue) {
     tpl.content.appendChild(group.cloneNode(true));
   }
 
+  const selectedOption = Array.from(group.options).find((option) => option.value === fallbackValue);
+  const selectedLabel = selectedOption?.textContent?.trim() || fallbackValue;
   group.remove();
   if (collapseOpt) collapseOpt.remove();
 
@@ -1371,6 +1374,14 @@ function collapseOtherVoices(fallbackValue) {
   }
 
   if (fallbackValue) {
+    const previousActive = select.querySelector("#active-other-voice");
+    if (previousActive) previousActive.remove();
+    const activeOption = document.createElement("option");
+    activeOption.id = "active-other-voice";
+    activeOption.value = fallbackValue;
+    activeOption.textContent = selectedLabel;
+    activeOption.selected = true;
+    select.insertBefore(activeOption, select.querySelector('option[value="__expand_other__"]'));
     select.value = fallbackValue;
   }
   return true;
@@ -1427,8 +1438,7 @@ function initVoiceSelector() {
     }
 
     if (chosenVal === "__collapse_other__") {
-      const isVoiceInGroup = select.querySelector(`#other-voices-group option[value="${CSS.escape(last)}"]`);
-      const fallback = isVoiceInGroup ? (select.dataset.russianVoice || select.options[0]?.value) : last;
+      const fallback = last;
       collapseOtherVoices(fallback);
       select.value = fallback;
       if (fallback !== last) {
@@ -1447,6 +1457,9 @@ function initVoiceSelector() {
     document.cookie = `voice_of_luna_voice=${encodeURIComponent(chosenVal)}; path=/; max-age=31536000; SameSite=Lax`;
     updateVoiceAttributes(chosenVal);
     sendVoiceUpdate(chosenVal);
+    if (select.querySelector(`#other-voices-group option[value="${CSS.escape(chosenVal)}"]`)) {
+      collapseOtherVoices(chosenVal);
+    }
     showToast(`// VOICE ACTIVE: ${chosenVal.toUpperCase()}`);
   });
 }

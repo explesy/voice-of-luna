@@ -383,7 +383,10 @@ async def _get_view_context(request: Request, conversation: Conversation | None 
     all_voices = [v.to_dict() for v in get_installed_voices()]
     russian_voices = [v for v in all_voices if v["is_russian"]]
     other_voices = [v for v in all_voices if not v["is_russian"]]
-    edge_voices = [v for v in all_voices if v.get("engine") == "edge"]
+    # Keep the everyday list focused on Russian voices.  Previously this used
+    # every Edge voice, which made English and Spanish voices appear in the
+    # primary group without a locale marker.
+    edge_voices = [v for v in russian_voices if v.get("engine") == "edge"]
     piper_voices = [v for v in russian_voices if v.get("engine") == "piper"]
     silero_voices = [v for v in russian_voices if v.get("engine") == "silero"]
     local_russian_voices = [v for v in russian_voices if v.get("engine") not in ("edge", "silero", "piper")]

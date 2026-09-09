@@ -688,15 +688,28 @@ def test_htmx_shell_renders_voice_selector_with_options() -> None:
     assert 'id="mode-chip"' in page.text
 
 
-def test_htmx_shell_expands_other_voices_when_active_voice_is_other() -> None:
+def test_htmx_shell_keeps_other_language_voice_compact_when_active() -> None:
     # Edge English is available independently of macOS system voices.
     selected = client.post("/api/voice", json={"voice": "Jenny (Neural · Edge)"})
     assert selected.status_code == 200
     page = client.get("/")
     assert page.status_code == 200
     assert 'id="voice-select"' in page.text
-    assert 'id="other-voices-group"' in page.text
-    assert 'value="__collapse_other__"' in page.text
+    # Selecting a foreign-language voice must not re-open the whole catalog.
+    assert 'id="active-other-voice"' in page.text
+    select_markup = page.text.split('<select id="voice-select"', 1)[1].split("</select>", 1)[0]
+    assert 'id="other-voices-group"' not in select_markup
+    assert 'value="__expand_other__"' in page.text
+    assert "Jenny (Neural · Edge) — en-US" in page.text
+
+
+def test_voice_selector_labels_primary_edge_voices_with_locale() -> None:
+    page = client.get("/")
+    assert page.status_code == 200
+    assert "Svetlana (Neural · Edge) — ru-RU" in page.text
+    # English Edge voices belong to the collapsed other-languages catalog.
+    primary_edge_group = page.text.split('label="Нейросеть (Edge Cloud · Бесплатно)"', 1)[1].split("</optgroup>", 1)[0]
+    assert "Jenny (Neural · Edge)" not in primary_edge_group
 
 
 def test_websocket_set_voice_updates_state() -> None:
