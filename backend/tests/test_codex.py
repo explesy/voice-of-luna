@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from app.codex import CodexAppServer, RuntimeStatus
 
 
@@ -463,6 +465,53 @@ def test_turn_interrupt(monkeypatch) -> None:
 
     assert len(interrupted) == 1
     assert interrupted[0] == {"threadId": "thread-int", "turnId": "turn-int"}
+
+
+def test_cancelled_non_streaming_turn_interrupts_remote_turn(monkeypatch) -> None:
+    provider = CodexAppServer()
+    interrupted = []
+    entered_wait = asyncio.Event()
+
+    async def fake_status():
+        return RuntimeStatus(True, "Local Codex is connected")
+
+    async def fake_create_process(*_args, **_kwargs):
+        return FakeProcess()
+
+    async def fake_request(method, params, *args, **kwargs):
+        if method == "thread/start":
+            return {"thread": {"id": "thread-cancel"}}
+        if method == "turn/start":
+            return {"turn": {"id": "turn-cancel"}}
+        if method == "turn/interrupt":
+            interrupted.append(params)
+            return {}
+        return {}
+
+    async def fake_wait_for_answer(*_args):
+        entered_wait.set()
+        await asyncio.Future()
+
+    async def fake_notify(*_args):
+        return None
+
+    monkeypatch.setattr(provider, "status", fake_status)
+    monkeypatch.setattr("app.codex.asyncio.create_subprocess_exec", fake_create_process)
+    monkeypatch.setattr(provider, "_request", fake_request)
+    monkeypatch.setattr(provider, "_notify", fake_notify)
+    monkeypatch.setattr(provider, "_wait_for_answer", fake_wait_for_answer)
+
+    async def exercise() -> None:
+        task = asyncio.create_task(provider.reply("warmup"))
+        await entered_wait.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert interrupted == [{"threadId": "thread-cancel", "turnId": "turn-cancel"}]
+        assert provider._active_turn_id is None
+        await provider.close()
+
+    asyncio.run(exercise())
 
 
 def test_list_models(monkeypatch) -> None:

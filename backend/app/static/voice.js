@@ -15,6 +15,8 @@ let analyserNode = null;
 let micSourceNode = null;
 let animationFrameId = null;
 let speechEndDetectedAt = null;
+let pendingStreamingText = "";
+let streamingTextFrame = null;
 
 // Audio processing and VAD state are provided by audio-player.js and vad.js
 
@@ -71,17 +73,19 @@ async function initAudioAnalyser(stream) {
 
     window.isDirectPcmActive = workletInitialized;
 
-    const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
+    const dataArray = new Float32Array(analyserNode.fftSize);
 
     function updateVolume() {
       if (!analyserNode) return;
-      analyserNode.getByteFrequencyData(dataArray);
-      let sum = 0;
+      analyserNode.getFloatTimeDomainData(dataArray);
+      let sumSquares = 0;
       for (let i = 0; i < dataArray.length; i++) {
-        sum += dataArray[i];
+        sumSquares += dataArray[i] * dataArray[i];
       }
-      const average = sum / dataArray.length;
-      const normalizedVolume = Math.min(1, Math.max(0, average / 128));
+      const rms = Math.sqrt(sumSquares / dataArray.length);
+      // Scale RMS to retain a familiar 0..1 visual range while using the raw
+      // time-domain signal for a microphone-independent VAD noise estimate.
+      const normalizedVolume = Math.min(1, Math.max(0, rms * 2.5));
 
       const stage = document.querySelector(".radar-stage");
       if (stage) {
@@ -91,7 +95,14 @@ async function initAudioAnalyser(stream) {
       // VAD (Voice Activity Detection) during active recording
       if (window.vadEnabled && isRecordingActive) {
         const now = performance.now();
-        const threshold = window.VAD_VOLUME_THRESHOLD || 0.055;
+        if (window.vadNoiseFloor == null) window.vadNoiseFloor = normalizedVolume;
+        const wasSpeaking = Boolean(window.vadSpeechDetected);
+        if (!wasSpeaking || normalizedVolume < window.vadNoiseFloor + (window.VAD_START_MARGIN || 0.018)) {
+          window.vadNoiseFloor = (window.vadNoiseFloor * 0.96) + (normalizedVolume * 0.04);
+        }
+        const noiseFloor = window.vadNoiseFloor;
+        const threshold = Math.max(window.VAD_MIN_START_THRESHOLD || 0.035, noiseFloor + (window.VAD_START_MARGIN || 0.018));
+        const stopThreshold = Math.max(0.02, noiseFloor + (window.VAD_STOP_MARGIN || 0.008));
         const minDuration = window.VAD_MIN_SPEECH_DURATION_MS || 350;
         const silenceTimeout = window.VAD_SILENCE_TIMEOUT_MS || 450;
 
@@ -102,14 +113,14 @@ async function initAudioAnalyser(stream) {
           }
           window.vadSilenceStartTime = null;
           speechEndDetectedAt = null;
-        } else if (window.vadSpeechDetected && window.speechStartTime && (now - window.speechStartTime) >= minDuration) {
+        } else if (window.vadSpeechDetected && normalizedVolume < stopThreshold && window.speechStartTime && (now - window.speechStartTime) >= minDuration) {
           if (!window.vadSilenceStartTime) {
             window.vadSilenceStartTime = now;
             speechEndDetectedAt = now;
           } else if (now - window.vadSilenceStartTime >= silenceTimeout) {
             console.log("// VAD auto-stop: silence detected for", Math.round(now - window.vadSilenceStartTime), "ms");
             if (typeof window.recordVadTraceSample === "function") {
-              window.recordVadTraceSample(normalizedVolume, threshold, window.vadSpeechDetected, window.vadSilenceStartTime, "automaticStop");
+              window.recordVadTraceSample(normalizedVolume, threshold, window.vadSpeechDetected, window.vadSilenceStartTime, "automaticStop", stopThreshold, noiseFloor);
             }
             window.vadSpeechDetected = false;
             window.vadSilenceStartTime = null;
@@ -119,7 +130,7 @@ async function initAudioAnalyser(stream) {
           }
         }
         if (typeof window.recordVadTraceSample === "function") {
-          window.recordVadTraceSample(normalizedVolume, threshold, window.vadSpeechDetected, window.vadSilenceStartTime);
+          window.recordVadTraceSample(normalizedVolume, threshold, window.vadSpeechDetected, window.vadSilenceStartTime, null, stopThreshold, noiseFloor);
         }
       }
 
@@ -136,6 +147,7 @@ function stopAudioAnalyser() {
   window.vadSpeechDetected = false;
   window.vadSilenceStartTime = null;
   window.speechStartTime = null;
+  window.vadNoiseFloor = null;
   if (animationFrameId) {
     cancelAnimationFrame(animationFrameId);
     animationFrameId = null;
@@ -367,6 +379,7 @@ function stopSpeaking() {
     activePlayer = null;
   }
   firstAudioPlayTime = null;
+  firstAudioSoundOffsetMs = null;
   if (socket && socket.readyState === WebSocket.OPEN) {
     try {
       socket.send(JSON.stringify({ type: "stop_speaking" }));
@@ -392,6 +405,7 @@ function updateLatencyHud(timing, clientE2eMs) {
   if (timing?.server_audio_prep_ms != null) parts.push(`PREP: ${timing.server_audio_prep_ms}ms`);
   if (timing?.llm_first_delta_ms != null) parts.push(`LLM: ${timing.llm_first_delta_ms}ms`);
   if (timing?.tts_synthesis_first_chunk_ms != null) parts.push(`TTS: ${timing.tts_synthesis_first_chunk_ms}ms`);
+  if (firstAudioSoundOffsetMs != null) parts.push(`ONSET: ${firstAudioSoundOffsetMs}ms`);
 
   if (parts.length > 0) {
     val.textContent = parts.join(" | ");
@@ -659,20 +673,19 @@ function handleSocketMessage(event) {
   } else if (data.type === "status") {
     setVoiceState(data.state, data.message, data.mode_label);
   } else if (data.type === "transcript") {
+    flushStreamingText();
     appendMessageToFeed("user", data.text);
     currentStreamingEntry = null;
   } else if (data.type === "delta") {
     if (!currentStreamingEntry) {
       currentStreamingEntry = appendMessageToFeed("assistant", "");
     }
-    const textEl = currentStreamingEntry.querySelector(".log-text");
-    if (textEl) {
-      textEl.textContent += data.delta;
-      scrollFeedToBottom();
-    }
+    pendingStreamingText += data.delta || "";
+    scheduleStreamingTextFlush();
   } else if (data.type === "audio_chunk") {
     enqueueAudioChunk(data.audio_url, currentStreamingEntry, data.audio_base64, data.mime_type);
   } else if (data.type === "turn_completed") {
+    flushStreamingText();
     if (data.tts_engine) {
       updateFooterStatus(data.tts_engine);
     }
@@ -692,6 +705,25 @@ function handleSocketMessage(event) {
   } else if (data.type === "error") {
     showToast(`// error: ${data.message}`);
     setVoiceState("error", data.message, "ERR // SERVER");
+  }
+}
+
+function scheduleStreamingTextFlush() {
+  if (streamingTextFrame != null) return;
+  streamingTextFrame = requestAnimationFrame(flushStreamingText);
+}
+
+function flushStreamingText() {
+  if (streamingTextFrame != null) {
+    cancelAnimationFrame(streamingTextFrame);
+    streamingTextFrame = null;
+  }
+  if (!pendingStreamingText || !currentStreamingEntry) return;
+  const textEl = currentStreamingEntry.querySelector(".log-text");
+  if (textEl) {
+    textEl.textContent += pendingStreamingText;
+    pendingStreamingText = "";
+    scrollFeedToBottom();
   }
 }
 
@@ -912,6 +944,7 @@ async function finishRecording(stream, recordBtn) {
   const speechEndedAt = speechEndDetectedAt || recordingStoppedAt;
   lastSpeechEndTime = speechEndedAt;
   firstAudioPlayTime = null;
+  firstAudioSoundOffsetMs = null;
   const sampleRate = audioContext?.sampleRate || 44100;
   const rawPcm = pcmSamples;
   stopAudioAnalyser();
@@ -949,6 +982,7 @@ async function stopRecording(recordBtn) {
   window.vadSpeechDetected = false;
   window.vadSilenceStartTime = null;
   window.speechStartTime = null;
+  window.vadNoiseFloor = null;
 
   if (recorder && recorder.state === "recording") {
     recorder.stop();
@@ -1001,6 +1035,7 @@ async function sendRecording(url, audioBlob, timing = null) {
   } catch (error) {
     lastSpeechEndTime = null;
     firstAudioPlayTime = null;
+    firstAudioSoundOffsetMs = null;
     setVoiceState("idle", `Turn failed: ${error.message}`, "ERR // TURN");
     showToast(`// turn error: ${error.message}`);
   }
@@ -1229,6 +1264,7 @@ document.addEventListener("submit", (event) => {
     stopSpeaking();
     lastSpeechEndTime = performance.now();
     firstAudioPlayTime = null;
+    firstAudioSoundOffsetMs = null;
     currentStreamingEntry = null;
     socket.send(JSON.stringify({ type: "text", text }));
     input.value = "";

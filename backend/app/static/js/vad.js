@@ -7,18 +7,24 @@ window.vadSpeechDetected = false;
 window.vadSilenceStartTime = null;
 window.speechStartTime = null;
 window.VAD_VOLUME_THRESHOLD = 0.055;
+window.VAD_MIN_START_THRESHOLD = 0.035;
+window.VAD_START_MARGIN = 0.018;
+window.VAD_STOP_MARGIN = 0.008;
 window.VAD_SILENCE_TIMEOUT_MS = 450;
 window.VAD_MIN_SPEECH_DURATION_MS = 350;
+window.vadNoiseFloor = null;
 window.vadTraceEnabled = localStorage.getItem("voice_of_luna_vad_trace") === "true";
 window.vadTrace = [];
 
-function recordVadTraceSample(normalizedVolume, vadThreshold, speechDetected, silenceStart, event = null) {
+function recordVadTraceSample(normalizedVolume, vadThreshold, speechDetected, silenceStart, event = null, stopThreshold = null, noiseFloor = null) {
   if (!window.vadTraceEnabled) return;
   if (window.vadTrace.length >= 20000) window.vadTrace.shift();
   window.vadTrace.push({
     timestamp_ms: Math.round(performance.now()),
     normalizedVolume: Number(normalizedVolume.toFixed(4)),
-    vadThreshold,
+    vadThreshold: Number(vadThreshold.toFixed(4)),
+    stopThreshold: stopThreshold == null ? null : Number(stopThreshold.toFixed(4)),
+    noiseFloor: noiseFloor == null ? null : Number(noiseFloor.toFixed(4)),
     speechDetected: Boolean(speechDetected),
     silenceStart: silenceStart == null ? null : Math.round(silenceStart),
     ...(event ? { event } : {}),
@@ -37,7 +43,7 @@ function getVadTrace() {
 
 function downloadVadTrace() {
   const samples = getVadTrace();
-  const blob = new Blob([JSON.stringify({ version: "vad-trace-v1", session_id: crypto.randomUUID(), parameters: { threshold: window.VAD_VOLUME_THRESHOLD, silence_timeout_ms: window.VAD_SILENCE_TIMEOUT_MS, min_speech_ms: window.VAD_MIN_SPEECH_DURATION_MS }, traces: [{ id: "session", samples }] }, null, 2)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify({ version: "vad-trace-v2", session_id: crypto.randomUUID(), parameters: { threshold: window.VAD_VOLUME_THRESHOLD, min_start_threshold: window.VAD_MIN_START_THRESHOLD, start_margin: window.VAD_START_MARGIN, stop_margin: window.VAD_STOP_MARGIN, silence_timeout_ms: window.VAD_SILENCE_TIMEOUT_MS, min_speech_ms: window.VAD_MIN_SPEECH_DURATION_MS }, traces: [{ id: "session", samples }] }, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

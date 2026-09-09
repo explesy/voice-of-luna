@@ -92,6 +92,36 @@ def test_failed_warmup_is_not_reported_as_warm(monkeypatch) -> None:
     assert conversation.remote_warmup_status == "failed"
 
 
+def test_stop_warmup_interrupts_before_cancelling_task(monkeypatch) -> None:
+    service = ConversationService()
+    conversation = Conversation(id="warmup-stop")
+    events = []
+
+    async def fake_interrupt():
+        events.append("interrupt")
+        return True
+
+    async def pending_warmup(*_args, **_kwargs):
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            events.append("cancel")
+            raise
+
+    monkeypatch.setattr(conversation.model, "interrupt", fake_interrupt)
+    monkeypatch.setattr(service, "run_warmup", pending_warmup)
+
+    async def exercise() -> None:
+        service.schedule_warmup(conversation, "gpt-test", "low")
+        await asyncio.sleep(0)
+        await service.stop_warmup(conversation)
+
+    asyncio.run(exercise())
+    assert events == ["interrupt", "cancel"]
+    assert conversation.remote_warmup_task is None
+    assert conversation.remote_warmup_status == "cold"
+
+
 def test_plugin_switch_preserves_selected_voice(monkeypatch) -> None:
     service = ConversationService()
     conversation = Conversation(id="voice-selection", locale="en-US")
@@ -153,9 +183,20 @@ def test_extract_speech_sentence_basic() -> None:
     assert sentence == "Hello world."
     assert remainder == "How are you today? This is another sentence."
 
-    sentence2, remainder2 = extract_speech_sentence(remainder, is_first_chunk=False)
-    assert sentence2 == "How are you today?"
-    assert remainder2 == "This is another sentence."
+
+def test_extract_speech_sentence_hard_caps_unpunctuated_output() -> None:
+    text = " ".join(f"word{index}" for index in range(24))
+    sentence, remainder = extract_speech_sentence(text, is_first_chunk=False)
+    assert sentence is not None
+    assert len(sentence.split()) == 20
+    assert len(remainder.split()) == 4
+
+
+def test_extract_speech_sentence_allows_later_substantial_clause() -> None:
+    text = "Мы можем начать с этого проверенного варианта прямо сейчас вместе с командой, потому что он уже стабилен."
+    sentence, remainder = extract_speech_sentence(text, is_first_chunk=False)
+    assert sentence == "Мы можем начать с этого проверенного варианта прямо сейчас вместе с командой,"
+    assert remainder.startswith("потому что")
 
 
 def test_extract_speech_sentence_first_chunk_clause_boundary() -> None:

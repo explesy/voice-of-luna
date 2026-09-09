@@ -340,16 +340,27 @@ class CodexAppServer:
         if effort:
             params["effort"] = effort
 
+        turn_id: str | None = None
         try:
             turn = await self._request("turn/start", params)
             turn_id = turn["turn"]["id"]
+            # Keep ordinary (non-streaming) turns interruptible too. Remote
+            # warmup uses this path and must not outlive its cancelled task.
+            self._active_turn_id = turn_id
             return await self._wait_for_answer(thread_id, turn_id)
+        except asyncio.CancelledError:
+            if turn_id:
+                await self.interrupt(turn_id)
+            raise
         except CodexUnavailable:
             await self.close()
             raise
         except (KeyError, TypeError, asyncio.TimeoutError) as error:
             await self.close()
             raise CodexUnavailable("Codex app-server returned an unexpected response") from error
+        finally:
+            if self._active_turn_id == turn_id:
+                self._active_turn_id = None
 
     async def _stream_with_input(
         self,

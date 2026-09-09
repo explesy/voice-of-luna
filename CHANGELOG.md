@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-09-09
+
+### Added
+- Добавлена cancellation-safe отмена remote warmup: пользовательский turn не ждёт технический ответ, а удалённый Codex turn прерывается по известному `turn_id`.
+- Добавлены adaptive speech segmentation с hard cap для пунктуационно бедного streaming-текста, adaptive VAD с noise floor/hysteresis и клиентский batching text deltas через `requestAnimationFrame`.
+- В latency HUD добавлена оценка смещения до первого ненулевого аудиосэмпла (audio onset).
+
+### Changed
+- VAD перешёл с фиксированного FFT-порога на time-domain RMS с rolling noise floor и отдельными start/stop thresholds.
+
 ## [0.28.17] - 2026-09-09
 
 ### Added

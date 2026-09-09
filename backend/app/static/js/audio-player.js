@@ -73,6 +73,7 @@ var currentAudioElement = null;
 var activePlayer = null;
 var currentStreamingEntry = null;
 var firstAudioPlayTime = null;
+var firstAudioSoundOffsetMs = null;
 var lastSpeechEndTime = null;
 var latestTiming = null;
 
@@ -90,6 +91,23 @@ function notifyLatencyHud(timing, clientE2e) {
   } else if (typeof window.updateLatencyHud === "function") {
     window.updateLatencyHud(timing, clientE2e);
   }
+}
+
+function measureFirstSoundOffset(audioBuffer) {
+  if (!audioBuffer || !audioBuffer.length || !audioBuffer.sampleRate) return null;
+  const threshold = 0.003;
+  const channels = audioBuffer.numberOfChannels || 1;
+  for (let index = 0; index < audioBuffer.length; index++) {
+    let audible = false;
+    for (let channel = 0; channel < channels; channel++) {
+      if (Math.abs(audioBuffer.getChannelData(channel)[index]) > threshold) {
+        audible = true;
+        break;
+      }
+    }
+    if (audible) return Math.round((index / audioBuffer.sampleRate) * 1000);
+  }
+  return null;
 }
 
 function stopAudioPlayback() {
@@ -166,6 +184,13 @@ async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "aud
   }
 
   audioQueue.push({ url, blobUrl, audioBuffer, entry: targetEntry });
+  if (firstAudioSoundOffsetMs == null && audioBuffer) {
+    firstAudioSoundOffsetMs = measureFirstSoundOffset(audioBuffer);
+    if (firstAudioSoundOffsetMs != null) {
+      const clientE2e = firstAudioPlayTime && lastSpeechEndTime ? Math.round(firstAudioPlayTime - lastSpeechEndTime) : null;
+      notifyLatencyHud(latestTiming, clientE2e);
+    }
+  }
   scheduleAudioPlayback();
 }
 

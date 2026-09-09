@@ -356,6 +356,21 @@ class ConversationService:
         if task and not task.done():
             await asyncio.gather(task, return_exceptions=True)
 
+    async def stop_warmup(self, conversation: Conversation) -> None:
+        """Cancel warmup and interrupt its remote Codex turn before user input."""
+        task = conversation.remote_warmup_task
+        if task is None or task.done():
+            return
+
+        # ``reply()`` now publishes the ordinary turn ID as _active_turn_id,
+        # allowing the app-server to stop inference before the next turn.
+        await conversation.model.interrupt()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        if conversation.remote_warmup_task is task:
+            conversation.remote_warmup_task = None
+        conversation.remote_warmup_status = "cold"
+
     def recover_html_conversation(self, conversation_id: str) -> Conversation:
         """Keep a stale browser form usable after a local --reload restart."""
         conversation = self.conversations.get(conversation_id)

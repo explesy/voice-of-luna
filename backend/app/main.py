@@ -1160,7 +1160,9 @@ async def _stream_and_synthesize(
     t_stt: float | None = None,
     client_timing: dict[str, int] | None = None,
 ) -> None:
-    await _await_conversation_warmup(conversation)
+    # A technical remote warmup is opportunistic. It must never delay the
+    # user's turn, and cancellation must interrupt the remote inference first.
+    await conversation_service.stop_warmup(conversation)
 
     turn_lang = resolve_turn_language(conversation, user_text=prompt_text)
     effective_locale = turn_lang.response_locale

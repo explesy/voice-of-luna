@@ -52,10 +52,15 @@ FIRST_CHUNK_SPLIT_RE = re.compile(
         |
         \n+
         |
-        (?<=[,;:—–])(?:\s+)
+        (?<=[,;:—–])(?:[ \t]+)
     )
     """
 )
+
+SPEECH_MIN_WORDS = 6
+SPEECH_HARD_MAX_WORDS = 20
+SPEECH_FIRST_CLAUSE_MIN_WORDS = 3
+SPEECH_LATER_COMMA_MIN_WORDS = 12
 
 def detect_effective_turn_locale(text: str, fallback_locale: str = "ru-RU") -> str:
     """Detect turn locale based on text content (Cyrillic -> ru-RU, Spanish markers -> es-ES, else en-US)."""
@@ -149,42 +154,71 @@ async def convert_to_wav(source: Path) -> Path:
 
 
 def extract_speech_sentence(buffer: str, is_first_chunk: bool = False) -> tuple[str | None, str]:
-    """Extract the first ready sentence/segment from the streaming buffer."""
+    """Extract one natural, speech-sized segment from a streaming buffer.
+
+    Strong sentence punctuation is preferred. Clause punctuation is useful for
+    the first audible chunk and for already substantial later chunks; a hard
+    word cap prevents a model that omits punctuation from creating a long
+    silence before TTS can start.
+    """
     clean_buf = buffer.lstrip()
     if not clean_buf:
         return None, ""
 
-    split_re = FIRST_CHUNK_SPLIT_RE if is_first_chunk else SENTENCE_SPLIT_RE
+    split_re = FIRST_CHUNK_SPLIT_RE
 
-    for match in split_re.finditer(clean_buf):
-        split_pos = match.end()
-        candidate = clean_buf[: match.start()].strip()
-
-        is_clause_boundary = bool(re.search(r"[,;:—–]$", clean_buf[: match.start()].rstrip()))
-
-        if is_clause_boundary:
-            words = candidate.split()
-            if len(words) < 3 or len(candidate) < 12:
-                continue
-        else:
+    def is_valid_candidate(candidate: str, boundary: str) -> bool:
+        words = candidate.split()
+        if boundary in {",", ":", ";", "—", "–"}:
+            minimum = (
+                SPEECH_FIRST_CLAUSE_MIN_WORDS
+                if is_first_chunk
+                else (SPEECH_LATER_COMMA_MIN_WORDS if boundary == "," else SPEECH_MIN_WORDS)
+            )
+            if len(words) < minimum or len(candidate) < 12:
+                return False
+        elif is_first_chunk or len(candidate) >= 6:
             if len(candidate) < 6:
-                continue
+                return False
+        else:
+            return False
 
         if re.search(r"\b\d+\.$", candidate):
-            continue
-
+            return False
         if candidate.count("(") > candidate.count(")") or candidate.count("[") > candidate.count("]"):
-            continue
+            return False
 
-        last_word = candidate.split()[-1] if candidate.split() else ""
+        last_word = words[-1] if words else ""
         if (
             last_word.lower().rstrip(".,:;!?") + "." in ABBREVIATIONS
             or last_word.lower() in ABBREVIATIONS
         ):
+            return False
+        return True
+
+    for match in split_re.finditer(clean_buf):
+        split_pos = match.end()
+        candidate = clean_buf[: match.start()].strip()
+        boundary_match = re.search(r"[,;:—–]$", candidate)
+        boundary = boundary_match.group(0) if boundary_match else "."
+        # A Markdown list item commonly uses an em dash or colon inside its
+        # title. The line break is the useful boundary in that case.
+        if boundary_match and (clean_buf.startswith(("- ", "* ")) or "\n- " in clean_buf[: match.start()]):
+            continue
+        if not is_valid_candidate(candidate, boundary):
             continue
 
         sentence = clean_buf[:split_pos].strip()
         remainder = clean_buf[split_pos:].lstrip()
         return sentence, remainder
+
+    # Punctuation-free output should still reach TTS eventually. Cut only at
+    # whitespace so words and prosody are not damaged by a character limit.
+    words = list(re.finditer(r"\S+", clean_buf))
+    if len(words) >= SPEECH_HARD_MAX_WORDS:
+        cut_match = words[SPEECH_HARD_MAX_WORDS - 1]
+        candidate = clean_buf[: cut_match.end()].strip()
+        if is_valid_candidate(candidate, "."):
+            return candidate, clean_buf[cut_match.end() :].lstrip()
 
     return None, clean_buf
