@@ -636,7 +636,7 @@ function handleSocketMessage(event) {
       updateFooterStatus(data.tts_engine);
     }
   } else if (data.type === "plugin_updated") {
-    if (data.panel) renderPluginPanel(data.panel, data.plugin_id);
+    if (Object.prototype.hasOwnProperty.call(data, "panel")) renderPluginPanel(data.panel, data.plugin_id);
     if (data.plugin_id) {
       document.querySelectorAll(".plugin-select, #plugin-select, #session-plugin-select").forEach((el) => {
         el.value = data.plugin_id;
@@ -1628,8 +1628,8 @@ function initPluginSelector() {
   if (pluginSelectors.length === 0) return;
 
   const pluginsData = window._PLUGINS || [];
-  const projectRootChip = document.querySelector(".plugin-panel");
   const updateProjectRootVisibility = (pluginId) => {
+    const projectRootChip = document.querySelector(".plugin-panel");
     if (!projectRootChip) return;
     const plugin = pluginsData.find((p) => p.id === pluginId);
     const hidden = !plugin?.panel;
@@ -1727,7 +1727,7 @@ function sendPluginUpdate(pluginId, mode = "default") {
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data && data.panel) renderPluginPanel(data.panel, data.plugin_id);
+        if (data && Object.prototype.hasOwnProperty.call(data, "panel")) renderPluginPanel(data.panel, data.plugin_id);
         if (data && data.voice) {
           const voiceSelect = document.querySelector("#voice-select");
           if (voiceSelect) {
