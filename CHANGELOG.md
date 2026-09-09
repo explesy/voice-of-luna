@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-09-09
+
+### Added
+- Added a generic plugin-owned settings/configuration contract so domain-specific state can remain inside plugins.
+- Documented the strict separation between the neutral conversation core and Project Room domain behavior.
+
 ## [0.27.1] - 2026-09-09
 
 ### Fixed

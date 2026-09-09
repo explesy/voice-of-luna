@@ -40,11 +40,29 @@ Browser не получает API keys, OAuth access token или refresh token.
 
 # Plugin boundary and native tool runtime
 
+## Обязательное разделение core и plugins
+
+Core Lúna остаётся нейтральным voice shell: conversation lifecycle, transcript,
+STT/TTS, Codex bridge, turn-taking, общий PluginManager, capability checks и
+generic plugin storage. Core не знает, что такое Git, workspace, project card,
+ветка, README или GitHub repository.
+
+Вся предметная логика принадлежит конкретному plugin. Для `Project Room` это
+выбор и проверка Git-root, snapshot/project card, freshness, repository search и
+read, project-scoped memory, evidence и собственная панель настроек. Эти данные
+хранятся только в namespace Project Room; core передаёт plugin-у opaque settings
+и отображает его generic panel/artifacts, не интерпретируя их смысл.
+
+Добавление другого plugin не должно требовать добавления его полей в
+`Conversation`, специальных endpoint-ов в `main.py` или разметки его панели в
+общем шаблоне. Если Project Room отключён, нейтральное приложение должно
+полностью работать без Git-логики и project-specific state.
+
 Plugin — локальный пакет с manifest и одной или несколькими ограниченными точками расширения: `systemPrompt`, `beforeTurn`, `afterTurn`, `renderPanel`, `tools` и `call_tool`. Он получает нормализованный transcript и capability context, но никогда не получает аудио stream, OAuth credential, app-server transport или возможность писать в core database вне своего namespace.
 
 Для native tools используется opt-in `dynamicTools` app-server protocol. `CodexAppServer` остаётся общим bidirectional bridge: server-initiated `item/tool/call` маршрутизируется через `PluginManager`, где проверяются объявление инструмента, permission и timeout. MCP пока остаётся адаптером для внешних интеграций; first-party Project Room не зависит от MCP.
 
-Persistent plugin memory использует один local SQLite/FTS5 файл с namespace по `plugin_id` и scope (`global`, `plugin`, `conversation`). Repository access ограничен realpath выбранного project root и read-only операциями.
+Persistent plugin memory использует один local SQLite/FTS5 файл с namespace по `plugin_id` и scope (`global`, `plugin`, `conversation`). Repository access ограничен realpath, который валидирует и хранит сам Project Room; core не владеет repository state.
 
 Первый реализованный plugin — `Project Room`: его память хранится в plugin-scoped SQLite/FTS5, repository tools работают read-only в выбранном root, а `github.create_issue` требует одноразового approval `external.write` на 60 секунд. Базовый продукт без plugin остаётся полезным; личные тренировочные сценарии по-прежнему не входят в core.
 
@@ -56,7 +74,7 @@ Persistent plugin memory использует один local SQLite/FTS5 фай�
 - `POST /api/conversations/{id}/turns` — принимает уже распознанный текст для первого smoke path.
 - `DELETE /api/conversations/{id}` — удаляет transcript и events.
 - `WS /ws/conversations/{id}` — realtime audio input, transcript/status events, streamed assistant text и TTS chunks.
-- `POST /api/conversations/{id}/plugin` — выбирает plugin/mode и, для Project Room, локальный `project_root`.
+- `POST /api/conversations/{id}/plugin` — выбирает plugin/mode и передаёт opaque plugin settings; смысл настроек валидирует активный plugin.
 - `POST /api/conversations/{id}/tool-approval` — выдаёт одноразовое approval для `external.write`.
 
 Логируются только lifecycle events, timings, безопасные технические ошибки и явно сохранённый transcript. OAuth/API secrets, raw audio и полные stdout/stderr app-server не логируются. Contract test выполняет JSON-RPC handshake с установленным app-server и проверяет один короткий text turn только по явному локальному запуску. Browser smoke проверяет permission/error states и то, что transcript не отправляется в URL или local logs без согласия.

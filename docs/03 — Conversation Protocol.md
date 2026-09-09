@@ -27,9 +27,22 @@ Core передаёт модели system instruction для краткого г
 
 # Plugin hooks and tools
 
+Core и plugin разделены строго. Core владеет только нейтральным turn/audio
+протоколом и generic transport. Plugin владеет своими настройками, памятью,
+панелью, предметными правилами исследования и артефактами доказательств.
+`Conversation` не должен содержать поля конкретного plugin (например,
+`project_root` или `github_repository`); настройки передаются как opaque
+структура и интерпретируются только активным plugin.
+
 Plugin может добавить prompt context в `beforeTurn`, сохранить собственную заметку в `afterTurn`, отобразить панель через `renderPanel` или объявить native tools через `tools()`. Core применяет timeout и redaction; hook или tool не может задерживать аудио-путь бесконечно. Tool получает только capability context: raw audio, OAuth tokens, process handles и произвольный shell ему недоступны.
 
-Project Room — первый first-party tool plugin. Его read-only repository tools ограничены выбранным `VOICE_OF_LUNA_PROJECT_ROOT`, а память хранится в plugin-scoped SQLite/FTS5. `github.create_issue` требует одноразового `external.write` approval через `POST /api/conversations/{id}/tool-approval`; approval живёт 60 секунд и потребляется одним вызовом.
+Project Room — первый first-party tool plugin. Он сам владеет выбранным Git-root,
+project card, freshness, repository tools, evidence и project-scoped memory.
+Core предоставляет ему только generic plugin settings, capability context,
+namespaced storage и dynamic-tool transport. `github.create_issue` требует
+одноразового `external.write` approval через
+`POST /api/conversations/{id}/tool-approval`; approval живёт 60 секунд и
+потребляется одним вызовом.
 
 # Минимальные тесты
 

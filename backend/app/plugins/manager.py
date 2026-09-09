@@ -190,6 +190,21 @@ class PluginManager:
             )
             return ""
 
+    async def configure(self, plugin_id: str, settings: dict[str, Any]) -> dict[str, Any]:
+        """Let a plugin validate its opaque settings; the host owns no domain fields."""
+        plugin = self.get(plugin_id)
+        try:
+            return await asyncio.wait_for(plugin.configure(dict(settings)), timeout=1.5)
+        except Exception as exc:
+            logger.warning("Plugin %s configuration failed: %s", plugin_id, exc)
+            raise ValueError("Plugin configuration is invalid") from exc
+
+    def panel_schema(self, plugin_id: str) -> dict[str, Any] | None:
+        return self.get(plugin_id).panel_schema()
+
+    def tool_context_metadata(self, plugin_id: str, settings: dict[str, Any]) -> dict[str, Any]:
+        return dict(self.get(plugin_id).tool_context_metadata(dict(settings)))
+
     async def execute_before_turn(
         self, plugin_id: str, ctx: TurnContext, timeout: float = 1.5
     ) -> PluginTurnResult:

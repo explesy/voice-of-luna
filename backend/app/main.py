@@ -334,9 +334,14 @@ async def _refresh_conversation_base_instructions(
 
 
 async def _apply_plugin_to_conversation(
-    conversation: Conversation, plugin_id: str, mode: str = "default"
+    conversation: Conversation,
+    plugin_id: str,
+    mode: str = "default",
+    settings: dict[str, Any] | None = None,
 ) -> None:
-    await conversation_service.apply_plugin(conversation, plugin_id, mode=mode)
+    await conversation_service.apply_plugin(
+        conversation, plugin_id, mode=mode, settings=settings
+    )
 
 
 async def _get_view_context(request: Request, conversation: Conversation | None = None) -> dict[str, object]:
@@ -920,6 +925,7 @@ async def list_plugins() -> dict[str, object]:
 class PluginSelectInput(BaseModel):
     plugin_id: str = Field(min_length=1)
     mode: str | None = Field(default="default")
+    settings: dict[str, Any] = Field(default_factory=dict)
     project_root: str | None = Field(default=None, max_length=1000)
 
 
@@ -942,7 +948,10 @@ async def select_plugin(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     await _apply_plugin_to_conversation(
-        conversation, body.plugin_id, body.mode or "default"
+        conversation,
+        body.plugin_id,
+        body.mode or "default",
+        settings=body.settings,
     )
     response.set_cookie(
         key="voice_of_luna_plugin",

@@ -95,6 +95,22 @@ class Plugin(ABC):
         """Static instructions to append to the base LLM prompt when initializing a thread."""
         return ""
 
+    async def configure(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """Validate and normalize plugin-owned settings.
+
+        The host stores settings opaquely; only the active plugin may interpret
+        their meaning.  This keeps domain concepts out of the conversation core.
+        """
+        return dict(settings)
+
+    def panel_schema(self) -> dict[str, Any] | None:
+        """Describe an optional plugin-owned settings panel for the host UI."""
+        return None
+
+    def tool_context_metadata(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """Return capability metadata for tools, without exposing host internals."""
+        return {}
+
     async def before_turn(self, ctx: TurnContext) -> PluginTurnResult:
         """Hook executed before sending the user's turn to the model.
 

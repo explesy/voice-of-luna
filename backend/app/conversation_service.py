@@ -196,6 +196,8 @@ class Conversation:
     reasoning_effort: str = "low"
     plugin_id: str = "neutral"
     plugin_mode: str = "default"
+    # Opaque settings owned and interpreted by the active plugin.
+    plugin_settings: dict[str, Any] = field(default_factory=dict)
     last_active_at: float = field(default_factory=time.monotonic)
     active_websockets: int = 0
     remote_warmup_key: tuple[str, str, int, int] | None = None
@@ -397,7 +399,11 @@ class ConversationService:
         return base_instructions
 
     async def apply_plugin(
-        self, conversation: Conversation, plugin_id: str, mode: str = "default"
+        self,
+        conversation: Conversation,
+        plugin_id: str,
+        mode: str = "default",
+        settings: dict[str, Any] | None = None,
     ) -> None:
         if conversation.project_context is None and conversation.project_root is not None:
             try:
@@ -405,7 +411,12 @@ class ConversationService:
                 conversation.project_root = conversation.project_context.root
             except ValueError:
                 conversation.project_root = None
-        if conversation.plugin_id != plugin_id:
+        normalized_settings = await plugin_manager.configure(
+            plugin_id, settings if settings is not None else conversation.plugin_settings
+        )
+        settings_changed = normalized_settings != conversation.plugin_settings
+        conversation.plugin_settings = normalized_settings
+        if conversation.plugin_id != plugin_id or settings_changed:
             conversation.plugin_id = plugin_id
             conversation.plugin_mode = mode
             await self.refresh_base_instructions(conversation)
@@ -433,6 +444,9 @@ class ConversationService:
                     if not await wait_for_tool_approval(conversation.id, tool_spec.qualified_name, arguments, conversation.project_context.github_repository if conversation.project_context else None):
                         return {"contentItems": [{"type": "text", "text": "External action was not approved."}]}
                 granted_permissions = ("storage.read", "storage.write", "repo.read", "network.read", "external.write") if tool_spec and tool_spec.required_permission == "external.write" else ("storage.read", "storage.write", "repo.read", "network.read")
+                plugin_metadata = plugin_manager.tool_context_metadata(
+                    selected_plugin, conversation.plugin_settings
+                )
                 result = await plugin_manager.call_tool(
                     selected_plugin,
                     tool_name,
@@ -442,6 +456,7 @@ class ConversationService:
                         plugin_id=selected_plugin,
                         active_mode=conversation.plugin_mode,
                         metadata={
+                            **plugin_metadata,
                             "project_root": str(conversation.project_context.root)
                             if conversation.project_context else None,
                             "project_scope": conversation.project_context.scope

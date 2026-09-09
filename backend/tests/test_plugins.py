@@ -65,6 +65,9 @@ class ToolPlugin(Plugin):
         assert ctx.plugin_id == self.id
         return ToolResult(content_items=[{"type": "text", "text": arguments["query"]}])
 
+    async def configure(self, settings):
+        return {"owned": str(settings.get("owned", ""))}
+
 
 @pytest.mark.anyio
 async def test_plugin_manager_registration_and_listing():
@@ -86,6 +89,7 @@ async def test_plugin_manager_dispatches_declared_tools_and_isolates_unknown_too
     mgr.register(ToolPlugin())
     ctx = ToolCallContext("conv-1", "tool_plugin", "default")
 
+    assert await mgr.configure("tool_plugin", {"owned": "value", "host": "ignored"}) == {"owned": "value"}
     assert mgr.dynamic_tools("tool_plugin")[0]["name"] == "memory_search"
     result = await mgr.call_tool("tool_plugin", "memory.search", {"query": "decision"}, ctx)
     assert result.content_items == [{"type": "text", "text": "decision"}]
