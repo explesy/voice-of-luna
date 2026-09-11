@@ -114,6 +114,19 @@ def _build_stt_provider(*, language: str | None, prompt: str | None) -> SpeechTo
     return LocalWhisperTranscriber(language=language, prompt=prompt)
 
 
+async def _record_tone_shadow_observation(conversation_id: str, wav_bytes: bytes) -> None:
+    """Record opt-in T-One health/latency without retaining speech text."""
+
+    result = await run_tone_shadow(wav_bytes)
+    logger.info(
+        "T-One shadow observation conversation=%s status=%s elapsed_ms=%s reason=%s",
+        conversation_id,
+        result.get("status"),
+        result.get("elapsed_ms"),
+        result.get("reason"),
+    )
+
+
 TRAILING_SOURCES_PLACEHOLDER_RE = re.compile(
     r"""(?xi)
     (?:
@@ -1502,7 +1515,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         if tone_shadow_configured():
                             shadow_bytes = await asyncio.to_thread(wav_path.read_bytes)
                             _safe_background_task(
-                                run_tone_shadow(shadow_bytes),
+                                _record_tone_shadow_observation(conversation.id, shadow_bytes),
                                 name=f"tone-shadow-{conversation.id}",
                             )
                         conversation.turns.append({"role": "user", "text": transcript})

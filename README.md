@@ -256,6 +256,9 @@ Voice of Lúna works out of the box with zero configuration, but can be customiz
 | `VOICE_OF_LUNA_WHISPER_SERVER` | `true` | Enable persistent background `whisper-server` process |
 | `VOICE_OF_LUNA_WHISPER_HOST` | `127.0.0.1` | Local Whisper server host |
 | `VOICE_OF_LUNA_WHISPER_PORT` | `8089` | Local Whisper server port |
+| `VOICE_OF_LUNA_TONE_MODEL` | unset | Optional local T-One `model.onnx` path for shadow diagnostics |
+| `VOICE_OF_LUNA_TONE_TOKENS` | unset | Optional matching T-One `tokens.txt` path |
+| `VOICE_OF_LUNA_TONE_EXECUTABLE` | `sherpa-onnx` | Optional Sherpa-ONNX executable path or name in `PATH` |
 | `VOICE_OF_LUNA_RUSSIAN_VOICE` | `Milena (Enhanced)` | Default macOS speech voice |
 | `VOICE_OF_LUNA_MODELS_DIR` | `backend/models` (fallback: `~/.cache/voice-of-luna/models`) | Directory for downloaded Piper/Silero model artifacts |
 | `VOICE_OF_LUNA_PLUGIN_DB` | `data/voice_of_luna_plugins.sqlite3` | Local SQLite file for plugin-scoped memory |
@@ -268,7 +271,7 @@ Voice of Lúna works out of the box with zero configuration, but can be customiz
 
 ## 🧪 Testing & Verification
 
-The comprehensive Python test suite currently collects 234 unit and integration tests. It runs offline with mocked model calls — running tests will **never consume your Codex quota**:
+The comprehensive Python test suite currently collects 237 unit and integration tests. It runs offline with mocked model calls — running tests will **never consume your Codex quota**:
  
 ```bash
 make test

@@ -708,3 +708,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model/token paths and a Sherpa-ONNX executable are configured.
 - Shadow observations run in the background and never replace the
   authoritative Whisper transcript or affect Codex turn execution.
+## [0.32.1] - 2026-09-11
+
+### Changed
+
+- Documented the opt-in T-One shadow environment variables and recorded only
+  its status, elapsed time, and non-sensitive failure reason in backend logs.
