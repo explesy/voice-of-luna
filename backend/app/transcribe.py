@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import Protocol
 
@@ -36,6 +37,56 @@ class StreamingSpeechToTextSession(Protocol):
 
     async def cancel(self) -> None:
         """Cancel and release all session resources."""
+
+
+def tone_shadow_configured() -> bool:
+    """Return whether the optional local T-One shadow runner is configured."""
+
+    return bool(
+        os.environ.get("VOICE_OF_LUNA_TONE_MODEL")
+        and os.environ.get("VOICE_OF_LUNA_TONE_TOKENS")
+    )
+
+
+async def run_tone_shadow(wav_bytes: bytes) -> dict[str, object]:
+    """Run optional T-One diagnostics without affecting the authoritative turn.
+
+    The adapter is deliberately subprocess-based: Sherpa-ONNX is optional and
+    must not alter Luna's Python dependency set or local default path. Raw
+    speech and the returned transcript are never logged or persisted.
+    """
+
+    model = os.environ.get("VOICE_OF_LUNA_TONE_MODEL")
+    tokens = os.environ.get("VOICE_OF_LUNA_TONE_TOKENS")
+    executable = os.environ.get("VOICE_OF_LUNA_TONE_EXECUTABLE", "sherpa-onnx")
+    if not model or not tokens:
+        return {"status": "unavailable", "reason": "model_or_tokens_not_configured"}
+    if shutil.which(executable) is None:
+        return {"status": "unavailable", "reason": "sherpa_executable_not_found"}
+
+    descriptor, raw_path = tempfile.mkstemp(prefix="voice-of-luna-tone-shadow-", suffix=".wav")
+    os.close(descriptor)
+    path = Path(raw_path)
+    started = time.perf_counter()
+    try:
+        await asyncio.to_thread(path.write_bytes, wav_bytes)
+        process = await asyncio.create_subprocess_exec(
+            executable,
+            f"--t-one-ctc-model={model}",
+            f"--tokens={tokens}",
+            str(path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        return_code = await process.wait()
+        return {
+            "status": "ok" if return_code == 0 else "error",
+            "elapsed_ms": round((time.perf_counter() - started) * 1000),
+        }
+    except OSError:
+        return {"status": "error", "reason": "sherpa_process_failed"}
+    finally:
+        path.unlink(missing_ok=True)
 
 
 class LocalWhisperTranscriber:

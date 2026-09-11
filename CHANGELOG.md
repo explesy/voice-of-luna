@@ -700,3 +700,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added the `StreamingSpeechToTextSession` capability contract for future
   online STT providers while keeping Whisper as the authoritative final
   transcript provider.
+## [0.32.0] - 2026-09-11
+
+### Added
+
+- Added an opt-in local T-One shadow adapter that runs only when explicit
+  model/token paths and a Sherpa-ONNX executable are configured.
+- Shadow observations run in the background and never replace the
+  authoritative Whisper transcript or affect Codex turn execution.

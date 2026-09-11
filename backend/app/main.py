@@ -93,7 +93,13 @@ from .speak import (
     prewarm_voice,
     sanitize_for_speech,
 )
-from .transcribe import LocalTranscriptionError, LocalWhisperTranscriber, SpeechToTextProvider
+from .transcribe import (
+    LocalTranscriptionError,
+    LocalWhisperTranscriber,
+    SpeechToTextProvider,
+    run_tone_shadow,
+    tone_shadow_configured,
+)
 from .whisper_server import WhisperServerManager
 
 whisper_server = WhisperServerManager()
@@ -1493,6 +1499,12 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                             language=stt_config.language, prompt=stt_config.prompt
                         ).transcribe(wav_path)
                         t_stt = time.perf_counter()
+                        if tone_shadow_configured():
+                            shadow_bytes = await asyncio.to_thread(wav_path.read_bytes)
+                            _safe_background_task(
+                                run_tone_shadow(shadow_bytes),
+                                name=f"tone-shadow-{conversation.id}",
+                            )
                         conversation.turns.append({"role": "user", "text": transcript})
                         await websocket.send_json({
                             "type": "transcript",
