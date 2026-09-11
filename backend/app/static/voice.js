@@ -691,6 +691,14 @@ function handleSocketMessage(event) {
     flushStreamingText();
     appendMessageToFeed("user", data.text);
     currentStreamingEntry = null;
+  } else if (data.type === "stt_partial") {
+    if (data.text) {
+      setVoiceState(
+        "transcribing",
+        `Listening... ${data.text}`,
+        data.final ? "STREAM // T-ONE FINAL" : "STREAM // T-ONE",
+      );
+    }
   } else if (data.type === "delta") {
     if (!currentStreamingEntry) {
       currentStreamingEntry = appendMessageToFeed("assistant", "");

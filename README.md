@@ -259,6 +259,8 @@ Voice of Lúna works out of the box with zero configuration, but can be customiz
 | `VOICE_OF_LUNA_TONE_MODEL` | unset | Optional local T-One `model.onnx` path for shadow diagnostics |
 | `VOICE_OF_LUNA_TONE_TOKENS` | unset | Optional matching T-One `tokens.txt` path |
 | `VOICE_OF_LUNA_TONE_EXECUTABLE` | `sherpa-onnx` | Optional Sherpa-ONNX executable path or name in `PATH` |
+| `VOICE_OF_LUNA_TONE_STREAMING` | unset | Set to `1` only to enable optional Python streaming T-One partials |
+| `VOICE_OF_LUNA_TONE_PROVIDER` | `cpu` | Sherpa execution provider for streaming T-One (`cpu`, `coreml`, or `cuda`) |
 | `VOICE_OF_LUNA_RUSSIAN_VOICE` | `Milena (Enhanced)` | Default macOS speech voice |
 | `VOICE_OF_LUNA_MODELS_DIR` | `backend/models` (fallback: `~/.cache/voice-of-luna/models`) | Directory for downloaded Piper/Silero model artifacts |
 | `VOICE_OF_LUNA_PLUGIN_DB` | `data/voice_of_luna_plugins.sqlite3` | Local SQLite file for plugin-scoped memory |

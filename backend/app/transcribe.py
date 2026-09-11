@@ -39,6 +39,62 @@ class StreamingSpeechToTextSession(Protocol):
         """Cancel and release all session resources."""
 
 
+class ToneStreamingSession:
+    """Optional Sherpa-ONNX T-One online recognizer session."""
+
+    def __init__(self, model: str, tokens: str, sample_rate: int = 16_000) -> None:
+        try:
+            import numpy as np
+            import sherpa_onnx
+        except ImportError as exc:
+            raise LocalTranscriptionError(
+                "T-One streaming requires the optional sherpa-onnx and numpy packages"
+            ) from exc
+        self._np = np
+        self._sample_rate = sample_rate
+        self._recognizer = sherpa_onnx.OnlineRecognizer.from_t_one_ctc(
+            model=model,
+            tokens=tokens,
+            sample_rate=sample_rate,
+            provider=os.environ.get("VOICE_OF_LUNA_TONE_PROVIDER", "cpu"),
+            enable_endpoint_detection=True,
+        )
+        self._stream = self._recognizer.create_stream()
+
+    async def push_pcm(self, samples: bytes, sample_rate: int) -> str:
+        audio = self._np.frombuffer(samples, dtype=self._np.int16).astype(self._np.float32) / 32768.0
+        await asyncio.to_thread(self._decode, audio, sample_rate)
+        return str(self._recognizer.get_result(self._stream).text).strip()
+
+    async def finalize(self) -> str:
+        padding = self._np.zeros(int(0.66 * self._sample_rate), dtype=self._np.float32)
+        await asyncio.to_thread(self._decode, padding, self._sample_rate)
+        self._stream.input_finished()
+        await asyncio.to_thread(self._drain)
+        return str(self._recognizer.get_result(self._stream).text).strip()
+
+    async def cancel(self) -> None:
+        self._stream = None
+
+    def _decode(self, audio: object, sample_rate: int) -> None:
+        if self._stream is None:
+            return
+        self._stream.accept_waveform(sample_rate, audio)
+        self._drain()
+
+    def _drain(self) -> None:
+        if self._stream is None:
+            return
+        while self._recognizer.is_ready(self._stream):
+            self._recognizer.decode_stream(self._stream)
+
+
+def create_tone_streaming_session(model: str, tokens: str, sample_rate: int) -> ToneStreamingSession:
+    """Create the optional online T-One session, failing explicitly if unavailable."""
+
+    return ToneStreamingSession(model=model, tokens=tokens, sample_rate=sample_rate)
+
+
 def tone_shadow_configured() -> bool:
     """Return whether the optional local T-One shadow runner is configured."""
 
@@ -46,6 +102,12 @@ def tone_shadow_configured() -> bool:
         os.environ.get("VOICE_OF_LUNA_TONE_MODEL")
         and os.environ.get("VOICE_OF_LUNA_TONE_TOKENS")
     )
+
+
+def tone_streaming_configured() -> bool:
+    """Return whether online T-One mode was explicitly enabled."""
+
+    return tone_shadow_configured() and os.environ.get("VOICE_OF_LUNA_TONE_STREAMING") == "1"
 
 
 async def run_tone_shadow(wav_bytes: bytes) -> dict[str, object]:

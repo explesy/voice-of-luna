@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app import main as main_module
 from app.main import app
-from app.transcribe import run_tone_shadow, tone_shadow_configured
+from app.transcribe import run_tone_shadow, tone_shadow_configured, tone_streaming_configured
 
 
 client = TestClient(app)
@@ -24,6 +24,15 @@ def test_tone_shadow_reports_missing_local_executable(monkeypatch) -> None:
     monkeypatch.setattr("app.transcribe.shutil.which", lambda _: None)
     result = asyncio.run(run_tone_shadow(b"RIFF"))
     assert result == {"status": "unavailable", "reason": "sherpa_executable_not_found"}
+
+
+def test_tone_streaming_requires_explicit_opt_in(monkeypatch) -> None:
+    monkeypatch.setenv("VOICE_OF_LUNA_TONE_MODEL", "/tmp/t-one.onnx")
+    monkeypatch.setenv("VOICE_OF_LUNA_TONE_TOKENS", "/tmp/tokens.txt")
+    monkeypatch.delenv("VOICE_OF_LUNA_TONE_STREAMING", raising=False)
+    assert tone_streaming_configured() is False
+
+
 
 
 def test_creates_and_deletes_conversation() -> None:

@@ -98,7 +98,9 @@ from .transcribe import (
     LocalWhisperTranscriber,
     SpeechToTextProvider,
     run_tone_shadow,
+    create_tone_streaming_session,
     tone_shadow_configured,
+    tone_streaming_configured,
 )
 from .whisper_server import WhisperServerManager
 
@@ -1469,6 +1471,8 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
     pending_audio_timing: dict[str, int] | None = None
     streaming_pcm: bytearray | None = None
     streaming_sample_rate = 16_000
+    tone_session = None
+    tone_last_partial = ""
 
     try:
         while True:
@@ -1548,6 +1552,16 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
 
                 if streaming_pcm is not None:
                     streaming_pcm.extend(raw_bytes)
+                    if tone_session is not None:
+                        partial = await tone_session.push_pcm(raw_bytes, streaming_sample_rate)
+                        if partial and partial != tone_last_partial:
+                            tone_last_partial = partial
+                            await websocket.send_json({
+                                "type": "stt_partial",
+                                "provider": "t-one",
+                                "text": partial,
+                                "final": False,
+                            })
                     continue
                 active_turn_task = asyncio.create_task(handle_audio(raw_bytes))
 
@@ -1570,6 +1584,28 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         continue
                     streaming_sample_rate = sample_rate
                     streaming_pcm = bytearray()
+                    tone_last_partial = ""
+                    tone_session = None
+                    if tone_streaming_configured():
+                        try:
+                            tone_session = create_tone_streaming_session(
+                                os.environ["VOICE_OF_LUNA_TONE_MODEL"],
+                                os.environ["VOICE_OF_LUNA_TONE_TOKENS"],
+                                sample_rate,
+                            )
+                            await websocket.send_json({
+                                "type": "status",
+                                "state": "transcribing",
+                                "message": "Streaming STT shadow is active...",
+                                "mode_label": "STREAM // T-ONE",
+                            })
+                        except LocalTranscriptionError as exc:
+                            await websocket.send_json({
+                                "type": "status",
+                                "state": "transcribing",
+                                "message": str(exc),
+                                "mode_label": "STREAM // WHISPER",
+                            })
                     pending_audio_timing = None
                     await websocket.send_json({
                         "type": "status",
@@ -1586,6 +1622,17 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                     if not raw_pcm:
                         await websocket.send_json({"type": "error", "message": "Audio stream was empty"})
                         continue
+                    if tone_session is not None:
+                        partial = await tone_session.finalize()
+                        if partial and partial != tone_last_partial:
+                            await websocket.send_json({
+                                "type": "stt_partial",
+                                "provider": "t-one",
+                                "text": partial,
+                                "final": True,
+                            })
+                        await tone_session.cancel()
+                        tone_session = None
                     client_timing = pending_audio_timing
                     pending_audio_timing = None
                     if active_turn_task and not active_turn_task.done():
@@ -1723,6 +1770,8 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
         if active_turn_task and not active_turn_task.done():
             active_turn_task.cancel()
         streaming_pcm = None
+        if tone_session is not None:
+            await tone_session.cancel()
         conversation.active_websockets = max(0, conversation.active_websockets - 1)
         _touch_conversation(conversation)
 

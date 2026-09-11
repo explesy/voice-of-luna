@@ -714,3 +714,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Documented the opt-in T-One shadow environment variables and recorded only
   its status, elapsed time, and non-sensitive failure reason in backend logs.
+## [0.33.0] - 2026-09-11
+
+### Added
+
+- Added an optional Python `sherpa_onnx.OnlineRecognizer` T-One session for
+  live partial STT events when explicitly enabled with
+  `VOICE_OF_LUNA_TONE_STREAMING=1`.
+- Kept Whisper as the authoritative final transcript and preserved the
+  buffered fallback when the optional runtime is unavailable.
