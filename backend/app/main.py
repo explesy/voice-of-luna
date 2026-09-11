@@ -93,13 +93,19 @@ from .speak import (
     prewarm_voice,
     sanitize_for_speech,
 )
-from .transcribe import LocalTranscriptionError, LocalWhisperTranscriber
+from .transcribe import LocalTranscriptionError, LocalWhisperTranscriber, SpeechToTextProvider
 from .whisper_server import WhisperServerManager
 
 whisper_server = WhisperServerManager()
 CONVERSATION_IDLE_TTL_SECONDS = int(os.environ.get("VOICE_OF_LUNA_CONVERSATION_IDLE_TTL_SECONDS", "900"))
 CONVERSATION_REAPER_INTERVAL_SECONDS = 60
 _DEFAULT_SPEAKER_SYNTHESIZE = LocalMacOsSpeaker.synthesize
+
+
+def _build_stt_provider(*, language: str | None, prompt: str | None) -> SpeechToTextProvider:
+    """Build the configured batch STT capability for a completed audio turn."""
+
+    return LocalWhisperTranscriber(language=language, prompt=prompt)
 
 
 TRAILING_SOURCES_PLACEHOLDER_RE = re.compile(
@@ -656,7 +662,7 @@ async def create_audio_turn_fragment(
             wav_path = await _convert_to_wav(temporary_path)
         t_wav = time.perf_counter()
         stt_config = resolve_stt_config(conversation)
-        transcript = await LocalWhisperTranscriber(
+        transcript = await _build_stt_provider(
             language=stt_config.language, prompt=stt_config.prompt
         ).transcribe(wav_path)
         t_stt = time.perf_counter()
@@ -1474,7 +1480,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                             wav_path = await _convert_to_wav(temporary_path)
                         t_audio_prepared = time.perf_counter()
                         stt_config = resolve_stt_config(conversation)
-                        transcript = await LocalWhisperTranscriber(
+                        transcript = await _build_stt_provider(
                             language=stt_config.language, prompt=stt_config.prompt
                         ).transcribe(wav_path)
                         t_stt = time.perf_counter()

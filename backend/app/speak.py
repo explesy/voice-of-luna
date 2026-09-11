@@ -62,6 +62,7 @@ SILERO_VOICES: dict[str, str] = {
     "Baya (Silero Neural · Offline)": "baya",
     "Aidar (Silero Neural · Offline)": "aidar",
     "Eugene (Silero Neural · Offline)": "eugene",
+    "Raya (Silero Neural · Offline)": "raya",
 }
 
 PIPER_VOICES: dict[str, str] = {
@@ -109,7 +110,7 @@ def is_silero_voice(voice_name: str) -> bool:
     return (
         voice_name in SILERO_VOICES
         or "silero" in voice_name.lower()
-        or any(k.lower() in voice_name.lower() for k in ("ksenia", "baya", "aidar", "eugene"))
+        or any(k.lower() in voice_name.lower() for k in ("ksenia", "baya", "aidar", "eugene", "raya"))
     )
 
 
@@ -573,6 +574,17 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
             name="Eugene (Silero Neural · Offline)",
             locale="ru_RU",
             sample="Здравствуйте! Меня зовут Евгений.",
+            is_russian=True,
+            is_enhanced=True,
+            engine="silero",
+            is_downloaded=silero_installed,
+            model_id="silero_v4_ru",
+            size_mb=40.0,
+        ),
+        VoiceInfo(
+            name="Raya (Silero Neural · Offline)",
+            locale="ru_RU",
+            sample="Здравствуйте! Меня зовут Райя.",
             is_russian=True,
             is_enhanced=True,
             engine="silero",
@@ -1088,7 +1100,7 @@ class LocalMacOsSpeaker:
         locale = "ru" if re.search(r"[\u0400-\u052f]", clean_text) else "en"
         if any(token in requested_lower for token in ("elvira", "alvaro", "mónica", "monica", "paulina")):
             locale = "es"
-        elif any(token in requested_lower for token in ("dmitri", "irina", "ksenia", "baya", "aidar", "eugene", "milena")):
+        elif any(token in requested_lower for token in ("dmitri", "irina", "ksenia", "baya", "aidar", "eugene", "raya", "milena")):
             locale = "ru"
         candidates: list[str] = []
         for engine in ("piper", "silero", "macos", "edge"):

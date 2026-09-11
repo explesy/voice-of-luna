@@ -8,6 +8,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Protocol
 
 
 import httpx
@@ -15,6 +16,13 @@ import httpx
 
 class LocalTranscriptionError(RuntimeError):
     """Raised when the local Whisper runtime cannot transcribe a recording."""
+
+
+class SpeechToTextProvider(Protocol):
+    """Minimal batch STT capability used by the conversation runtime."""
+
+    async def transcribe(self, wav_path: Path) -> str:
+        """Return the final transcript for a prepared mono 16 kHz WAV file."""
 
 
 class LocalWhisperTranscriber:

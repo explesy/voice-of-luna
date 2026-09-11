@@ -681,3 +681,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Latency profiling and metrics for turns, speech, and transcription.
 - Automatic session persistence with recovery for stale conversations.
 - Strict localhost boundary ensuring no credentials or telemetry are exposed.
+
+## [0.30.0] - 2026-09-11
+
+### Added
+
+- Added the runtime `SpeechToTextProvider` capability boundary for completed
+  audio turns, keeping the existing local Whisper implementation compatible
+  while preparing the turn handlers for a future streaming STT provider.
+- Added the missing Raya Silero voice to the runtime registry so the model
+  catalog and synthesizer expose the same voice set.

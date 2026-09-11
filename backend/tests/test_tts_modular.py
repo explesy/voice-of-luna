@@ -43,6 +43,7 @@ def test_get_installed_voices_contains_piper_and_eugene() -> None:
     names = [v.name for v in voices]
 
     assert "Eugene (Silero Neural · Offline)" in names
+    assert "Raya (Silero Neural · Offline)" in names
     assert "Dmitri (Piper Neural · Offline)" in names
     assert "Irina (Piper Neural · Offline)" in names
     assert "Lessac (Piper Neural · Offline)" in names
