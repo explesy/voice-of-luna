@@ -723,3 +723,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `VOICE_OF_LUNA_TONE_STREAMING=1`.
 - Kept Whisper as the authoritative final transcript and preserved the
   buffered fallback when the optional runtime is unavailable.
+## [0.33.1] - 2026-09-11
+
+### Fixed
+
+- Configured the T-One recognizer feature extractor at its required 8 kHz
+  model rate while preserving the browser's native PCM rate for input frames.

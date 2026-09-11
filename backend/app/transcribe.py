@@ -51,11 +51,14 @@ class ToneStreamingSession:
                 "T-One streaming requires the optional sherpa-onnx and numpy packages"
             ) from exc
         self._np = np
-        self._sample_rate = sample_rate
+        # T-One's feature extractor is configured for 8 kHz. Sherpa accepts
+        # arbitrary input sample rates in accept_waveform(), so browser audio
+        # can remain at its native rate while endpoint padding uses 8 kHz.
+        self._model_sample_rate = 8_000
         self._recognizer = sherpa_onnx.OnlineRecognizer.from_t_one_ctc(
             model=model,
             tokens=tokens,
-            sample_rate=sample_rate,
+            sample_rate=self._model_sample_rate,
             provider=os.environ.get("VOICE_OF_LUNA_TONE_PROVIDER", "cpu"),
             enable_endpoint_detection=True,
         )
@@ -67,8 +70,8 @@ class ToneStreamingSession:
         return str(self._recognizer.get_result(self._stream).text).strip()
 
     async def finalize(self) -> str:
-        padding = self._np.zeros(int(0.66 * self._sample_rate), dtype=self._np.float32)
-        await asyncio.to_thread(self._decode, padding, self._sample_rate)
+        padding = self._np.zeros(int(0.66 * self._model_sample_rate), dtype=self._np.float32)
+        await asyncio.to_thread(self._decode, padding, self._model_sample_rate)
         self._stream.input_finished()
         await asyncio.to_thread(self._drain)
         return str(self._recognizer.get_result(self._stream).text).strip()
