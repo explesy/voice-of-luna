@@ -1448,6 +1448,8 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
 
     active_turn_task: asyncio.Task[None] | None = None
     pending_audio_timing: dict[str, int] | None = None
+    streaming_pcm: bytearray | None = None
+    streaming_sample_rate = 16_000
 
     try:
         while True:
@@ -1463,7 +1465,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                     active_turn_task.cancel()
                     await conversation.model.interrupt()
 
-                async def handle_audio(data: bytes):
+                async def handle_audio(data: bytes, *, pcm_sample_rate: int | None = None):
                     t_recv = time.perf_counter()
                     await websocket.send_json({
                         "type": "status",
@@ -1474,6 +1476,13 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                     temporary_path = _write_temporary_audio(data, ".wav")
                     wav_path = None
                     try:
+                        if pcm_sample_rate is not None:
+                            pcm_path = temporary_path
+                            with wave.open(str(pcm_path), "wb") as pcm_file:
+                                pcm_file.setnchannels(1)
+                                pcm_file.setsampwidth(2)
+                                pcm_file.setframerate(pcm_sample_rate)
+                                pcm_file.writeframes(data)
                         if _is_16k_mono_wav(temporary_path):
                             wav_path = temporary_path
                         else:
@@ -1512,6 +1521,9 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         if wav_path is not None and wav_path != temporary_path:
                             await asyncio.to_thread(_remove_temporary_audio, wav_path)
 
+                if streaming_pcm is not None:
+                    streaming_pcm.extend(raw_bytes)
+                    continue
                 active_turn_task = asyncio.create_task(handle_audio(raw_bytes))
 
             elif "text" in message and message["text"]:
@@ -1523,7 +1535,41 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                     continue
 
                 msg_type = payload.get("type")
-                if msg_type == "set_voice":
+                if msg_type == "audio_stream_start":
+                    if streaming_pcm is not None:
+                        await websocket.send_json({"type": "error", "message": "Audio stream is already active"})
+                        continue
+                    sample_rate = payload.get("sample_rate", 16_000)
+                    if not isinstance(sample_rate, int) or not 8_000 <= sample_rate <= 48_000:
+                        await websocket.send_json({"type": "error", "message": "Invalid PCM sample rate"})
+                        continue
+                    streaming_sample_rate = sample_rate
+                    streaming_pcm = bytearray()
+                    pending_audio_timing = None
+                    await websocket.send_json({
+                        "type": "status",
+                        "state": "transcribing",
+                        "message": "Receiving microphone stream...",
+                        "mode_label": "STREAM // PCM",
+                    })
+                elif msg_type == "audio_stream_end":
+                    if streaming_pcm is None:
+                        await websocket.send_json({"type": "error", "message": "No audio stream is active"})
+                        continue
+                    raw_pcm = bytes(streaming_pcm)
+                    streaming_pcm = None
+                    if not raw_pcm:
+                        await websocket.send_json({"type": "error", "message": "Audio stream was empty"})
+                        continue
+                    client_timing = pending_audio_timing
+                    pending_audio_timing = None
+                    if active_turn_task and not active_turn_task.done():
+                        active_turn_task.cancel()
+                        await conversation.model.interrupt()
+                    active_turn_task = asyncio.create_task(
+                        handle_audio(raw_pcm, pcm_sample_rate=streaming_sample_rate)
+                    )
+                elif msg_type == "set_voice":
                     new_voice = payload.get("voice", "").strip()
                     if new_voice:
                         conversation.set_selected_voice(new_voice)
@@ -1651,6 +1697,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
     finally:
         if active_turn_task and not active_turn_task.done():
             active_turn_task.cancel()
+        streaming_pcm = None
         conversation.active_websockets = max(0, conversation.active_websockets - 1)
         _touch_conversation(conversation)
 

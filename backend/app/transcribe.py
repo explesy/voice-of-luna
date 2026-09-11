@@ -25,6 +25,19 @@ class SpeechToTextProvider(Protocol):
         """Return the final transcript for a prepared mono 16 kHz WAV file."""
 
 
+class StreamingSpeechToTextSession(Protocol):
+    """Wire-level session contract for future online STT providers."""
+
+    async def push_pcm(self, samples: bytes, sample_rate: int) -> None:
+        """Accept one signed 16-bit PCM frame."""
+
+    async def finalize(self) -> str:
+        """Return the authoritative final transcript."""
+
+    async def cancel(self) -> None:
+        """Cancel and release all session resources."""
+
+
 class LocalWhisperTranscriber:
     _shared_http_client: httpx.AsyncClient | None = None
 

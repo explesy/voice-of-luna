@@ -15,6 +15,7 @@ let analyserNode = null;
 let micSourceNode = null;
 let animationFrameId = null;
 let speechEndDetectedAt = null;
+let streamingPcmUpload = false;
 let pendingStreamingText = "";
 let streamingTextFrame = null;
 
@@ -45,7 +46,9 @@ async function initAudioAnalyser(stream) {
         audioWorkletNode = new AudioWorkletNode(audioContext, "pcm-recorder-processor");
         audioWorkletNode.port.onmessage = (event) => {
           if (event.data && event.data.type === "pcm_data" && event.data.buffer) {
-            pcmSamples.push(new Float32Array(event.data.buffer));
+            const samples = new Float32Array(event.data.buffer);
+            pcmSamples.push(samples);
+            sendStreamingPcmFrame(samples);
           }
         };
         micSourceNode.connect(audioWorkletNode);
@@ -61,7 +64,9 @@ async function initAudioAnalyser(stream) {
         pcmProcessorNode = audioContext.createScriptProcessor(4096, 1, 1);
         pcmProcessorNode.onaudioprocess = (event) => {
           const input = event.inputBuffer.getChannelData(0);
-          pcmSamples.push(new Float32Array(input));
+          const samples = new Float32Array(input);
+          pcmSamples.push(samples);
+          sendStreamingPcmFrame(samples);
         };
         micSourceNode.connect(pcmProcessorNode);
         pcmProcessorNode.connect(audioContext.destination);
@@ -141,6 +146,16 @@ async function initAudioAnalyser(stream) {
   } catch (error) {
     console.warn("Web Audio API analyser error:", error);
   }
+}
+
+function sendStreamingPcmFrame(samples) {
+  if (!streamingPcmUpload || !socket || socket.readyState !== WebSocket.OPEN || !samples?.length) return;
+  const pcm = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    const sample = Math.max(-1, Math.min(1, samples[i]));
+    pcm[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+  }
+  socket.send(pcm.buffer);
 }
 
 function stopAudioAnalyser() {
@@ -915,6 +930,13 @@ async function startRecording(recordBtn) {
     audioChunks = [];
     speechEndDetectedAt = null;
     isRecordingActive = true;
+    streamingPcmUpload = Boolean(window.isDirectPcmActive && socket?.readyState === WebSocket.OPEN);
+    if (streamingPcmUpload) {
+      socket.send(JSON.stringify({
+        type: "audio_stream_start",
+        sample_rate: audioContext?.sampleRate || 44100,
+      }));
+    }
 
     if (!window.isDirectPcmActive) {
       recorder = new MediaRecorder(stream);
@@ -983,6 +1005,27 @@ async function stopRecording(recordBtn) {
   window.vadSilenceStartTime = null;
   window.speechStartTime = null;
   window.vadNoiseFloor = null;
+
+  if (streamingPcmUpload && socket?.readyState === WebSocket.OPEN) {
+    const recordingStoppedAt = performance.now();
+    const speechEndedAt = speechEndDetectedAt || recordingStoppedAt;
+    lastSpeechEndTime = speechEndedAt;
+    firstAudioPlayTime = null;
+    firstAudioSoundOffsetMs = null;
+    stopAudioAnalyser();
+    if (activeRecordingStream?.getTracks) {
+      activeRecordingStream.getTracks().forEach((track) => track.stop());
+    }
+    streamingPcmUpload = false;
+    socket.send(JSON.stringify({
+      type: "audio_timing",
+      endpoint_delay_ms: Math.round(recordingStoppedAt - speechEndedAt),
+      audio_encode_ms: 0,
+    }));
+    socket.send(JSON.stringify({ type: "audio_stream_end" }));
+    setVoiceState("thinking", "Transcribing microphone stream...", "STREAM // STT");
+    return;
+  }
 
   if (recorder && recorder.state === "recording") {
     recorder.stop();

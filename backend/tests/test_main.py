@@ -599,6 +599,42 @@ def test_websocket_binary_audio_turn_transcribes_and_streams(monkeypatch, tmp_pa
         assert status_idle["state"] == "idle"
 
 
+def test_websocket_pcm_stream_buffers_until_end_and_transcribes(monkeypatch, tmp_path) -> None:
+    async def fake_transcribe(_, path):
+        assert path.exists()
+        return "Потоковый запрос"
+
+    async def fake_reply_stream(self, text):
+        yield "Потоковый ответ."
+
+    async def fake_synthesize(self, text):
+        clip = tmp_path / "stream_reply.wav"
+        clip.write_bytes(b"RIFFwavdata")
+        return clip
+
+    monkeypatch.setattr(main_module.LocalWhisperTranscriber, "transcribe", fake_transcribe)
+    monkeypatch.setattr(main_module.CodexAppServer, "reply_stream", fake_reply_stream)
+    monkeypatch.setattr(main_module.LocalMacOsSpeaker, "synthesize", fake_synthesize)
+
+    with client.websocket_connect("/ws/conversations/test-ws-pcm-stream") as ws:
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json({"type": "audio_stream_start", "sample_rate": 16_000})
+        stream_status = ws.receive_json()
+        assert stream_status["type"] == "status"
+        assert stream_status["mode_label"] == "STREAM // PCM"
+
+        ws.send_bytes(b"\x00\x00" * 800)
+        ws.send_bytes(b"\x01\x00" * 800)
+        ws.send_json({"type": "audio_stream_end"})
+
+        transcribing = ws.receive_json()
+        assert transcribing["type"] == "status"
+        assert transcribing["state"] == "transcribing"
+        transcript = ws.receive_json()
+        assert transcript["type"] == "transcript"
+        assert transcript["text"] == "Потоковый запрос"
+
+
 def test_api_speech_synthesize_success(monkeypatch, tmp_path) -> None:
     clip = tmp_path / "synthesize_test.wav"
     clip.write_bytes(b"RIFFwavsynthesized")

@@ -691,3 +691,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   while preparing the turn handlers for a future streaming STT provider.
 - Added the missing Raya Silero voice to the runtime registry so the model
   catalog and synthesizer expose the same voice set.
+## [0.31.0] - 2026-09-11
+
+### Added
+
+- Added a WebSocket PCM session protocol (`audio_stream_start`, binary PCM
+  frames, and `audio_stream_end`) for live microphone transport.
+- Added the `StreamingSpeechToTextSession` capability contract for future
+  online STT providers while keeping Whisper as the authoritative final
+  transcript provider.
