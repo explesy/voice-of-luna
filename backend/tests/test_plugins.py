@@ -10,9 +10,12 @@ from app import main as main_module
 from app.codex import CodexAppServer, RuntimeStatus
 from app.main import app
 from app.plugins import (
+    OutputEvent,
     Plugin,
     PluginManager,
     PluginTurnResult,
+    ResponseCandidate,
+    ResponseDecision,
     ToolCallContext,
     ToolResult,
     ToolSpec,
@@ -69,6 +72,26 @@ class ToolPlugin(Plugin):
         return {"owned": str(settings.get("owned", ""))}
 
 
+class GatedPlugin(Plugin):
+    id = "gated"
+    name = "Gated Plugin"
+    delivery_mode = "gated"
+
+    async def validate_response(self, ctx, candidate):
+        return ResponseDecision(action="replace", text="Safe replacement", reason="test")
+
+
+class EventPlugin(Plugin):
+    id = "event_plugin"
+    name = "Event Plugin"
+
+    def __init__(self):
+        self.events = []
+
+    async def on_output_event(self, event):
+        self.events.append(event)
+
+
 @pytest.mark.anyio
 async def test_plugin_manager_registration_and_listing():
     mgr = PluginManager()
@@ -77,6 +100,24 @@ async def test_plugin_manager_registration_and_listing():
     assert "neutral" in ids
     assert "project_room" in ids
     assert "training" not in ids
+
+
+@pytest.mark.anyio
+async def test_response_validator_and_output_event_are_bounded_contracts():
+    mgr = PluginManager()
+    gated = GatedPlugin()
+    events = EventPlugin()
+    mgr.register(gated)
+    mgr.register(events)
+    assert mgr.delivery_mode("gated") == "gated"
+    decision = await mgr.execute_validate_response(
+        "gated", TurnContext("c", "hi", []), ResponseCandidate("c", "hi", "unsafe")
+    )
+    assert decision.action == "replace"
+    assert decision.text == "Safe replacement"
+    event = OutputEvent("c", "t", "clip", "completed", "Safe replacement")
+    await mgr.execute_output_event("event_plugin", event)
+    assert events.events == [event]
 
     custom = SlowPlugin()
     mgr.register(custom)
@@ -257,6 +298,23 @@ def test_api_dynamic_read_tool_reaches_plugin_handler():
         )
     )
     assert result["contentItems"]
+
+
+def test_api_gated_turn_delivers_only_validator_text(monkeypatch):
+    plugin_manager.register(GatedPlugin())
+    created = client.post("/api/conversations")
+    conv_id = created.json()["id"]
+    selected = client.post(f"/api/conversations/{conv_id}/plugin", json={"plugin_id": "gated", "mode": "default"})
+    assert selected.status_code == 200
+
+    async def fake_reply(model, text, context_prompt=None, **kwargs):
+        return "unsafe model output"
+
+    monkeypatch.setattr(main_module, "_call_reply", fake_reply)
+    response = client.post(f"/api/conversations/{conv_id}/turns", json={"text": "hello"})
+    assert response.status_code == 200
+    assert response.json()["text"] == "Safe replacement"
+    assert main_module.conversations[conv_id].turns[-1]["text"] == "Safe replacement"
 
 
 def test_api_select_project_room_reports_invalid_root(tmp_path):

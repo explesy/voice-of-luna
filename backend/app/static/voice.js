@@ -572,7 +572,10 @@ function handleSocketMessage(event) {
           currentStreamingEntry,
           null,
           meta.mime_type || "audio/wav",
-          audioBuffer
+          audioBuffer,
+          meta.turn_id || null,
+          meta.clip_id || null,
+          meta.text || null
         );
       }
     } catch (e) {
@@ -686,6 +689,8 @@ function handleSocketMessage(event) {
       updateFooterStatus(data.tts_engine);
     }
   } else if (data.type === "status") {
+    if (data.turn_taking_profile === "patient") window.VAD_SILENCE_TIMEOUT_MS = 1800;
+    else if (data.turn_taking_profile === "normal") window.VAD_SILENCE_TIMEOUT_MS = 450;
     setVoiceState(data.state, data.message, data.mode_label);
   } else if (data.type === "transcript") {
     flushStreamingText();
@@ -706,7 +711,7 @@ function handleSocketMessage(event) {
     pendingStreamingText += data.delta || "";
     scheduleStreamingTextFlush();
   } else if (data.type === "audio_chunk") {
-    enqueueAudioChunk(data.audio_url, currentStreamingEntry, data.audio_base64, data.mime_type);
+    enqueueAudioChunk(data.audio_url, currentStreamingEntry, data.audio_base64, data.mime_type, null, data.turn_id || null, data.clip_id || null, data.text || null);
   } else if (data.type === "turn_completed") {
     flushStreamingText();
     if (data.tts_engine) {

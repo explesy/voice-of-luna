@@ -77,7 +77,7 @@ from .codex import (
     CodexUnavailable,
     get_base_instructions,
 )
-from .plugins import PluginTurnResult, TurnContext, plugin_manager
+from .plugins import OutputEvent, PluginTurnResult, ResponseCandidate, TurnContext, plugin_manager
 from .speak import (
     LocalMacOsSpeaker,
     LocalSpeechError,
@@ -640,6 +640,14 @@ async def create_turn_fragment(
             effort=conversation.reasoning_effort,
         )
         t_llm = time.perf_counter()
+        if plugin_manager.delivery_mode(conversation.plugin_id) == "gated":
+            decision = await plugin_manager.execute_validate_response(
+                conversation.plugin_id, turn_ctx,
+                ResponseCandidate(conversation.id, text, reply),
+            )
+            if decision.action == "reject":
+                raise CodexUnavailable("Plugin rejected the model response")
+            reply = str(decision.text or reply)
         error = await _append_assistant_turn(conversation, reply)
         t_tts = time.perf_counter()
         logger.info(
@@ -706,6 +714,14 @@ async def create_audio_turn_fragment(
             effort=conversation.reasoning_effort,
         )
         t_llm = time.perf_counter()
+        if plugin_manager.delivery_mode(conversation.plugin_id) == "gated":
+            decision = await plugin_manager.execute_validate_response(
+                conversation.plugin_id, turn_ctx,
+                ResponseCandidate(conversation.id, transcript, reply),
+            )
+            if decision.action == "reject":
+                raise CodexUnavailable("Plugin rejected the model response")
+            reply = str(decision.text or reply)
         error = await _append_assistant_turn(conversation, reply)
         t_tts = time.perf_counter()
         logger.info(
@@ -971,6 +987,11 @@ class PluginActionInput(BaseModel):
     action: str = Field(min_length=1, max_length=80)
 
 
+class ApprovedSpeechInput(BaseModel):
+    text: str = Field(min_length=1, max_length=4_000)
+    turn_id: str = Field(default="plugin", min_length=1, max_length=100)
+
+
 @app.post("/api/conversations/{conversation_id}/plugin")
 async def select_plugin(
     conversation_id: str, body: PluginSelectInput, response: Response
@@ -1044,6 +1065,32 @@ async def plugin_action(conversation_id: str, body: PluginActionInput) -> dict[s
     return {"ok": True, "plugin_id": conversation.plugin_id, **result}
 
 
+@app.post("/api/conversations/{conversation_id}/plugin/speak")
+async def plugin_speak_approved(conversation_id: str, body: ApprovedSpeechInput) -> dict[str, Any]:
+    """Synthesize plugin-approved text without creating an LLM conversation turn."""
+    conversation = conversations.get(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    voice = resolve_turn_language(conversation).speaker_voice
+    speaker = LocalMacOsSpeaker(voice=voice)
+    try:
+        result = await speaker.synthesize_with_metadata(body.text.strip())
+    except LocalSpeechError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if result is None or not result.path.is_file():
+        raise HTTPException(status_code=400, detail="Cannot synthesize approved text")
+    clip_id = str(uuid4())
+    speech_clips[clip_id] = SpeechClip(conversation_id=conversation.id, path=result.path)
+    return {
+        "ok": True,
+        "clip_id": clip_id,
+        "turn_id": body.turn_id,
+        "audio_url": f"/speech/{clip_id}",
+        "text": body.text.strip(),
+        "tts_engine": result.actual_engine,
+    }
+
+
 @app.post("/api/conversations/{conversation_id}/tool-approval")
 async def approve_tool(conversation_id: str, body: ToolApprovalInput) -> dict[str, object]:
     if conversation_id not in conversations:
@@ -1086,6 +1133,15 @@ async def create_turn(conversation_id: str, body: TurnInput) -> dict[str, Any]:
         )
     except CodexUnavailable as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+    if plugin_manager.delivery_mode(conversation.plugin_id) == "gated":
+        decision = await plugin_manager.execute_validate_response(
+            conversation.plugin_id,
+            turn_ctx,
+            ResponseCandidate(conversation.id, body.text, reply),
+        )
+        if decision.action == "reject":
+            raise HTTPException(status_code=502, detail="Plugin rejected the model response")
+        reply = str(decision.text or reply)
     await _append_assistant_turn(conversation, reply)
     await plugin_manager.execute_after_turn(conversation.plugin_id, turn_ctx, reply)
     return {"text": reply, "evidence": list(conversation.turn_evidence)}
@@ -1181,6 +1237,71 @@ def _extract_speech_sentence(buffer: str, is_first_chunk: bool = False) -> tuple
     return extract_speech_sentence(buffer, is_first_chunk=is_first_chunk)
 
 
+async def _gated_turn_and_synthesize(
+    websocket: WebSocket,
+    conversation: Conversation,
+    prompt_text: str,
+    *,
+    t_start: float | None = None,
+) -> None:
+    """Run an opted-in plugin turn only after its complete response is approved."""
+    await conversation_service.stop_warmup(conversation)
+    turn_id = str(uuid4())
+    turn_ctx = TurnContext(
+        conversation_id=conversation.id,
+        user_message=prompt_text,
+        turns_history=conversation.turns,
+        active_mode=conversation.plugin_mode,
+        metadata={"plugin_settings": conversation.plugin_settings},
+        state=plugin_storage.for_plugin(conversation.plugin_id, conversation.id),
+    )
+    plugin_res = await plugin_manager.execute_before_turn(conversation.plugin_id, turn_ctx)
+    await websocket.send_json({"type": "status", "state": "thinking", "message": "Luna thinking...", "mode_label": plugin_res.mode_label or "THINKING // CODEX", "turn_taking_profile": plugin_res.metadata.get("turn_taking_profile", "normal")})
+    try:
+        generated = await _call_reply(
+            conversation.model,
+            prompt_text,
+            context_prompt=plugin_res.prompt_context,
+            model_name=conversation.model_name,
+            effort=conversation.reasoning_effort,
+        )
+        decision = await plugin_manager.execute_validate_response(
+            conversation.plugin_id,
+            turn_ctx,
+            ResponseCandidate(conversation.id, prompt_text, generated),
+        )
+        if decision.action == "reject":
+            await websocket.send_json({"type": "error", "message": "Plugin rejected the model response"})
+            return
+        approved = str(decision.text or generated).strip()
+        speaker_voice = resolve_turn_language(conversation, user_text=prompt_text).speaker_voice
+        speaker = LocalMacOsSpeaker(voice=speaker_voice)
+        if getattr(speaker.synthesize, "__func__", None) is not _DEFAULT_SPEAKER_SYNTHESIZE:
+            clip_path = await speaker.synthesize(approved)
+            synthesis = SpeechSynthesisResult(path=clip_path, requested_engine=_get_tts_engine(speaker_voice), actual_engine=_get_tts_engine(speaker_voice)) if clip_path else None
+        else:
+            synthesis = await speaker.synthesize_with_metadata(approved)
+        if synthesis is None:
+            raise CodexUnavailable("Unable to synthesize approved response")
+        clip_id = str(uuid4())
+        speech_clips[clip_id] = SpeechClip(conversation_id=conversation.id, path=synthesis.path)
+        audio_bytes = await asyncio.to_thread(synthesis.path.read_bytes)
+        mime_type = "audio/mpeg" if synthesis.path.suffix == ".mp3" else "audio/wav"
+        payload = {"type": "audio_chunk", "clip_id": clip_id, "turn_id": turn_id, "audio_url": f"/speech/{clip_id}", "mime_type": mime_type, "text": approved}
+        if conversation.binary_audio:
+            header = json.dumps({k: v for k, v in payload.items() if k != "type"}).encode("utf-8")
+            await websocket.send_bytes(b"\x01" + len(header).to_bytes(2, "big") + header + audio_bytes)
+        else:
+            payload["audio_base64"] = base64.b64encode(audio_bytes).decode("ascii")
+            await websocket.send_json(payload)
+        turn = {"role": "assistant", "text": approved, "turn_id": turn_id}
+        conversation.turns.append(turn)
+        await plugin_manager.execute_after_turn(conversation.plugin_id, turn_ctx, approved)
+        await websocket.send_json({"type": "turn_completed", "turn_id": turn_id, "turn": turn, "timing": {"backend_total_ms": round((time.perf_counter() - t_start) * 1000) if t_start else None}})
+    except (CodexUnavailable, LocalSpeechError) as exc:
+        await websocket.send_json({"type": "error", "message": str(exc)})
+
+
 async def _stream_and_synthesize(
     websocket: WebSocket,
     conversation: Conversation,
@@ -1190,6 +1311,9 @@ async def _stream_and_synthesize(
     t_stt: float | None = None,
     client_timing: dict[str, int] | None = None,
 ) -> None:
+    if plugin_manager.delivery_mode(conversation.plugin_id) == "gated":
+        await _gated_turn_and_synthesize(websocket, conversation, prompt_text, t_start=t_start)
+        return
     # A technical remote warmup is opportunistic. It must never delay the
     # user's turn, and cancellation must interrupt the remote inference first.
     await conversation_service.stop_warmup(conversation)
@@ -1199,6 +1323,7 @@ async def _stream_and_synthesize(
     speaker_voice = turn_lang.speaker_voice
 
     speaker = LocalMacOsSpeaker(voice=speaker_voice)
+    turn_id = str(uuid4())
     full_reply_parts: list[str] = []
     current_sentence = ""
     in_sources_mode = False
@@ -1229,6 +1354,7 @@ async def _stream_and_synthesize(
                 # Binary frame: [0x01][2-byte big-endian header len L][JSON UTF-8][Raw audio bytes]
                 header_data = json.dumps({
                     "clip_id": clip_id,
+                    "turn_id": turn_id,
                     "audio_url": f"/speech/{clip_id}",
                     "mime_type": mime_type,
                     "text": clean_text,
@@ -1241,6 +1367,7 @@ async def _stream_and_synthesize(
                 await websocket.send_json({
                     "type": "audio_chunk",
                     "clip_id": clip_id,
+                    "turn_id": turn_id,
                     "audio_url": f"/speech/{clip_id}",
                     "audio_base64": audio_b64,
                     "mime_type": mime_type,
@@ -1315,6 +1442,7 @@ async def _stream_and_synthesize(
         "state": "thinking",
         "message": "Luna thinking...",
         "mode_label": mode_label,
+        "turn_taking_profile": plugin_res.metadata.get("turn_taking_profile", "normal"),
     })
 
     try:
@@ -1361,7 +1489,7 @@ async def _stream_and_synthesize(
         if not full_reply:
             raise CodexUnavailable("Codex finished without a spoken response")
 
-        turn = {"role": "assistant", "text": full_reply}
+        turn = {"role": "assistant", "text": full_reply, "turn_id": turn_id}
         if conversation.turn_evidence:
             turn["evidence"] = list(conversation.turn_evidence)
         conversation.turns.append(turn)
@@ -1396,6 +1524,7 @@ async def _stream_and_synthesize(
 
         await websocket.send_json({
             "type": "turn_completed",
+            "turn_id": turn_id,
             "turn": turn,
             "timing": timing,
             "effective_locale": effective_locale,
@@ -1738,6 +1867,24 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         pending_audio_timing = {"endpoint_delay_ms": round(endpoint_delay)}
                         if isinstance(audio_encode, (int, float)) and 0 <= audio_encode <= 10_000:
                             pending_audio_timing["audio_encode_ms"] = round(audio_encode)
+                elif msg_type == "output_event":
+                    state = payload.get("state")
+                    turn_id = payload.get("turn_id")
+                    clip_id = payload.get("clip_id")
+                    if state not in {"started", "completed", "interrupted", "failed"} or not isinstance(turn_id, str) or not isinstance(clip_id, str):
+                        await websocket.send_json({"type": "error", "message": "Invalid output event"})
+                        continue
+                    await plugin_manager.execute_output_event(
+                        conversation.plugin_id,
+                        OutputEvent(
+                            conversation_id=conversation.id,
+                            turn_id=turn_id[:100],
+                            clip_id=clip_id[:100],
+                            state=state,
+                            delivered_text=(payload.get("delivered_text")[:4000] if isinstance(payload.get("delivered_text"), str) else None),
+                            metadata={"source": "browser"},
+                        ),
+                    )
                 elif msg_type == "text":
                     text = payload.get("text", "").strip()
                     if not text:

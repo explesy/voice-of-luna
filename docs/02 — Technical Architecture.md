@@ -69,6 +69,11 @@ Tool evidence также принадлежит plugin: Project Room возвр�
 
 Plugin — доверенный локальный пакет, загружаемый в тот же Python process, с одной или несколькими ограниченными точками расширения: `systemPrompt`, `beforeTurn`, `afterTurn`, `renderPanel`, `tools` и `call_tool`. Через обычный API он получает нормализованный transcript и capability context, но это не sandbox: недоверенный Python-код не следует устанавливать, пока не появится отдельная process/IPC-изоляция.
 
+Дополнительные generic capabilities не меняют эту границу: opt-in `gated`
+delivery позволяет проверить законченный model response до TTS, а playback
+lifecycle сообщает только фактические client-side clip events. Ни одна из этих
+возможностей не добавляет в core предметные понятия конкретного workflow.
+
 Для native tools используется opt-in `dynamicTools` app-server protocol. `CodexAppServer` остаётся общим bidirectional bridge: server-initiated `item/tool/call` маршрутизируется через `PluginManager`, где проверяются объявление инструмента, permission и timeout. MCP пока остаётся адаптером для внешних интеграций; first-party Project Room не зависит от MCP.
 
 Persistent plugin memory использует один local SQLite/FTS5 файл с namespace по `plugin_id` и scope (`global`, `plugin`, `conversation`). Repository access ограничен realpath, который валидирует и хранит сам Project Room; core не владеет repository state.

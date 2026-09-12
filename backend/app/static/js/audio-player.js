@@ -93,6 +93,18 @@ function notifyLatencyHud(timing, clientE2e) {
   }
 }
 
+function sendPlaybackLifecycle(state, item, deliveredText = null) {
+  if (typeof socket === "undefined" || !socket || socket.readyState !== WebSocket.OPEN) return;
+  if (!item || !item.clipId || !item.turnId) return;
+  socket.send(JSON.stringify({
+    type: "output_event",
+    state,
+    turn_id: item.turnId,
+    clip_id: item.clipId,
+    delivered_text: deliveredText,
+  }));
+}
+
 function measureFirstSoundOffset(audioBuffer) {
   if (!audioBuffer || !audioBuffer.length || !audioBuffer.sampleRate) return null;
   const threshold = 0.003;
@@ -116,6 +128,10 @@ function stopAudioPlayback() {
   nextAudioChunkStartTime = 0;
 
   activeScheduledSources.forEach((src) => {
+    if (src._lunaItem) {
+      src._lunaItem._interrupted = true;
+      sendPlaybackLifecycle("interrupted", src._lunaItem);
+    }
     try {
       src.stop();
       src.disconnect();
@@ -144,7 +160,7 @@ function getPlaybackContext() {
   }
   return playbackAudioContext;
 }
-async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "audio/wav", rawArrayBuffer = null) {
+async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "audio/wav", rawArrayBuffer = null, turnId = null, clipId = null, text = null) {
   const targetEntry = entry || currentStreamingEntry;
   let blobUrl = null;
   let audioBuffer = null;
@@ -183,7 +199,7 @@ async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "aud
     }
   }
 
-  audioQueue.push({ url, blobUrl, audioBuffer, entry: targetEntry });
+  audioQueue.push({ url, blobUrl, audioBuffer, entry: targetEntry, turnId, clipId, text });
   if (firstAudioSoundOffsetMs == null && audioBuffer) {
     firstAudioSoundOffsetMs = measureFirstSoundOffset(audioBuffer);
     if (firstAudioSoundOffsetMs != null) {
@@ -207,9 +223,11 @@ function scheduleAudioPlayback() {
       const now = ctx.currentTime;
       const startTime = Math.max(now + 0.005, nextAudioChunkStartTime);
       const source = ctx.createBufferSource();
+      source._lunaItem = item;
       source.buffer = item.audioBuffer;
       source.connect(ctx.destination);
       source.start(startTime);
+      sendPlaybackLifecycle("started", item);
       activeScheduledSources.push(source);
       nextAudioChunkStartTime = startTime + item.audioBuffer.duration;
 
@@ -225,6 +243,7 @@ function scheduleAudioPlayback() {
       }
 
       source.onended = () => {
+        if (!item._interrupted) sendPlaybackLifecycle("completed", item, item.text);
         const idx = activeScheduledSources.indexOf(source);
         if (idx !== -1) activeScheduledSources.splice(idx, 1);
         if (activeScheduledSources.length === 0) {
@@ -281,6 +300,7 @@ async function playNextAudioChunkFallback() {
   }
 
   const audio = new Audio(playUrl);
+  sendPlaybackLifecycle("started", item);
   currentAudioElement = audio;
   activePlayer = audio;
   notifyVoiceState("speaking", "Luna responding... Press [Esc] to stop", "SPEAKING // STREAM");
@@ -294,6 +314,7 @@ async function playNextAudioChunkFallback() {
   }, { once: true });
 
   function onChunkFinished() {
+    if (!item._interrupted) sendPlaybackLifecycle("completed", item, item.text);
     isAudioQueuePlaying = false;
     currentAudioElement = null;
     activePlayer = null;
@@ -361,3 +382,4 @@ window.enqueueAudioChunk = enqueueAudioChunk;
 window.scheduleAudioPlayback = scheduleAudioPlayback;
 window.playNextAudioChunkFallback = playNextAudioChunkFallback;
 window.playAudioQueue = playAudioQueue;
+window.sendPlaybackLifecycle = sendPlaybackLifecycle;

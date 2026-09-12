@@ -27,6 +27,44 @@ class PluginTurnResult:
 
 
 @dataclass(frozen=True)
+class ResponseCandidate:
+    """Complete model response offered to an opt-in plugin validator."""
+
+    conversation_id: str
+    user_message: str
+    text: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ResponseDecision:
+    """Decision returned by a plugin response gate."""
+
+    action: str = "allow"
+    text: str | None = None
+    reason: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.action not in {"allow", "replace", "reject"}:
+            raise ValueError("Unsupported response decision")
+        if self.action in {"allow", "replace"} and self.text is None:
+            raise ValueError("Allowed response decisions require text")
+
+
+@dataclass(frozen=True)
+class OutputEvent:
+    """Client playback lifecycle event correlated to one audio clip."""
+
+    conversation_id: str
+    turn_id: str
+    clip_id: str
+    state: str
+    delivered_text: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class ToolSpec:
     """A model-visible, host-executed plugin tool declaration."""
 
@@ -98,6 +136,7 @@ class Plugin(ABC):
     stt_prompt: str | None = None
     preferred_voice_locale: str | None = None
     response_locale_override: str | None = None
+    delivery_mode: str = "streaming"
 
     async def system_prompt(self, conversation_id: str) -> str:
         """Static instructions to append to the base LLM prompt when initializing a thread."""
@@ -136,6 +175,14 @@ class Plugin(ABC):
 
         Used for recording notes, updating training metrics, or debrief logs.
         """
+        pass
+
+    async def validate_response(self, ctx: TurnContext, candidate: ResponseCandidate) -> ResponseDecision:
+        """Validate a complete response before delivery when opted in."""
+        return ResponseDecision(action="allow", text=candidate.text)
+
+    async def on_output_event(self, event: OutputEvent) -> None:
+        """Receive browser playback lifecycle events when supported by the host."""
         pass
 
     async def on_conversation_reset(self, conversation_id: str) -> None:

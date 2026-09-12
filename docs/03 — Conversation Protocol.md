@@ -44,6 +44,24 @@ Project Room это относительный путь и ограниченн�
 
 Plugin может добавить prompt context в `beforeTurn`, сохранить собственную заметку в `afterTurn`, отобразить панель через `renderPanel` или объявить native tools через `tools()`. Core применяет timeout и redaction; hook или tool не может задерживать аудио-путь бесконечно. Tool получает capability-oriented context: raw audio, OAuth tokens, process handles и произвольный shell не передаются обычным контрактом. Плагины остаются trusted in-process code, а не security sandbox.
 
+## Optional delivery contracts
+
+По умолчанию ответ остаётся streaming-совместимым: host может передавать model
+deltas в обычный TTS-путь. Плагин, которому нужна проверка полного ответа до
+доставки, может объявить `delivery_mode=gated`. Тогда host буферизует законченный
+model response и вызывает `validate_response`; только `allow` или `replace`
+попадают в UI/TTS. `reject`, timeout или ошибка validator-а не выпускают исходный
+текст. В историю и `afterTurn` записывается только разрешённый текст.
+
+Браузер может сообщать lifecycle уже отправленного audio clip через коррелированные
+`output_event`: `started`, `completed`, `interrupted` или `failed`, с `turn_id` и
+`clip_id`. `completed` подтверждает полное воспроизведение clip; interruption не
+доказывает, до какого слова пользователь его услышал.
+
+Плагин может запросить воспроизведение заранее утверждённого текста отдельной
+generic host capability. Такая операция не вызывает LLM и не добавляет synthetic
+assistant turn; смысл replay и immutable source остаётся собственностью плагина.
+
 Внешний Python-пакет объявляется через entry-point group `voice_of_luna.plugins`. Его стабильная поверхность host-а — `app.plugin_api`: `Plugin`, turn contexts/results и tool contracts. Пакет не должен импортировать `PluginManager`, web handlers или другие private host-модули; смысл workflow, его состояния и релизы принадлежат отдельному репозиторию плагина.
 
 Project Room — первый first-party tool plugin. Он сам владеет выбранным Git-root,

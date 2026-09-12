@@ -6,7 +6,7 @@ import time
 from importlib import metadata as importlib_metadata
 from typing import Any
 
-from .base import Plugin, PluginTurnResult, ToolCallContext, ToolResult, ToolSpec, TurnContext
+from .base import OutputEvent, Plugin, PluginTurnResult, ResponseCandidate, ResponseDecision, ToolCallContext, ToolResult, ToolSpec, TurnContext
 from .project_room import ProjectRoomPlugin
 
 logger = logging.getLogger("voice_of_luna.plugins")
@@ -222,6 +222,10 @@ class PluginManager:
         plugin = self.get(plugin_id)
         return getattr(plugin, "stt_language", None)
 
+    def delivery_mode(self, plugin_id: str) -> str:
+        mode = str(getattr(self.get(plugin_id), "delivery_mode", "streaming"))
+        return mode if mode in {"streaming", "gated"} else "streaming"
+
     def get_stt_prompt(self, plugin_id: str) -> str | None:
         plugin = self.get(plugin_id)
         return getattr(plugin, "stt_prompt", None)
@@ -330,6 +334,32 @@ class PluginManager:
                 ctx.conversation_id,
                 exc,
             )
+
+    async def execute_validate_response(
+        self,
+        plugin_id: str,
+        ctx: TurnContext,
+        candidate: ResponseCandidate,
+        timeout: float = 1.5,
+    ) -> ResponseDecision:
+        """Run an opt-in pre-delivery validator; failures fail closed."""
+        plugin = self.get(plugin_id)
+        try:
+            result = await asyncio.wait_for(plugin.validate_response(ctx, candidate), timeout=timeout)
+            if not isinstance(result, ResponseDecision):
+                raise TypeError("plugin validator returned an invalid result")
+            if result.action in {"allow", "replace"} and not (result.text or "").strip():
+                raise ValueError("plugin validator returned empty delivery text")
+            return result
+        except Exception as exc:
+            logger.warning("Plugin %s response validation failed: %s", plugin_id, exc)
+            return ResponseDecision(action="reject", reason="validator_failed")
+
+    async def execute_output_event(self, plugin_id: str, event: OutputEvent, timeout: float = 1.0) -> None:
+        try:
+            await asyncio.wait_for(self.get(plugin_id).on_output_event(event), timeout=timeout)
+        except Exception as exc:
+            logger.warning("Plugin %s output event failed: %s", plugin_id, exc)
 
     async def on_conversation_reset(self, plugin_id: str, conversation_id: str) -> None:
         plugin = self.get(plugin_id)

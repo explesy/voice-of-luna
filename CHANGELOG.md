@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-09-13
+
+### Added
+- Added domain-neutral plugin response validation contracts for opt-in gated delivery.
+- Added correlated browser playback lifecycle events for plugin integrations.
+- Added the initial Voice Trainer session/context integration contract without moving training semantics into core.
+
 ## [0.34.0] - 2026-09-12
 
 ### Changed

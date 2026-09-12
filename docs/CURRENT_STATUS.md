@@ -1,7 +1,7 @@
 # Voice of Lúna — Current Status
 
 Updated: 2026-09-12
-Current release: **0.34.0** (2026-09-12)
+Current release: **0.35.0** (2026-09-13)
 
 Purpose: compact current truth for fresh-session startup. This is not a changelog, task list, benchmark table, or replacement for the numbered canonical docs.
 
@@ -22,6 +22,8 @@ The current product is a local single-user tool, not a public multi-user service
 - Trusted in-process plugin system with plugin-owned settings, panels/actions, tools and namespaced persistent state.
 - Separately installed plugins can be discovered through Python entry points (`voice_of_luna.plugins`).
 - Project Room supplies bounded project context and optional approved external-write tools without moving project semantics into the neutral conversation core.
+- Plugins may opt into complete-response validation before UI/TTS delivery; the default plugin path remains streaming.
+- Browser playback can report correlated `output_event` lifecycle (`started`, `completed`, `interrupted`, `failed`) to the active plugin.
 
 For product overview and UX: `README.md`, `docs/00 — PROJECT README.md`, `docs/01 — Product & UX Spec.md`.
 For architecture: `docs/02 — Technical Architecture.md`.
