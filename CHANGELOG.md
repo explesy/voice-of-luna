@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.5] - 2026-09-12
+
+### Added
+- **Compact project-memory routing**: fresh sessions have a progressive, explicit path to the current runtime state and project workflow without weakening the local trust boundary.
+
 ## [0.29.4] - 2026-09-09
 
 ### Added
