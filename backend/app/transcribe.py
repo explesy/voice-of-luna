@@ -67,14 +67,14 @@ class ToneStreamingSession:
     async def push_pcm(self, samples: bytes, sample_rate: int) -> str:
         audio = self._np.frombuffer(samples, dtype=self._np.int16).astype(self._np.float32) / 32768.0
         await asyncio.to_thread(self._decode, audio, sample_rate)
-        return str(self._recognizer.get_result(self._stream).text).strip()
+        return self._result_text()
 
     async def finalize(self) -> str:
         padding = self._np.zeros(int(0.66 * self._model_sample_rate), dtype=self._np.float32)
         await asyncio.to_thread(self._decode, padding, self._model_sample_rate)
         self._stream.input_finished()
         await asyncio.to_thread(self._drain)
-        return str(self._recognizer.get_result(self._stream).text).strip()
+        return self._result_text()
 
     async def cancel(self) -> None:
         self._stream = None
@@ -90,6 +90,10 @@ class ToneStreamingSession:
             return
         while self._recognizer.is_ready(self._stream):
             self._recognizer.decode_stream(self._stream)
+
+    def _result_text(self) -> str:
+        result = self._recognizer.get_result(self._stream)
+        return str(getattr(result, "text", result)).strip()
 
 
 def create_tone_streaming_session(model: str, tokens: str, sample_rate: int) -> ToneStreamingSession:

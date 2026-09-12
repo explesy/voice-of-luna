@@ -740,3 +740,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Configured the T-One recognizer feature extractor at its required 8 kHz
   model rate while preserving the browser's native PCM rate for input frames.
+## [0.34.1] - 2026-09-13
+
+### Fixed
+
+- Made the optional T-One streaming adapter compatible with Sherpa-ONNX
+  releases that return either a result string or an object with a `text`
+  attribute from `get_result()`.
