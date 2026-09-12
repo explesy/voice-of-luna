@@ -22,9 +22,9 @@ Routing:
 
 ## Non-negotiable boundaries
 
-- Local-first by default. Do not expose the service publicly or add telemetry without an explicit product decision.
+- Current architecture is localhost/local-single-user only. Do not expose the service publicly or add telemetry. Any future change to that boundary requires an explicit product/security decision; it must never happen as an incidental implementation detail.
 - Never log/commit Codex credentials, tokens, raw recordings, private conversation files or secret-bearing environment data.
-- Plugins are trusted in-process Python extensions, not a sandbox. Keep host capability contracts narrow and domain-neutral.
+- Plugins are trusted in-process Python extensions, not a sandbox. Keep host capability contracts narrow and domain-neutral; plugin host context must not expose Codex credentials or raw audio by default.
 - Do not put personal Relationship scenarios/history into this repository.
 - Voice Trainer product semantics belong in its standalone package/repo (issue #1), not in the neutral core; do not expand `backend/app/plugins/training.py` as the long-term product implementation.
 - Automated tests must never make real OpenAI/Codex/paid model calls or consume user quota.

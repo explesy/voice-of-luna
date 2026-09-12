@@ -49,11 +49,12 @@ Do not leave finished, verified work uncommitted/unpushed merely for the user to
 
 ## Trust boundary details
 
-- Default runtime is localhost/local single-user.
+- Current runtime is localhost/local single-user only. Do not expose it publicly or add telemetry as an incidental task; changing that trust boundary requires an explicit product/security decision and corresponding design review.
 - Raw recordings are temporary and should not be persisted by normal operation.
 - Codex authentication belongs to the local supported Codex runtime, not browser storage or a shared server credential store.
 - Do not serialize or log credentials, OAuth sessions, secret-bearing environment values or private conversation payloads.
-- Plugin contexts should expose the minimum capabilities needed. Installed Python entry-point plugins are trusted code; capability APIs are an architectural boundary, not a hostile-code sandbox.
+- Installed Python entry-point plugins are trusted code, but the host contract must still expose only the minimum approved capabilities. Plugin turn context must not include Codex credentials or raw audio by default.
+- Capability APIs are an architectural boundary, not a hostile-code sandbox.
 
 ## Common commands
 
