@@ -17,10 +17,8 @@ from app.plugins import (
     ToolResult,
     ToolSpec,
     TurnContext,
-    TrainingPlugin,
     plugin_manager,
 )
-from app.plugin_storage import PluginStorage
 
 client = TestClient(app)
 
@@ -78,6 +76,7 @@ async def test_plugin_manager_registration_and_listing():
     ids = [p["id"] for p in plugins]
     assert "neutral" in ids
     assert "project_room" in ids
+    assert "training" not in ids
 
     custom = SlowPlugin()
     mgr.register(custom)
@@ -128,26 +127,6 @@ async def test_plugin_manager_rejects_unknown_plugins_and_modes():
         mgr.validate_mode("missing", "default")
     with pytest.raises(ValueError, match="Unknown mode"):
         mgr.validate_mode("neutral", "missing")
-
-
-@pytest.mark.anyio
-async def test_training_plugin_persists_state_and_tools(tmp_path):
-    plugin = TrainingPlugin()
-    state = PluginStorage(tmp_path / "plugins.sqlite3").for_plugin("training", "conv-1")
-    result = await plugin.before_turn(
-        TurnContext("conv-1", "Practise", [], active_mode="practice", metadata={"plugin_settings": {"skill": "listening"}}, state=state)
-    )
-    assert "Current skill: listening" in result.prompt_context
-    await plugin.after_turn(TurnContext("conv-1", "Practise", [], active_mode="practice", state=state), "Keep going")
-    raw = await state.get("recent_sessions")
-    assert raw and "Keep going" in raw
-
-    storage = PluginStorage(tmp_path / "tools.sqlite3")
-    ctx = ToolCallContext("conv-1", "training", "practice", metadata={"tool_qualified_name": "training.observe", "project_scope": "project"}, storage=storage)
-    observed = await plugin.call_tool("training.observe", {"text": "Good pacing"}, ctx)
-    assert "Recorded training observation" in observed.content_items[0]["text"]
-    history = await plugin.call_tool("training.history", {"limit": 1}, ToolCallContext("conv-1", "training", "practice", metadata={"tool_qualified_name": "training.history", "project_scope": "project"}, storage=storage))
-    assert "Good pacing" in history.content_items[0]["text"]
 
 
 @pytest.mark.anyio

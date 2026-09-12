@@ -1,7 +1,7 @@
 # Voice of Lúna — Current Status
 
 Updated: 2026-09-12
-Current release: **0.29.4** (2026-09-09)
+Current release: **0.34.0** (2026-09-12)
 
 Purpose: compact current truth for fresh-session startup. This is not a changelog, task list, benchmark table, or replacement for the numbered canonical docs.
 
@@ -33,21 +33,21 @@ For measured performance: `docs/05 — Latency & Performance Benchmarks.md`.
 - **Local-first trust boundary**: do not expose the service publicly by default, send telemetry, or persist raw recordings/secrets/transcripts as a side effect.
 - Python plugins are **trusted in-process extensions**, not a security sandbox. Host APIs minimize exposed capability but cannot make arbitrary installed Python code untrusted.
 - The conversation/audio core must remain domain-neutral. Specialized workflows belong in plugins/packages.
-- Voice Trainer is a separate product extraction tracked in GitHub issue #1. The current first-party `backend/app/plugins/training.py` is migration debt, not the long-term Voice Trainer source; do not expand product semantics there.
+- Voice Trainer is a separately versioned plugin package in [`explesy/voice-trainer`](https://github.com/explesy/voice-trainer). Voice of Luna exposes only the generic `app.plugin_api` contracts needed by installed plugins; do not add training semantics back to this repository.
 - Personal Relationship training scenarios/history remain external Project Memory and must not be committed into this repo.
 
 ## Known high-impact limitations / active boundaries
 
 - Live Codex latency remains the dominant variable and benchmark snapshots are not SLAs or permanent model rankings.
 - External plugin discovery is intentionally trusted-process integration; stronger sandboxing would require a different execution boundary.
-- Voice Trainer extraction is not complete until its standalone repo/package exists, installs through the external-plugin entry point, passes integration, and the first-party Training plugin is removed through the normal release workflow.
+- Voice Trainer is discovered through the generic external-plugin entry point. Its separate release and product roadmap are maintained in its own repository.
 - Public multi-user deployment/auth is out of current scope.
 
 ## Active work ownership
 
 Concrete work lives in GitHub Issues, not in this file:
 
-- **#1** — extract Voice Trainer into a standalone package/repository, then remove first-party training implementation after integration passes.
+- **#1** — extraction record for Voice Trainer; follow-up product work belongs in its standalone repository.
 - **#2** — progressive repo-memory/docs refactor (this runtime layer).
 
 If an issue is closed, do not keep its task state here as a parallel TODO. Current state may be refreshed when a release materially changes product shape or boundaries.

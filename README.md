@@ -116,8 +116,9 @@ For an opt-in local browser capture, run `setVadTraceCapture(true)` in DevTools 
 Extend Lúna through trusted, in-process packages. The host exposes capability-oriented contexts and does not intentionally grant plugins raw audio or credentials, but Python entry-point plugins are not a security sandbox:
 - **`Lúna (Core)`**: Neutral conversation core with no plugin tools.
 - **`Project Room`**: Persistent plugin-scoped memory, read-only access to a user-selected project root, and optional GitHub issue tools. Repository reads are constrained to the selected root; GitHub issue creation requires a one-shot approval.
+- **`Voice Trainer`**: A separately installed product plugin for private practice and reflection; its code and product roadmap live in [its own repository](https://github.com/explesy/voice-trainer).
 
-The core does not embed a personal-training protocol. Specialized workflows remain a future plugin concern.
+The core does not embed a personal-training protocol. Specialized workflows are separately versioned plugin packages.
 
 ---
 

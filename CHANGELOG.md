@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-09-12
+
+### Changed
+- First-party `TrainingPlugin` removed from the Voice of Luna runtime. Voice Trainer is now a separately versioned, entry-point-discovered package at `explesy/voice-trainer`.
+- Added the domain-neutral `app.plugin_api` module as the supported contract for separately installed plugins.
+
 ## [0.29.5] - 2026-09-12
 
 ### Added
