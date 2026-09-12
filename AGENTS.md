@@ -1,92 +1,41 @@
-# AGENTS.md — Инструкция для ИИ-агентов (Voice of Lúna)
+# AGENTS.md — Voice of Lúna
 
-Этот файл содержит обязательные правила, архитектурные ограничения и стандарты рабочего процесса для всех ИИ-агентов (Antigravity, Codex, Claude Code, Cursor и др.), работающих в репозитории **Voice of Lúna**.
+Repository-wide rules for AI coding agents.
 
----
+## Start here
 
-## 1. Обязательное правило версионирования (SemVer)
+Voice of Lúna is a local-first, single-user voice/conversation bridge around local STT/TTS and an already-authenticated local `codex app-server`.
 
-Проект использует [Семантическое версионирование (Semantic Versioning 2.0.0)](https://semver.org/lang/ru/).
+For a fresh task:
+1. Read `docs/CURRENT_STATUS.md` for compact current truth.
+2. Open only the task-specific canonical doc/code next.
+3. For active implementation work, use the relevant GitHub Issue rather than reconstructing a TODO list from old docs/chats.
 
-> [!IMPORTANT]
-> **ОБЯЗАТЕЛЬНОЕ ПРАВИЛО ДЛЯ АГЕНТОВ:**
-> **После добавления любого нового функционала агент ОБЯЗАН обновить версию проекта.**
-> Завершение задачи с новой функциональностью без поднятия версии и обновления `CHANGELOG.md` считается невыполненной задачей.
+Routing:
+- product/UX → `docs/00 — PROJECT README.md`, `docs/01 — Product & UX Spec.md`
+- architecture → `docs/02 — Technical Architecture.md`
+- turn-taking/plugin protocol → `docs/03 — Conversation Protocol.md`
+- implementation history/plans → `docs/04 — MVP & Implementation Plan.md` only when relevant; active scoped work belongs in Issues
+- performance → `docs/05 — Latency & Performance Benchmarks.md`
+- historical changes → `CHANGELOG.md` / Git
+- detailed agent/release procedure → `docs/AGENT_WORKFLOW.md`
 
-### Правила изменения версии:
-- **MINOR (0.X.0)** — **Новый функционал**:
-  - Добавлен новый плагин, новый эндпоинт API, новый режим синтеза/транскрипции, новый параметр настроек, новые возможности UI/UX или расширение протокола WebSocket.
-  - Пример: `0.1.0` ➔ `0.2.0`.
-- **PATCH (0.1.X)** — **Исправления и оптимизации**:
-  - Багфиксы, устранение уязвимостей, мелкие улучшения стабильности, рефакторинг без добавления пользовательских возможностей, правки документации.
-  - Пример: `0.1.0` ➔ `0.1.1`.
-- **MAJOR (X.0.0)** — **Ломающие изменения**:
-  - Несовместимые изменения контрактов API, протокола взаимодействия или фундаментальная смена архитектуры.
+## Non-negotiable boundaries
 
-### Чеклист обновления версии (Single Source of Truth):
-При изменении версии агент обязан синхронизировать следующие файлы:
-1. `backend/pyproject.toml` — обновить поле `version = "X.Y.Z"`.
-2. `backend/app/__init__.py` — обновить константу `__version__ = "X.Y.Z"`.
-3. `CHANGELOG.md` — добавить секцию с новой версией, датой и списком изменений (Added, Changed, Fixed и т.д.).
-4. `cd backend && uv sync` — обновить `backend/uv.lock`.
-5. `cd backend && uv run pytest tests/test_version.py` — убедиться, что тесты валидации версий проходят.
-6. **Легковесный Git-тег**: создать метку версии `git tag vX.Y.Z`.
+- Local-first by default. Do not expose the service publicly or add telemetry without an explicit product decision.
+- Never log/commit Codex credentials, tokens, raw recordings, private conversation files or secret-bearing environment data.
+- Plugins are trusted in-process Python extensions, not a sandbox. Keep host capability contracts narrow and domain-neutral.
+- Do not put personal Relationship scenarios/history into this repository.
+- Voice Trainer product semantics belong in its standalone package/repo (issue #1), not in the neutral core; do not expand `backend/app/plugins/training.py` as the long-term product implementation.
+- Automated tests must never make real OpenAI/Codex/paid model calls or consume user quota.
 
----
+## Completion gate
 
-## 2. Автоматический коммит и пуш (Git Workflow)
+Every completed change must follow `docs/AGENT_WORKFLOW.md`.
+At minimum:
+- run the required test gate (`cd backend && uv run pytest -q` unless an explicitly documented narrower docs-only rule applies);
+- apply SemVer and synchronize version/changelog/lock when the change requires a release;
+- create the required lightweight version tag;
+- make logical Conventional Commit(s) and push completed work + release tag according to the repository workflow.
 
-> [!IMPORTANT]
-> **ОБЯЗАТЕЛЬНОЕ ПРАВИЛО ДЛЯ АГЕНТОВ:**
-> **После окончания любого блока работы или успешного завершения задачи агент ОБЯЗАН автоматически закоммитить изменения и сделать `git push`.**
-> Не останавливаться и не перекладывать коммит/пуш на пользователя, если задача решена и тесты пройдены.
-
-### Чеклист завершения блока работы:
-1. **Проверка тестов**: перед коммитом запустить полный набор тестов: `cd backend && uv run pytest -q`. Все тесты должны быть зелёными (PASS).
-2. **Проверка версионирования**: если был добавлен функционал или изменена документация/код, версия должна быть поднята согласно Разделу 1, а также создан легковесный тег `vX.Y.Z`.
-3. **Логичные коммиты**: структурировать изменения в аккуратные, содержательные коммиты по Conventional Commits (`feat: ...`, `fix: ...`, `docs: ...`, `refactor: ...`).
-4. **Автоматический пуш**: сразу после коммита выполнить отправку в ветку (`git push origin <branch>`), а при релизе новой версии — также отправить тег (`git push origin vX.Y.Z` или `git push origin --tags`).
-
----
-
-## 3. Архитектура и стек проекта
-
-- **Назначение**: Локальный голосовой мост между браузерным интерфейсом, локальным распознаванием/синтезом речи и локальным `codex app-server`.
-- **Стек**:
-  - **Python**: `>=3.12` (виртуальное окружение управляется через `uv`).
-  - **Бэкенд**: FastAPI, Uvicorn, WebSockets, Jinja2 Templates, Pydantic.
-  - **Фронтенд**: HTML, CSS, HTMX, Vanilla JS (AudioWorklet / MediaRecorder).
-  - **Речь**:
-    - STT: локальный Whisper (`pywhispercpp` / `torch`) и внешний `whisper_server`.
-    - TTS: локальный macOS `say` и облачный `edge-tts`.
-  - **LLM-интеграция**: `codex app-server` через локальный stdio JSON-RPC.
-
----
-
-## 4. Границы доверия и безопасность (Trust Boundary)
-
-- **Local-first**: Проект работает исключительно локально (`localhost`). Запрещено открывать доступ наружу или слать телеметрию.
-- **Никаких секретов и транскриптов**: Никогда не логировать, не сериализовать и не коммитить токены, OAuth-сессии Codex, сырые аудиозаписи и приватные файлы диалогов.
-- **Изоляция плагинов**: Плагины в `backend/app/plugins/` получают только разрешённый контекст turn context и никогда не имеют прямого доступа к сырому аудио или учетным данным.
-
----
-
-## 5. Требования к тестированию
-
-- Перед завершением любой задачи агент **ОБЯЗАН** запустить полный набор тестов:
-  ```bash
-  cd backend && uv run pytest -q
-  ```
-- **Запрет реальных вызовов LLM**: Автоматические тесты ни при каких условиях не должны выполнять реальные вызовы к OpenAI / Codex API и тратить пользовательский баланс или квоты. Все вызовы Codex и транскрибации в тестах должны мокаться.
-- Все существующие тесты (включая `test_version.py`, `test_main.py`, `test_codex.py`, `test_plugins.py`, `test_speech_links.py`) должны завершаться со статусом PASS (0 ошибок).
-
----
-
-## 6. Основные команды
-
-| Действие | Команда |
-|---|---|
-| Установка зависимостей | `make setup` (или `cd backend && uv sync --group dev`) |
-| Запуск тестов | `make test` (или `cd backend && uv run pytest -q`) |
-| Запуск сервера разработки | `make run` (или `cd backend && uv run uvicorn app.main:app --reload`) |
-| Проверка версионирования | `cd backend && uv run pytest tests/test_version.py` |
+A task is not complete when required versioning/tests/tag/push are missing.
