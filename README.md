@@ -295,6 +295,20 @@ Pass `--include-edge` explicitly for the network-backed Edge TTS experiment,
 and `--stt-fixture /absolute/path/to/licensed-speech.wav` for an STT experiment
 with real speech. See [the benchmark methodology](docs/05%20%E2%80%94%20Latency%20%26%20Performance%20Benchmarks.md).
 
+For a reproducible T-One vs Whisper experiment, use the local recorder and
+JSONL benchmark runner. They keep audio local and report WER/CER, first partial
+latency and total recognition time:
+
+```bash
+cd backend
+uv run python scripts/record_stt_corpus.py --out /absolute/path/to/luna-stt-corpus --count 10
+uv run --with sherpa-onnx python scripts/run_stt_benchmark.py \
+  /absolute/path/to/luna-stt-corpus/manifest.jsonl --provider both
+```
+
+See [the STT recording and benchmark guide](docs/06%20%E2%80%94%20STT%20Recording%20%26%20Benchmark.md)
+for microphone selection, Linux/Windows variants, model paths and privacy notes.
+
 To verify version synchronization (SemVer single source of truth):
 ```bash
 cd backend

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-09-13
+
+### Added
+- Added a local ffmpeg-based STT corpus recorder with JSONL reference manifests.
+- Added an offline T-One/Whisper benchmark runner reporting WER, CER and local
+  streaming latency, plus a Russian recording and benchmark guide.
+
 ## [0.35.0] - 2026-09-13
 
 ### Added
