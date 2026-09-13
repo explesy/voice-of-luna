@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice of Luna — Architecture Overview</title>
+  <style>
+    :root {
+      --bg: #070913;
+      --panel: rgba(18, 24, 45, 0.82);
+      --panel-2: rgba(12, 18, 36, 0.92);
+      --text: #eef7ff;
+      --muted: #9fb3c8;
+      --cyan: #00f0ff;
+      --violet: #b26cff;
+      --green: #6dffb8;
+      --line: rgba(0, 240, 255, 0.28);
+      --border: rgba(255, 255, 255, 0.12);
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 20% 10%, rgba(0, 240, 255, 0.15), transparent 30%),
+        radial-gradient(circle at 80% 0%, rgba(178, 108, 255, 0.20), transparent 34%),
+        linear-gradient(180deg, #070913 0%, #0b1020 58%, #080a13 100%);
+      line-height: 1.55;
+    }
+
+    main {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 56px 0 80px;
+    }
+
+    .hero {
+      min-height: 420px;
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 32px;
+      align-items: center;
+    }
+
+    .eyebrow {
+      color: var(--cyan);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 14px 0 18px;
+      font-size: clamp(42px, 7vw, 86px);
+      line-height: 0.94;
+      letter-spacing: -0.06em;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: clamp(26px, 3vw, 38px);
+      letter-spacing: -0.035em;
+    }
+
+    h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+
+    p { margin: 0; color: var(--muted); }
+
+    .lead {
+      max-width: 680px;
+      color: #d7e8f8;
+      font-size: clamp(18px, 2.1vw, 24px);
+    }
+
+    .meta {
+      margin-top: 28px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .pill {
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.05);
+      color: #dff8ff;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+    }
+
+    .moon-card {
+      position: relative;
+      min-height: 360px;
+      border: 1px solid var(--border);
+      border-radius: 34px;
+      background:
+        linear-gradient(145deg, rgba(0,240,255,0.10), transparent 45%),
+        linear-gradient(220deg, rgba(178,108,255,0.16), transparent 48%),
+        var(--panel);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .moon {
+      position: absolute;
+      width: 180px;
+      height: 180px;
+      border-radius: 50%;
+      top: 56px;
+      left: calc(50% - 90px);
+      background:
+        radial-gradient(circle at 38% 32%, #ffffff, #c9f8ff 20%, #00f0ff 55%, #123c62 75%);
+      box-shadow: 0 0 42px rgba(0,240,255,0.75), inset -26px -18px 46px rgba(7,9,19,0.44);
+    }
+
+    .orbit {
+      position: absolute;
+      inset: 42px;
+      border: 1px solid rgba(0,240,255,0.25);
+      border-radius: 50%;
+      transform: rotate(-16deg);
+    }
+
+    .signal {
+      position: absolute;
+      left: 34px;
+      right: 34px;
+      bottom: 44px;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+    }
+
+    .bar {
+      height: 72px;
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(0,240,255,0.85), rgba(178,108,255,0.22));
+      opacity: 0.75;
+    }
+    .bar:nth-child(2) { height: 112px; margin-top: -40px; }
+    .bar:nth-child(3) { height: 88px; margin-top: -16px; }
+    .bar:nth-child(4) { height: 132px; margin-top: -60px; }
+
+    .section { margin-top: 52px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .two {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 22px;
+      background: var(--panel);
+      box-shadow: 0 14px 40px rgba(0,0,0,0.22);
+    }
+
+    .card strong { color: var(--text); }
+
+    .number {
+      display: inline-grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      margin-bottom: 16px;
+      border-radius: 50%;
+      background: rgba(0,240,255,0.12);
+      border: 1px solid rgba(0,240,255,0.38);
+      color: var(--cyan);
+      font-weight: 800;
+    }
+
+    .flow {
+      margin-top: 18px;
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      padding: 28px;
+      background: var(--panel-2);
+      overflow-x: auto;
+    }
+
+    .flow-row {
+      min-width: 900px;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .node {
+      position: relative;
+      min-height: 142px;
+      padding: 18px;
+      border-radius: 22px;
+      border: 1px solid rgba(0,240,255,0.25);
+      background: linear-gradient(180deg, rgba(0,240,255,0.08), rgba(255,255,255,0.03));
+    }
+
+    .node:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      right: -24px;
+      top: 48%;
+      color: var(--cyan);
+      font-size: 26px;
+      text-shadow: 0 0 12px rgba(0,240,255,0.9);
+    }
+
+    .node-title { color: var(--text); font-weight: 800; margin-bottom: 8px; }
+    .node-text { color: var(--muted); font-size: 14px; }
+
+    .layers {
+      display: grid;
+      gap: 12px;
+    }
+
+    .layer {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 18px;
+      padding: 18px;
+      border-radius: 22px;
+      background: rgba(255,255,255,0.045);
+      border: 1px solid var(--border);
+    }
+
+    .layer-name { color: var(--green); font-weight: 800; }
+
+    ul {
+      margin: 12px 0 0;
+      padding-left: 20px;
+      color: var(--muted);
+    }
+
+    li + li { margin-top: 6px; }
+
+    .callout {
+      border: 1px solid rgba(109,255,184,0.30);
+      background: linear-gradient(135deg, rgba(109,255,184,0.10), rgba(0,240,255,0.06));
+      border-radius: 28px;
+      padding: 26px;
+    }
+
+    .footer {
+      margin-top: 52px;
+      color: var(--muted);
+      font-size: 14px;
+      text-align: center;
+    }
+
+    @media (max-width: 900px) {
+      .hero, .two { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr 1fr; }
+      .layer { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 560px) {
+      main { width: min(100vw - 22px, 1180px); padding-top: 32px; }
+      .grid { grid-template-columns: 1fr; }
+      .moon-card { min-height: 280px; }
+      .moon { width: 140px; height: 140px; left: calc(50% - 70px); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <div>
+        <div class="eyebrow">Local-first voice interface</div>
+        <h1>Voice of Luna architecture</h1>
+        <p class="lead">A plain-language map of the current project: browser voice loop, local FastAPI orchestration, speech adapters, Codex runtime, plugins, testing, and the next phone-first development direction.</p>
+        <div class="meta">
+          <span class="pill">Updated 2026-09-14</span>
+          <span class="pill">Local-first</span>
+          <span class="pill">Codex bridge</span>
+          <span class="pill">Plugin-ready</span>
+          <span class="pill">Phone-first dev direction</span>
+        </div>
+      </div>
+      <div class="moon-card" aria-hidden="true">
+        <div class="orbit"></div>
+        <div class="moon"></div>
+        <div class="signal">
+          <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>The short version</h2>
+      <div class="callout">
+        <p><strong>Voice of Luna is a local voice shell over Codex.</strong> The browser handles the human interaction. The FastAPI backend coordinates the turn. Speech adapters handle STT and TTS. Codex produces the model answer. Plugins add specialized workflows without bloating the neutral core.</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Main layers</h2>
+      <div class="grid">
+        <article class="card"><span class="number">1</span><h3>Human conversation</h3><p>Microphone, VAD, radar HUD, text dock, playback, and barge-in.</p></article>
+        <article class="card"><span class="number">2</span><h3>Local orchestration</h3><p>FastAPI, conversations, WebSocket events, cancellation, and local state.</p></article>
+        <article class="card"><span class="number">3</span><h3>Model runtime</h3><p>Local Codex app-server, model discovery, streamed text turns, and reasoning settings.</p></article>
+        <article class="card"><span class="number">4</span><h3>Workflow plugins</h3><p>Project Room, Voice Trainer, and the planned development-control plugin.</p></article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Runtime flow</h2>
+      <div class="flow">
+        <div class="flow-row">
+          <div class="node"><div class="node-title">Browser</div><div class="node-text">Captures speech, detects endpoint, displays status, plays audio, interrupts on barge-in.</div></div>
+          <div class="node"><div class="node-title">Backend</div><div class="node-text">Receives the turn, orders events, manages transcript and cancellation.</div></div>
+          <div class="node"><div class="node-title">STT / Codex</div><div class="node-text">Local speech recognition turns audio into text; Codex streams the assistant answer.</div></div>
+          <div class="node"><div class="node-title">Speech pipeline</div><div class="node-text">Chunks early clauses and sends them to TTS before the full answer is complete.</div></div>
+          <div class="node"><div class="node-title">Playback</div><div class="node-text">The browser receives audio chunks and starts speaking quickly, while later chunks continue.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section two">
+      <article class="card">
+        <h2>Plugin rule</h2>
+        <p>The neutral core should not learn domain concepts. Relationship training, project context, GitHub state, coaching flows, and development supervision belong in plugins.</p>
+        <ul>
+          <li>Project Room owns project context and evidence.</li>
+          <li>Voice Trainer remains a separate plugin/product.</li>
+          <li>Development-control plugin should supervise agents, PRs, CI, and review loops.</li>
+        </ul>
+      </article>
+      <article class="card">
+        <h2>Infrastructure direction</h2>
+        <p>The next goal is to make the repository easy to drive from a phone through agents and GitHub.</p>
+        <ul>
+          <li>Canonical <code>make verify</code>.</li>
+          <li>Fake STT, fake Codex, fake TTS for deterministic CI.</li>
+          <li>Simulated end-to-end browser/backend flow.</li>
+          <li>Mobile-readable PR artifacts: screenshots, traces, logs.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="section">
+      <h2>Ownership map</h2>
+      <div class="layers">
+        <div class="layer"><div class="layer-name">Browser</div><p>Owns user interaction, not product memory or model credentials.</p></div>
+        <div class="layer"><div class="layer-name">Backend core</div><p>Owns neutral conversation mechanics, not specialized workflow semantics.</p></div>
+        <div class="layer"><div class="layer-name">Adapters</div><p>Own STT, TTS, and model-provider details behind small interfaces.</p></div>
+        <div class="layer"><div class="layer-name">Plugins</div><p>Own project-specific, training-specific, or development-control behavior.</p></div>
+        <div class="layer"><div class="layer-name">CI / agents</div><p>Should prove routine changes through tests and artifacts so phone-first review is practical.</p></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>The practical design question</h2>
+      <div class="callout">
+        <p>When the project feels confusing, ask: <strong>which layer should own this concept?</strong> If it is a specialized workflow, it probably belongs in a plugin. If it is turn-taking, transport, speech, cancellation, or local state, it probably belongs in the neutral core.</p>
+      </div>
+    </section>
+
+    <div class="footer">Canonical technical details remain in the Markdown docs. This HTML page is a readable visual companion, not a replacement for specs.</div>
+  </main>
+</body>
+</html>
