@@ -1,4 +1,4 @@
-.PHONY: setup setup-silero test run matrix
+.PHONY: setup setup-silero test run dev preflight matrix
 
 setup:
 	cd backend && uv sync
@@ -9,8 +9,15 @@ setup-silero:
 test:
 	cd backend && uv run pytest -q
 
+preflight:
+	cd backend && uv run python scripts/preflight.py
+
 matrix:
 	cd backend && uv run python scripts/run_model_matrix.py
 
+dev:
+	./scripts/run.sh
+
 run:
-	cd backend && uv run uvicorn app.main:app --reload
+	./scripts/run.sh
+

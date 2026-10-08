@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.38.0] - 2026-10-09
+## [0.39.0] - 2026-10-09
+
+### Added
+- Developer launcher script (`scripts/run.sh`) with colored output, flag parsing, and automatic preflight integration (fixes #11).
+- Runtime preflight diagnostics script (`backend/scripts/preflight.py`) checking Python version (>= 3.12), core packages, Codex CLI login authentication, Whisper runtime/model weights, TTS voices, and TCP ports (8000, 8089).
+- Added `make dev` and `make preflight` targets in `Makefile` and routed `make run` through `./scripts/run.sh`.
+- Comprehensive unit test suite in `backend/tests/test_preflight.py` covering port allocation, dependency evaluation, CLI flags, and report formatting.
+
 
 ### Added
 - Expanded speech models catalog with Whisper Large-v3-Turbo (`whisper_large_v3_turbo`, `ggml-large-v3-turbo-q5_0.bin`) and presets in `whisper_server.py` and `transcribe.py` (fixes #10).
