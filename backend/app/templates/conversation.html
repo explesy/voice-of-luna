@@ -82,24 +82,40 @@
               {% endif %}
             </select>
           </div>
-          {% set current_p = none %}
+          {% set ns = namespace(current_p=none) %}
           {% for p in plugins %}
-            {% if p.id == active_plugin %}{% set current_p = p %}{% endif %}
+            {% if p.id == active_plugin %}{% set ns.current_p = p %}{% endif %}
           {% endfor %}
+          {% set current_p = ns.current_p %}
           {% if current_p and current_p.panel %}
-          <div class="sys-chip plugin-panel" data-plugin-panel="{{ current_p.id }}">
-            {% for field in current_p.panel.fields %}
-            <label for="plugin-setting-{{ field.name }}" class="session-plugin-label">{{ field.label }}:</label>
-            <input id="plugin-setting-{{ field.name }}" class="voice-input plugin-setting" type="text"
-                   data-plugin-setting="{{ field.name }}"
-                   value="{{ conversation.plugin_settings.get(field.name, '') if conversation.plugin_settings else '' }}"
-                   placeholder="{{ field.placeholder or (field.label ~ '…') }}" aria-label="{{ field.label }}">
-            {% if field.help %}<button type="button" class="plugin-field-help" title="{{ field.help }}" aria-label="{{ field.help }}">?</button>{% endif %}
-            {% endfor %}
-            <button type="button" class="sys-chip-button plugin-settings-apply">APPLY</button>
-            {% for action in current_p.panel.actions %}
-            <button type="button" class="sys-chip-button plugin-action" data-plugin-action="{{ action.name }}">{{ action.label }}</button>
-            {% endfor %}
+          {% set has_rich = (current_p.panel.fields|selectattr("type", "equalto", "textarea")|list|length > 0) or (current_p.panel.fields|length > 2) %}
+          <div class="sys-chip plugin-panel{% if has_rich %} has-rich-fields{% endif %}" data-plugin-panel="{{ current_p.id }}">
+            <div class="plugin-fields-container">
+              {% for field in current_p.panel.fields %}
+              <div class="plugin-field-item{% if field.type == 'textarea' %} is-textarea{% endif %}">
+                <label for="plugin-setting-{{ field.name }}" class="session-plugin-label">
+                  {{ field.label }}:
+                  {% if field.help %}<button type="button" class="plugin-field-help" title="{{ field.help }}" aria-label="{{ field.help }}">?</button>{% endif %}
+                </label>
+                {% if field.type == 'textarea' %}
+                <textarea id="plugin-setting-{{ field.name }}" class="voice-input plugin-setting plugin-textarea"
+                          data-plugin-setting="{{ field.name }}" rows="{{ field.rows or 3 }}"
+                          placeholder="{{ field.placeholder or (field.label ~ '…') }}" aria-label="{{ field.label }}">{{ conversation.plugin_settings.get(field.name, '') if conversation.plugin_settings else '' }}</textarea>
+                {% else %}
+                <input id="plugin-setting-{{ field.name }}" class="voice-input plugin-setting" type="{{ 'text' if field.type == 'directory' else (field.type or 'text') }}"
+                       data-plugin-setting="{{ field.name }}"
+                       value="{{ conversation.plugin_settings.get(field.name, '') if conversation.plugin_settings else '' }}"
+                       placeholder="{{ field.placeholder or (field.label ~ '…') }}" aria-label="{{ field.label }}">
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+            <div class="plugin-actions-container">
+              <button type="button" class="sys-chip-button plugin-settings-apply">APPLY</button>
+              {% for action in current_p.panel.actions %}
+              <button type="button" class="sys-chip-button plugin-action" data-plugin-action="{{ action.name }}">{{ action.label }}</button>
+              {% endfor %}
+            </div>
           </div>
           {% endif %}
           <div id="tool-approval-dialog" class="tool-approval-dialog" hidden></div>

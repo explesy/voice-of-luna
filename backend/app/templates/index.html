@@ -165,6 +165,15 @@
     </div>
 
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
+    <div id="plugin-result-modal" class="terminal-modal-backdrop" hidden>
+      <div class="terminal-modal" role="dialog" aria-modal="true" aria-labelledby="plugin-result-title">
+        <div class="terminal-modal-header">
+          <span class="terminal-modal-title" id="plugin-result-title">// PLUGIN OUTPUT</span>
+          <button type="button" class="terminal-modal-close" id="plugin-modal-close" aria-label="Закрыть">[ESC / CLOSE]</button>
+        </div>
+        <div class="terminal-modal-body" id="plugin-result-content"></div>
+      </div>
+    </div>
     <script>
       window._PLUGINS = {{ plugins | tojson }};
       window._ACTIVE_PLUGIN = {{ active_plugin | tojson }};

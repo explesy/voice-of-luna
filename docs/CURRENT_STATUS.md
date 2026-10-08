@@ -1,7 +1,7 @@
 # Voice of Lúna — Current Status
 
-Updated: 2026-09-12
-Current release: **0.35.0** (2026-09-13)
+Updated: 2026-10-09
+Current release: **0.37.0** (2026-10-09)
 
 Purpose: compact current truth for fresh-session startup. This is not a changelog, task list, benchmark table, or replacement for the numbered canonical docs.
 

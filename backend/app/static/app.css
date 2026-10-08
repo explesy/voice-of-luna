@@ -484,6 +484,7 @@ body::after {
 
 /* Plugin panels use the same compact terminal language as the other chips. */
 .plugin-panel {
+  display: inline-flex;
   align-items: baseline;
   gap: 8px;
   min-width: 0;
@@ -493,10 +494,57 @@ body::after {
   white-space: normal;
 }
 
+.plugin-panel.has-rich-fields,
+.plugin-panel:has(.plugin-textarea) {
+  display: flex;
+  flex-direction: column;
+  flex-basis: 100%;
+  width: 100%;
+  order: 10;
+  margin-top: 6px;
+  padding: 10px 14px;
+  background: var(--term-surface);
+  border: 1px solid var(--term-border);
+  border-radius: 4px;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.plugin-panel .plugin-fields-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.plugin-panel .plugin-field-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+  flex: 1 1 180px;
+}
+
+.plugin-panel .plugin-field-item.is-textarea {
+  flex: 1 1 100%;
+  width: 100%;
+}
+
+.plugin-panel .plugin-actions-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding-top: 8px;
+  border-top: 1px dashed var(--term-border);
+}
+
 .plugin-panel .plugin-setting {
   appearance: none;
   -webkit-appearance: none;
-  width: clamp(130px, 14vw, 220px);
+  width: 100%;
   min-width: 0;
   height: 26px;
   padding: 2px 7px;
@@ -510,11 +558,30 @@ body::after {
   line-height: 1.2;
 }
 
-.plugin-panel .plugin-setting::placeholder {
+.plugin-panel:not(.has-rich-fields) .plugin-setting {
+  width: clamp(130px, 14vw, 220px);
+}
+
+.plugin-panel .plugin-textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  height: auto;
+  resize: vertical;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  box-sizing: border-box;
+}
+
+.plugin-panel .plugin-setting::placeholder,
+.plugin-panel .plugin-textarea::placeholder {
   color: var(--text-dark);
 }
 
-.plugin-panel .plugin-setting:focus {
+.plugin-panel .plugin-setting:focus,
+.plugin-panel .plugin-textarea:focus {
   outline: none;
   border-color: var(--term-cyan);
   box-shadow: 0 0 0 1px var(--term-cyan);
@@ -1170,7 +1237,7 @@ kbd {
   top: 16px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 1000;
+  z-index: 3000;
   pointer-events: none;
 }
 
@@ -1323,6 +1390,132 @@ kbd {
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   border-width: 0;
+}
+
+/* ==================== Terminal Modal & Plugin Results ==================== */
+.terminal-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 7, 10, 0.78);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+
+.terminal-modal-backdrop[hidden] {
+  display: none !important;
+}
+
+.terminal-modal {
+  position: relative;
+  background: var(--term-bg);
+  border: 1px solid var(--term-border);
+  border-radius: 4px;
+  width: 100%;
+  max-width: 580px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(0, 240, 255, 0.08);
+  animation: toastIn 0.2s ease;
+}
+
+.terminal-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--term-surface-elevated);
+  border-bottom: 1px solid var(--term-border);
+}
+
+.terminal-modal-title {
+  color: var(--term-cyan);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.terminal-modal-close {
+  background: transparent;
+  border: 1px solid var(--term-border);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.terminal-modal-close:hover,
+.terminal-modal-close:focus-visible {
+  border-color: var(--term-pink);
+  color: var(--term-pink);
+  outline: none;
+}
+
+.terminal-modal-body {
+  padding: 16px;
+  overflow-y: auto;
+  color: var(--text-main);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.terminal-modal-pre {
+  margin: 0;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--term-surface);
+  border: 1px solid var(--term-border);
+  border-radius: 3px;
+  padding: 12px;
+  color: var(--text-main);
+}
+
+/* Debrief specific styles */
+.debrief-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.debrief-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 12px;
+}
+
+.debrief-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--term-surface);
+  border: 1px solid var(--term-border);
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.debrief-stat-label {
+  color: var(--text-dim);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.debrief-stat-val {
+  color: var(--term-cyan);
+  font-weight: 800;
 }
 
 /* Responsive Breakpoints */

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-10-09
+
+### Added
+- Added full support for multi-line `<textarea>` plugin setting inputs in both SSR templates and client-side dynamic panels (fixes #9).
+- Added terminal modal dialog for rich plugin action outcomes (structured training session debrief summary, project indexing card).
+- Added client-side execution for plugin `speak_request` events to repeat audio through the local TTS synthesizer.
+- Added structured grid layout and `.has-rich-fields` styling for rich multi-field plugin panels.
+
+### Fixed
+- Fixed Jinja variable scoping bug where `current_p` was lost outside `for` loops in `conversation.html`, restoring server-side plugin panel rendering.
+- Fixed duplicate click event listener accumulation on plugin action buttons across panel re-renders.
+- Fixed suppressed error handling on failed plugin action HTTP calls.
+
 ## [0.36.1] - 2026-10-08
 
 ### Fixed

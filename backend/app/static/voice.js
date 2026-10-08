@@ -1853,28 +1853,134 @@ function sendPluginUpdate(pluginId, mode = "default") {
   }
 }
 
+function escapePluginHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text == null ? "" : String(text);
+  return div.innerHTML;
+}
+
+function showPluginModal(title, contentHtml) {
+  const modal = document.getElementById("plugin-result-modal");
+  const titleEl = document.getElementById("plugin-result-title");
+  const contentEl = document.getElementById("plugin-result-content");
+  if (!modal || !contentEl) return;
+  if (titleEl) titleEl.textContent = title || "// PLUGIN OUTPUT";
+  contentEl.innerHTML = contentHtml;
+  modal.hidden = false;
+}
+
+function hidePluginModal() {
+  const modal = document.getElementById("plugin-result-modal");
+  if (modal) modal.hidden = true;
+}
+
+function initPluginModal() {
+  const modal = document.getElementById("plugin-result-modal");
+  const closeBtn = document.getElementById("plugin-modal-close");
+  if (!modal || modal.dataset.initialized === "true") return;
+  modal.dataset.initialized = "true";
+  closeBtn?.addEventListener("click", hidePluginModal);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) hidePluginModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.hidden) {
+      hidePluginModal();
+    }
+  });
+}
+
+function showDebriefModal(debrief) {
+  const elapsed = debrief.active_elapsed_seconds ?? 0;
+  const duration = debrief.duration_seconds ?? 0;
+  const html = `
+    <div class="debrief-summary">
+      <div class="debrief-stat-grid">
+        <div class="debrief-stat"><span class="debrief-stat-label">PHASE:</span> <span class="debrief-stat-val">${escapePluginHtml(debrief.phase || "ended")}</span></div>
+        <div class="debrief-stat"><span class="debrief-stat-label">REASON:</span> <span class="debrief-stat-val">${escapePluginHtml(debrief.ended_reason || "completed")}</span></div>
+        <div class="debrief-stat"><span class="debrief-stat-label">ACTIVE TIME:</span> <span class="debrief-stat-val">${elapsed}s / ${duration}s</span></div>
+        <div class="debrief-stat"><span class="debrief-stat-label">REFLECTIONS:</span> <span class="debrief-stat-val">${debrief.reflections ?? 0}</span></div>
+        <div class="debrief-stat"><span class="debrief-stat-label">REQUIREMENTS:</span> <span class="debrief-stat-val">${debrief.requirements_completed ?? 0} / ${debrief.requirements_total ?? 0}</span></div>
+        <div class="debrief-stat"><span class="debrief-stat-label">REPLAYS:</span> <span class="debrief-stat-val">${debrief.replays ?? 0}</span></div>
+        <div class="debrief-stat"><span class="debrief-stat-label">REJECTED:</span> <span class="debrief-stat-val">${debrief.rejected_actions ?? 0}</span></div>
+      </div>
+    </div>
+  `;
+  showPluginModal("// DEBRIEF: SESSION SUMMARY", html);
+}
+
+function showProjectCardModal(card) {
+  const text = card ? escapePluginHtml(card) : "// No project card indexed";
+  showPluginModal("// PROJECT ROOM: INDEX CARD", `<pre class="terminal-modal-pre">${text}</pre>`);
+}
+
+async function handlePluginActionResponse(convId, action, data) {
+  if (data.debrief) {
+    showDebriefModal(data.debrief);
+    showToast("// DEBRIEF READY");
+    return;
+  }
+  if (data.card !== undefined) {
+    showProjectCardModal(data.card);
+    showToast("// PROJECT CARD UPDATED");
+    return;
+  }
+  if (data.speak_request && data.speak_request.text) {
+    showToast(`// REPEATING: "${data.speak_request.text.slice(0, 30)}…"`);
+    try {
+      const speakRes = await fetch(`/api/conversations/${convId}/plugin/speak`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: data.speak_request.text }),
+      });
+      if (speakRes.ok) {
+        const clip = await speakRes.json();
+        if (clip.audio_url && window.playAudioQueue) {
+          window.playAudioQueue([clip.audio_url]);
+        }
+      }
+    } catch (err) {
+      console.warn("// Repeat speech failed:", err);
+    }
+    return;
+  }
+  if (data.session) {
+    const s = data.session;
+    const status = s.status || "active";
+    const elapsed = Math.round((s.active_elapsed_ms || 0) / 1000);
+    const total = s.config?.duration_seconds || 0;
+    showToast(`// SESSION: ${status.toUpperCase()} [${elapsed}s / ${total}s]`);
+    return;
+  }
+  showToast(`// PLUGIN ACTION: ${action.toUpperCase()}`);
+}
+
 function renderPluginPanel(panel, pluginId, settings = {}) {
   const existing = document.querySelector("[data-plugin-panel]");
   if (existing) existing.remove();
-  if (!panel || !Array.isArray(panel.fields) && !Array.isArray(panel.actions)) return;
+  if (!panel || (!Array.isArray(panel.fields) && !Array.isArray(panel.actions))) return;
+
+  const fields = panel.fields || [];
+  const actions = panel.actions || [];
+  const hasTextarea = fields.some((f) => f.type === "textarea");
+  const isRich = hasTextarea || fields.length > 2;
+
   const wrapper = document.createElement("div");
-  wrapper.className = "sys-chip plugin-panel";
+  wrapper.className = `sys-chip plugin-panel${isRich ? " has-rich-fields" : ""}`;
   wrapper.dataset.pluginPanel = pluginId || "";
-  (panel.fields || []).forEach((field) => {
+
+  const fieldsContainer = document.createElement("div");
+  fieldsContainer.className = "plugin-fields-container";
+
+  fields.forEach((field) => {
+    const item = document.createElement("div");
+    item.className = `plugin-field-item${field.type === "textarea" ? " is-textarea" : ""}`;
+
     const label = document.createElement("label");
     label.className = "session-plugin-label";
     label.htmlFor = `plugin-setting-${field.name}`;
     label.textContent = `${field.label || field.name}:`;
-    const input = document.createElement("input");
-    input.id = label.htmlFor;
-    input.className = "voice-input plugin-setting";
-    input.dataset.pluginSetting = field.name;
-    input.type = field.type === "directory" ? "text" : (field.type || "text");
-    input.placeholder = field.placeholder || `${field.label || field.name}…`;
-    if (settings[field.name] !== undefined && settings[field.name] !== null) {
-      input.value = String(settings[field.name]);
-    }
-    wrapper.append(label, input);
+
     if (field.help) {
       const help = document.createElement("button");
       help.type = "button";
@@ -1882,68 +1988,61 @@ function renderPluginPanel(panel, pluginId, settings = {}) {
       help.textContent = "?";
       help.title = field.help;
       help.setAttribute("aria-label", field.help);
-      wrapper.appendChild(help);
+      label.appendChild(help);
     }
+
+    let input;
+    if (field.type === "textarea") {
+      input = document.createElement("textarea");
+      input.rows = field.rows || 3;
+      input.className = "voice-input plugin-setting plugin-textarea";
+    } else {
+      input = document.createElement("input");
+      input.type = field.type === "directory" ? "text" : (field.type || "text");
+      input.className = "voice-input plugin-setting";
+    }
+    input.id = label.htmlFor;
+    input.dataset.pluginSetting = field.name;
+    input.placeholder = field.placeholder || `${field.label || field.name}…`;
+    input.setAttribute("aria-label", field.label || field.name);
+    if (settings[field.name] !== undefined && settings[field.name] !== null) {
+      input.value = String(settings[field.name]);
+    }
+
+    item.append(label, input);
+    fieldsContainer.appendChild(item);
   });
+  wrapper.appendChild(fieldsContainer);
+
+  const actionsContainer = document.createElement("div");
+  actionsContainer.className = "plugin-actions-container";
+
   const apply = document.createElement("button");
   apply.type = "button";
   apply.className = "sys-chip-button plugin-settings-apply";
   apply.textContent = "APPLY";
-  wrapper.appendChild(apply);
-  (panel.actions || []).forEach((action) => {
+  actionsContainer.appendChild(apply);
+
+  actions.forEach((action) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "sys-chip-button plugin-action";
     button.dataset.pluginAction = action.name;
     button.textContent = action.label || action.name;
-    wrapper.appendChild(button);
+    actionsContainer.appendChild(button);
   });
+  wrapper.appendChild(actionsContainer);
+
   document.querySelector(".session-plugin-chip")?.after(wrapper);
   initProjectRootApply();
   initProjectRoomActions();
 }
 
-function initProjectRootApply() {
-  const button = document.querySelector(".plugin-settings-apply");
-  if (!button || button.dataset.initialized) return;
-  button.dataset.initialized = "true";
-  button.addEventListener("click", () => {
-    const selector = document.querySelector("#session-plugin-select, #plugin-select, .plugin-select");
-    sendPluginUpdate(selector?.value || "neutral", document.querySelector("#mode-select")?.value || "default");
-  });
-}
-
-function initProjectRoomActions() {
-  const convId = document.querySelector("[data-conversation-id]")?.dataset?.conversationId;
-  if (!convId) return;
-  document.querySelectorAll("[data-plugin-action]").forEach((button) => button.addEventListener("click", async () => {
-    const action = button.dataset.pluginAction;
-    if (action === "forget" && !window.confirm("Forget this plugin data?")) return;
-    const response = await fetch(`/api/conversations/${convId}/plugin/action`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
-    if (response.ok) showToast(`// PLUGIN ACTION: ${action.toUpperCase()}`);
-  }));
-}
-
-async function pollToolApprovals() {
-  const convId = document.querySelector("[data-conversation-id]")?.dataset?.conversationId;
-  const dialog = document.querySelector("#tool-approval-dialog");
-  if (!convId || !dialog) return;
-  const response = await fetch(`/api/conversations/${convId}/tool-approval`).catch(() => null);
-  const data = response?.ok ? await response.json() : null;
-  const request = data?.requests?.[0];
-  if (!request) { dialog.hidden = true; return; }
-  dialog.hidden = false;
-  dialog.textContent = `Разрешить ${request.tool} в ${request.target || "выбранном проекте"}? `;
-  const approve = document.createElement("button"); approve.textContent = "APPROVE";
-  approve.onclick = async () => { await fetch(`/api/conversations/${convId}/tool-approval`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({request_id: request.id, args_hash: request.args_hash})}); pollToolApprovals(); };
-  dialog.appendChild(approve);
-}
 window.initProjectRootApply = initProjectRootApply;
 window.initProjectRoomActions = initProjectRoomActions;
 window.pollToolApprovals = pollToolApprovals;
+window.initPluginModal = initPluginModal;
+
 
 function sendLocaleUpdate(locale) {
   if (socket && socket.readyState === WebSocket.OPEN) {
@@ -2001,6 +2100,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initVoiceSelector();
   initSettingsSelectors();
   initPluginSelector();
+  initPluginModal();
   initProjectRootApply();
   initProjectRoomActions();
   pollToolApprovals();

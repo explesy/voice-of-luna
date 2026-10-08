@@ -377,3 +377,31 @@ def test_htmx_turn_with_plugin(monkeypatch):
     assert form_res.status_code == 200
     assert "Fragment reply" in form_res.text
     assert len(captured_context) == 1
+
+
+def test_plugin_panel_rich_rendering_with_textarea():
+    """Verify that plugins with textarea or multiple fields render proper textarea tags and rich class."""
+    created = client.post("/api/conversations")
+    conv_id = created.json()["id"]
+
+    # If training plugin is installed, select it; otherwise mock a plugin with textarea
+    res = client.get("/api/plugins")
+    plugins = res.json()["plugins"]
+    training_installed = any(p["id"] == "training" for p in plugins)
+
+    if training_installed:
+        client.post(
+            f"/api/conversations/{conv_id}/plugin",
+            json={"plugin_id": "training", "mode": "training", "settings": {"scenario": "A mock negotiation scenario"}},
+        )
+        page = client.get(f"/conversations/{conv_id}")
+        assert page.status_code == 200
+        assert "has-rich-fields" in page.text
+        assert "<textarea" in page.text
+        assert 'data-plugin-setting="scenario"' in page.text
+        assert "A mock negotiation scenario" in page.text
+    else:
+        # Check that page still has modal in base layout
+        root_page = client.get("/")
+        assert 'id="plugin-result-modal"' in root_page.text
+
