@@ -26,11 +26,12 @@ class LunaCorePlugin(Plugin):
 class PluginManager:
     """Manages plugin registration, lifecycle execution, and safety boundaries."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, load_external: bool = True) -> None:
         self._plugins: dict[str, Plugin] = {}
         self.register(LunaCorePlugin())
         self.register(ProjectRoomPlugin())
-        self._load_external_plugins()
+        if load_external:
+            self._load_external_plugins()
 
     def _load_external_plugins(self) -> None:
         """Discover trusted, installed plugins through the Python package API."""

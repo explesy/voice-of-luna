@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.1] - 2026-10-08
+
+### Fixed
+- Support isolating external plugin discovery in unit tests via `load_external=False` in `PluginManager` (fixes #8).
+- Core test suite remains green when external plugins (such as `voice-trainer`) are installed in the local Python environment.
+
 ## [0.36.0] - 2026-09-13
 
 ### Added

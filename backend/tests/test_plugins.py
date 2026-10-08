@@ -94,12 +94,35 @@ class EventPlugin(Plugin):
 
 @pytest.mark.anyio
 async def test_plugin_manager_registration_and_listing():
-    mgr = PluginManager()
+    mgr = PluginManager(load_external=False)
     plugins = mgr.list_plugins()
     ids = [p["id"] for p in plugins]
     assert "neutral" in ids
     assert "project_room" in ids
     assert "training" not in ids
+
+
+@pytest.mark.anyio
+async def test_plugin_manager_external_discovery(monkeypatch):
+    class MockExternalPlugin(Plugin):
+        id = "mock_ext"
+        name = "Mock External"
+
+    class MockEntryPoint:
+        name = "mock_ext"
+        def load(self):
+            return MockExternalPlugin
+
+    monkeypatch.setattr(
+        "importlib.metadata.entry_points",
+        lambda **kwargs: [MockEntryPoint()] if kwargs.get("group") == "voice_of_luna.plugins" else [],
+    )
+    mgr_loaded = PluginManager(load_external=True)
+    assert mgr_loaded.has("mock_ext")
+    assert mgr_loaded.get("mock_ext").name == "Mock External"
+
+    mgr_isolated = PluginManager(load_external=False)
+    assert not mgr_isolated.has("mock_ext")
 
 
 @pytest.mark.anyio
