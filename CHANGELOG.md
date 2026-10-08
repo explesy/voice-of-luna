@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-10-09
+
+### Added
+- Expanded speech models catalog with Whisper Large-v3-Turbo (`whisper_large_v3_turbo`, `ggml-large-v3-turbo-q5_0.bin`) and presets in `whisper_server.py` and `transcribe.py` (fixes #10).
+- Added Piper ONNX Russian voices: `Denis (Piper Neural · Offline)` and `Ruslan (Piper Neural · Offline)`.
+- Added Silero v5 Russian neural synthesis (`silero_v5_ru.pt`) with 5 voices (`Ksenia v5`, `Baya v5`, `Aidar v5`, `Eugene v5`, `Raya v5`).
+- Added priority sorting for macOS `Milena (Enhanced)` voice when available on supported Apple machines.
+- Updated `make matrix` model benchmark script to measure Denis, Ruslan, Milena (Enhanced), and Silero v5.
+
 ## [0.37.0] - 2026-10-09
 
 ### Added

@@ -457,7 +457,7 @@ def test_get_installed_voices_includes_silero_voices() -> None:
 
     voices = get_installed_voices(force_refresh=True)
     silero_voices = [v for v in voices if v.engine == "silero"]
-    assert len(silero_voices) == 5
+    assert len(silero_voices) == 10
     names = [v.name for v in silero_voices]
     assert "Ksenia (Silero Neural · Offline)" in names
     assert "Baya (Silero Neural · Offline)" in names

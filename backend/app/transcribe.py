@@ -188,9 +188,9 @@ class LocalWhisperTranscriber:
         server_url: str | None = None,
         prompt: str | None = None,
     ) -> None:
-        project_root = Path(__file__).resolve().parents[2]
-        configured_path = os.environ.get("VOICE_OF_LUNA_WHISPER_MODEL")
-        self.model_path = model_path or Path(configured_path or project_root / "data/models/ggml-small.bin")
+        from app.whisper_server import resolve_whisper_model_path
+
+        self.model_path = resolve_whisper_model_path(model_path)
         self.language = language or os.environ.get("VOICE_OF_LUNA_WHISPER_LANGUAGE", "ru")
         self.prompt = prompt or os.environ.get("VOICE_OF_LUNA_WHISPER_PROMPT")
         host = os.environ.get("VOICE_OF_LUNA_WHISPER_HOST", "127.0.0.1")

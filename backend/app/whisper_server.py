@@ -10,6 +10,51 @@ from pathlib import Path
 import httpx
 
 
+WHISPER_MODEL_PRESETS: dict[str, list[str]] = {
+    "large-v3-turbo": ["ggml-large-v3-turbo-q5_0.bin", "ggml-large-v3-turbo.bin"],
+    "turbo": ["ggml-large-v3-turbo-q5_0.bin", "ggml-large-v3-turbo.bin"],
+    "small": ["ggml-small.bin"],
+    "base": ["ggml-base.bin"],
+}
+
+
+def resolve_whisper_model_path(model_path: Path | str | None = None) -> Path:
+    """Resolve Whisper model path from explicit param, env variable, or search discovery."""
+    project_root = Path(__file__).resolve().parents[2]
+    search_dirs = [
+        project_root / "data/models",
+        project_root / "backend/models",
+        Path.home() / ".cache/voice-of-luna/models",
+    ]
+    configured = str(model_path or os.environ.get("VOICE_OF_LUNA_WHISPER_MODEL") or "").strip()
+
+    if configured:
+        p = Path(configured)
+        if p.is_file():
+            return p
+        preset_key = configured.lower()
+        if preset_key in WHISPER_MODEL_PRESETS:
+            for fname in WHISPER_MODEL_PRESETS[preset_key]:
+                for d in search_dirs:
+                    candidate = d / fname
+                    if candidate.is_file() and candidate.stat().st_size > 0:
+                        return candidate
+        for d in search_dirs:
+            candidate = d / configured
+            if candidate.is_file() and candidate.stat().st_size > 0:
+                return candidate
+        return p
+
+    # Default discovery: if large-v3-turbo exists locally, prefer it
+    for fname in WHISPER_MODEL_PRESETS["large-v3-turbo"]:
+        for d in search_dirs:
+            candidate = d / fname
+            if candidate.is_file() and candidate.stat().st_size > 0:
+                return candidate
+
+    return project_root / "data/models/ggml-small.bin"
+
+
 class WhisperServerManager:
     """Manages a background whisper-server instance on a local loopback port."""
 
@@ -21,11 +66,9 @@ class WhisperServerManager:
         model_path: Path | None = None,
         language: str | None = None,
     ) -> None:
-        project_root = Path(__file__).resolve().parents[2]
         self.host = host or os.environ.get("VOICE_OF_LUNA_WHISPER_HOST", "127.0.0.1")
         self.port = port or int(os.environ.get("VOICE_OF_LUNA_WHISPER_PORT", "8089"))
-        configured_path = os.environ.get("VOICE_OF_LUNA_WHISPER_MODEL")
-        self.model_path = model_path or Path(configured_path or project_root / "data/models/ggml-small.bin")
+        self.model_path = resolve_whisper_model_path(model_path)
         self.language = language or os.environ.get("VOICE_OF_LUNA_WHISPER_LANGUAGE", "auto")
         self.threads = min(os.cpu_count() or 4, 8)
         self._process: asyncio.subprocess.Process | None = None
