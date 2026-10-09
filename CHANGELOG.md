@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.1] - 2026-10-09
+
+### Fixed
+- Re-voice now reports the voice that actually produced the audio. When the chosen voice cannot synthesize the message (for example its local model is not downloaded), the server returns the fallback voice and refuses to silently change the session default; the revoice picker only offers installed voices (issue #15).
+
+### Changed
+- Pause/resume and stop controls for an active reply now appear under the latest assistant message, next to REPLAY/RE-VOICE, instead of only in the prompt dock.
+
 ## [0.42.0] - 2026-10-09
 
 ### Added
