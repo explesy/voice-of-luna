@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.39.2] - 2026-10-09
+## [0.40.0] - 2026-10-09
+
+### Added
+- Explicit sticky terminal download banner (`#model-download-banner`) showing model name, live percentage, transfer speed, MB downloaded, and remaining ETA (fixes #12).
+- Animated badge (`[⟳ X%]`) inside the header `VOICE` chip to make download activity visible even when dropdowns are closed.
+- Actionable error states with `[RETRY / ПОВТОРИТЬ]` and `[ЗАКРЫТЬ]` buttons, displaying clear remedies if download interrupts occur.
+- Live footer meta tracking (`STT:LOCAL // TTS:DOWNLOADING (X%) // LLM:CODEX`) during active model transfers.
+- Automated switch and confirmation toast upon download completion (`✔ МОДЕЛЬ СКАЧАНА И АКТИВИРОВАНА`).
+
 
 ### Fixed
 - Fixed Silero v5 neural model runtime failure by adding required `scipy` dependency to `[project.optional-dependencies] silero` and checking `scipy` in `is_silero_available()`.

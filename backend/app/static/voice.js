@@ -1508,6 +1508,9 @@ function initVoiceSelector() {
       return;
     }
 
+    const opt = select.querySelector(`option[value="${CSS.escape(chosenVal)}"]`);
+    const isUninstalled = opt && (opt.dataset.installed === "false" || opt.textContent.includes("[↓"));
+
     select.dataset.lastVoice = chosenVal;
     localStorage.setItem("voice_of_luna_voice", chosenVal);
     document.cookie = `voice_of_luna_voice=${encodeURIComponent(chosenVal)}; path=/; max-age=31536000; SameSite=Lax`;
@@ -1516,7 +1519,11 @@ function initVoiceSelector() {
     if (select.querySelector(`#other-voices-group option[value="${CSS.escape(chosenVal)}"]`)) {
       collapseOtherVoices(chosenVal);
     }
-    showToast(`// VOICE ACTIVE: ${chosenVal.toUpperCase()}`);
+    if (isUninstalled) {
+      showToast(`// ИНИЦИАЛИЗАЦИЯ ЗАГРУЗКИ: ${chosenVal.toUpperCase()}`);
+    } else {
+      showToast(`// VOICE ACTIVE: ${chosenVal.toUpperCase()}`);
+    }
   });
 }
 
@@ -1526,58 +1533,50 @@ function updateVoiceAttributes(voiceName) {
   document.body.dataset.russianVoice = voiceName;
 }
 
-function getOrCreateDownloadCard(modelId) {
-  const container = document.getElementById("toast-container");
-  if (!container) return null;
-  let card = document.getElementById(`tts-download-card-${modelId}`);
-  if (!card) {
-    card = document.createElement("div");
-    card.id = `tts-download-card-${modelId}`;
-    card.className = "toast-progress";
-    card.innerHTML = `
-      <div class="toast-progress-header">
-        <span class="toast-title"><span class="tts-spinner">⟳</span> ЗАГРУЗКА МОДЕЛИ...</span>
-        <span class="toast-pct">0%</span>
-      </div>
-      <div class="toast-progress-bar-bg">
-        <div class="toast-progress-bar-fill"></div>
-      </div>
-      <div class="toast-progress-meta">
-        <span class="toast-size">0.0 / 60.0 МБ</span>
-        <span class="toast-eta">соединение...</span>
-      </div>
-    `;
-    container.appendChild(card);
-  }
-  return card;
-}
-
 function updateDownloadUI(modelId, voiceName, status) {
   const chip = document.querySelector(".voice-selector-chip");
-  const card = getOrCreateDownloadCard(modelId);
+  const badge = document.getElementById("voice-download-badge");
+  const banner = document.getElementById("model-download-banner");
+  const nameEl = document.getElementById("download-model-name");
+  const pctEl = document.getElementById("download-pct");
+  const fillEl = document.getElementById("download-bar-fill");
+  const sizeEl = document.getElementById("download-size");
+  const etaEl = document.getElementById("download-eta");
+  const helpEl = document.getElementById("download-help");
+  const actionsEl = document.getElementById("download-actions");
+  const retryBtn = document.getElementById("download-retry-btn");
+  const closeBtn = document.getElementById("download-close-btn");
   const select = document.querySelector("#voice-select");
   const opt = select ? select.querySelector(`option[value="${CSS.escape(voiceName)}"]`) : null;
+  const footerEl = document.querySelector("[data-footer-meta]");
 
   if (status.status === "downloading") {
     if (chip) chip.classList.add("is-downloading");
     const pct = status.progress_percent || 0;
     const downloaded = status.downloaded_mb != null ? Number(status.downloaded_mb).toFixed(1) : "0.0";
     const total = status.total_mb != null ? Number(status.total_mb).toFixed(1) : "60.0";
-    const speed = status.speed_kbps ? `${Math.round(status.speed_kbps)} КБ/с` : "загрузка...";
-    const eta = status.eta_seconds ? `~${status.eta_seconds} сек` : "вычисление времени...";
+    const speed = status.speed_kbps ? `${Math.round(status.speed_kbps)} КБ/с` : "загрузка…";
+    const eta = status.eta_seconds ? `~${status.eta_seconds} сек` : "вычисление времени…";
 
-    if (card) {
-      const titleEl = card.querySelector(".toast-title");
-      const pctEl = card.querySelector(".toast-pct");
-      const fillEl = card.querySelector(".toast-progress-bar-fill");
-      const sizeEl = card.querySelector(".toast-size");
-      const etaEl = card.querySelector(".toast-eta");
+    if (badge) {
+      badge.hidden = false;
+      badge.textContent = `[⟳ ${pct}%]`;
+    }
 
-      if (titleEl) titleEl.innerHTML = `<span class="tts-spinner">⟳</span> СКАЧИВАНИЕ: ${(status.name || modelId).toUpperCase()}`;
+    if (banner) {
+      banner.hidden = false;
+      banner.classList.remove("is-complete", "is-error");
+      if (nameEl) nameEl.textContent = (status.name || modelId).toUpperCase();
       if (pctEl) pctEl.textContent = `${pct}%`;
       if (fillEl) fillEl.style.width = `${pct}%`;
       if (sizeEl) sizeEl.textContent = `${downloaded} / ${total} МБ (${speed})`;
       if (etaEl) etaEl.textContent = `осталось ${eta}`;
+      if (helpEl) helpEl.textContent = "Фоновая загрузка оффлайн-модели. После завершения голос включится автоматически.";
+      if (actionsEl) actionsEl.hidden = true;
+    }
+
+    if (footerEl) {
+      footerEl.textContent = `STT:LOCAL // TTS:DOWNLOADING (${pct}%) // LLM:CODEX`;
     }
 
     if (opt && (opt.textContent.includes("[↓") || opt.textContent.includes("[⟳"))) {
@@ -1585,46 +1584,76 @@ function updateDownloadUI(modelId, voiceName, status) {
     }
   } else if (status.status === "ready") {
     if (chip) chip.classList.remove("is-downloading");
-    if (card) {
-      card.classList.add("is-complete");
-      const titleEl = card.querySelector(".toast-title");
-      const pctEl = card.querySelector(".toast-pct");
-      const fillEl = card.querySelector(".toast-progress-bar-fill");
-      const sizeEl = card.querySelector(".toast-size");
-      const etaEl = card.querySelector(".toast-eta");
+    if (badge) badge.hidden = true;
 
-      if (titleEl) titleEl.innerHTML = `✔ МОДЕЛЬ ГОТОВА: ${(status.name || modelId).toUpperCase()}`;
+    if (banner) {
+      banner.hidden = false;
+      banner.classList.add("is-complete");
+      banner.classList.remove("is-error");
+      if (nameEl) nameEl.textContent = (status.name || modelId).toUpperCase();
       if (pctEl) pctEl.textContent = `100%`;
       if (fillEl) fillEl.style.width = `100%`;
       if (sizeEl) sizeEl.textContent = `${status.total_mb || 60} МБ установлено`;
-      if (etaEl) etaEl.textContent = `голос активен`;
+      if (etaEl) etaEl.textContent = `✔ ГОТОВО К РАБОТЕ`;
+      if (helpEl) helpEl.textContent = `Модель успешно загружена! Голос активирован.`;
+      if (actionsEl) actionsEl.hidden = true;
 
       setTimeout(() => {
-        card.style.transition = "opacity 0.5s ease, transform 0.5s ease";
-        card.style.opacity = "0";
-        card.style.transform = "translateY(-10px)";
-        setTimeout(() => card.remove(), 500);
-      }, 3500);
+        banner.style.transition = "opacity 0.5s ease, transform 0.5s ease";
+        banner.style.opacity = "0";
+        setTimeout(() => {
+          banner.hidden = true;
+          banner.style.opacity = "";
+          banner.style.transition = "";
+        }, 500);
+      }, 4000);
     }
 
     if (opt) {
       opt.dataset.installed = "true";
       opt.textContent = `${voiceName} ★`;
     }
+
+    showToast(`// ГОЛОС АКТИВИРОВАН: ${voiceName.toUpperCase()}`);
+    updateFooterStatus(voiceName);
   } else if (status.status === "error") {
     if (chip) chip.classList.remove("is-downloading");
-    if (card) {
-      card.classList.add("is-error");
-      const titleEl = card.querySelector(".toast-title");
-      const sizeEl = card.querySelector(".toast-size");
-      const etaEl = card.querySelector(".toast-eta");
+    if (badge) {
+      badge.hidden = false;
+      badge.textContent = `[✖ СБОЙ]`;
+    }
 
-      if (titleEl) titleEl.innerHTML = `✖ ОШИБКА: ${modelId.toUpperCase()}`;
-      if (sizeEl) sizeEl.textContent = status.error || "Сбой загрузки";
-      if (etaEl) etaEl.textContent = "повторите попытку";
-      setTimeout(() => {
-        card.remove();
-      }, 6000);
+    if (banner) {
+      banner.hidden = false;
+      banner.classList.add("is-error");
+      banner.classList.remove("is-complete");
+      if (nameEl) nameEl.textContent = (status.name || modelId).toUpperCase();
+      if (pctEl) pctEl.textContent = `СБОЙ`;
+      if (fillEl) fillEl.style.width = `100%`;
+      if (sizeEl) sizeEl.textContent = `Ошибка загрузки`;
+      if (etaEl) etaEl.textContent = status.error || "Сбой соединения при загрузке файлов";
+      if (helpEl) helpEl.textContent = "Не удалось скачать файлы модели. Проверьте интернет или скачайте веса вручную: `make setup`";
+      if (actionsEl) actionsEl.hidden = false;
+
+      if (retryBtn) {
+        retryBtn.onclick = () => {
+          if (actionsEl) actionsEl.hidden = true;
+          if (etaEl) etaEl.textContent = "перезапуск загрузки…";
+          fetch(`/api/tts/models/${encodeURIComponent(modelId)}/download`, { method: "POST" })
+            .then(() => pollModelStatus(modelId, voiceName))
+            .catch((err) => {
+              console.error("// retry download failed:", err);
+              if (actionsEl) actionsEl.hidden = false;
+            });
+        };
+      }
+
+      if (closeBtn) {
+        closeBtn.onclick = () => {
+          banner.hidden = true;
+          if (badge) badge.hidden = true;
+        };
+      }
     }
   }
 }

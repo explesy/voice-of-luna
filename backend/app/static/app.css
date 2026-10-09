@@ -1351,6 +1351,213 @@ kbd {
   box-shadow: 0 0 8px var(--term-cyan, #00f0ff);
 }
 
+.voice-download-badge {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--term-cyan, #00f0ff);
+  background: rgba(0, 240, 255, 0.12);
+  border: 1px solid rgba(0, 240, 255, 0.4);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-right: 4px;
+  animation: downloadBadgePulse 1s ease-in-out infinite alternate;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+@keyframes downloadBadgePulse {
+  from { opacity: 0.7; border-color: rgba(0, 240, 255, 0.3); }
+  to { opacity: 1; border-color: rgba(0, 240, 255, 0.9); box-shadow: 0 0 6px rgba(0, 240, 255, 0.4); }
+}
+
+/* Explicit Terminal Model Download Banner */
+.model-download-banner {
+  background: var(--term-surface-elevated, #131722);
+  border-bottom: 1px solid var(--term-cyan, #00f0ff);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  padding: 8px 16px;
+  animation: bannerSlideDown 0.2s cubic-bezier(0, 0, 0.2, 1);
+  font-family: var(--font-mono, monospace);
+  z-index: 100;
+  transition: border-color 0.3s ease, background 0.3s ease;
+}
+
+@keyframes bannerSlideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.model-download-banner.is-complete {
+  border-bottom-color: var(--term-green, #00ff88);
+}
+
+.model-download-banner.is-error {
+  border-bottom-color: #ff3366;
+  background: #1a0f18;
+}
+
+.model-download-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.model-download-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.model-download-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.model-download-title .tts-spinner {
+  display: inline-block;
+  animation: ttsSpin 1s linear infinite;
+  color: var(--term-cyan, #00f0ff);
+  font-size: 13px;
+}
+
+.model-download-banner.is-complete .model-download-title .tts-spinner {
+  display: none;
+}
+
+.model-download-tag {
+  color: var(--text-dim, #8892b0);
+}
+
+.model-download-name {
+  color: var(--term-cyan, #00f0ff);
+  font-weight: 800;
+}
+
+.model-download-banner.is-complete .model-download-name {
+  color: var(--term-green, #00ff88);
+}
+
+.model-download-banner.is-error .model-download-name {
+  color: #ff3366;
+}
+
+.model-download-pct {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--term-cyan, #00f0ff);
+}
+
+.model-download-banner.is-complete .model-download-pct {
+  color: var(--term-green, #00ff88);
+}
+
+.model-download-banner.is-error .model-download-pct {
+  color: #ff3366;
+}
+
+.model-download-bar-bg {
+  width: 100%;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.model-download-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--term-cyan, #00f0ff), var(--term-green, #00ff88));
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 3px;
+}
+
+.model-download-banner.is-error .model-download-bar-fill {
+  background: #ff3366;
+}
+
+.model-download-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-dim, #8892b0);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.model-download-meta-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.model-download-size {
+  color: var(--text-main, #e0e6ed);
+  font-weight: 600;
+}
+
+.model-download-eta {
+  color: var(--term-cyan, #00f0ff);
+}
+
+.model-download-banner.is-error .model-download-eta {
+  color: #ff3366;
+}
+
+.model-download-sep {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.model-download-help {
+  color: var(--text-dim, #8892b0);
+}
+
+.model-download-banner.is-error .model-download-help {
+  color: #ff99aa;
+}
+
+.model-download-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.model-download-actions .btn-term-retry {
+  background: rgba(255, 51, 102, 0.15);
+  border: 1px solid #ff3366;
+  color: #ff3366;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.model-download-actions .btn-term-retry:hover {
+  background: #ff3366;
+  color: #fff;
+}
+
+.model-download-actions .btn-term-close {
+  background: transparent;
+  border: 1px solid var(--term-border);
+  color: var(--text-dim);
+  padding: 2px 8px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.model-download-actions .btn-term-close:hover {
+  border-color: var(--text-main);
+  color: var(--text-main);
+}
+
 @keyframes ttsLedPulse {
   0% { opacity: 0.3; transform: scale(0.9); }
   100% { opacity: 1; transform: scale(1.2); }

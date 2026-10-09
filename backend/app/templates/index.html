@@ -63,6 +63,7 @@
           <div class="sys-chip voice-selector-chip" data-russian-voice="{{ active_voice }}" title="{{ ui.voice_chip_title if ui else 'Выбор языка и голоса' }}">
             <span class="chip-led chip-led-voice"></span>
             <label for="voice-select" class="voice-chip-label">VOICE:</label>
+            <span class="voice-download-badge" id="voice-download-badge" hidden>[⟳ 0%]</span>
             <select id="voice-select" class="voice-select" data-russian-voice="{{ active_voice }}" aria-label="{{ ui.voice_aria_label if ui else 'Выбор голоса' }}">
               {% if edge_voices %}
               <optgroup label="{{ ui.optgroup_edge if ui else 'Нейросеть (Edge Cloud · Бесплатно)' }}">
@@ -145,6 +146,35 @@
           </button>
         </div>
       </header>
+
+      <div id="model-download-banner" class="model-download-banner" hidden role="status" aria-live="polite">
+        <div class="model-download-container">
+          <div class="model-download-header">
+            <div class="model-download-title">
+              <span class="tts-spinner" id="download-spinner">⟳</span>
+              <span class="model-download-tag">// ЗАГРУЗКА ГОЛОСОВОЙ МОДЕЛИ:</span>
+              <span class="model-download-name" id="download-model-name">...</span>
+            </div>
+            <div class="model-download-pct" id="download-pct">0%</div>
+          </div>
+          <div class="model-download-bar-bg">
+            <div class="model-download-bar-fill" id="download-bar-fill" style="width: 0%;"></div>
+          </div>
+          <div class="model-download-meta">
+            <div class="model-download-meta-left">
+              <span class="model-download-size" id="download-size">0.0 / 0.0 МБ</span>
+              <span class="model-download-sep">·</span>
+              <span class="model-download-eta" id="download-eta">подключение…</span>
+              <span class="model-download-sep">·</span>
+              <span class="model-download-help" id="download-help">Фоновая загрузка оффлайн-модели. После завершения голос включится автоматически.</span>
+            </div>
+            <div class="model-download-actions" id="download-actions" hidden>
+              <button type="button" class="btn-term btn-term-retry" id="download-retry-btn">[ПОВТОРИТЬ / RETRY]</button>
+              <button type="button" class="btn-term btn-term-close" id="download-close-btn">[ЗАКРЫТЬ]</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <main class="terminal-main">
         <div id="conversation" class="terminal-view">

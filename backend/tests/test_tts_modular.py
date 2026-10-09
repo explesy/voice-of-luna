@@ -297,3 +297,30 @@ def test_resolve_whisper_model_path_presets(monkeypatch, tmp_path: Path) -> None
     resolved_preset = resolve_whisper_model_path()
     assert resolved_preset.name == "ggml-large-v3-turbo-q5_0.bin"
 
+
+def test_model_download_ui_elements_present_in_html() -> None:
+    """Verify that the explicit model download banner and badge are rendered in index.html."""
+    response = client.get("/")
+    assert response.status_code == 200
+    html = response.text
+    assert 'id="model-download-banner"' in html
+    assert 'id="voice-download-badge"' in html
+    assert 'id="download-actions"' in html
+    assert 'id="download-retry-btn"' in html
+    assert 'id="download-close-btn"' in html
+
+
+def test_model_download_trigger_and_status() -> None:
+    """Verify that /api/tts/models/{id}/download and /status respond correctly."""
+    status_res = client.get("/api/tts/models/piper_ru_denis/status")
+    assert status_res.status_code == 200
+    data = status_res.json()
+    assert data["id"] == "piper_ru_denis"
+    assert "status" in data
+    assert "progress_percent" in data
+
+    # Trigger download with non-existent model returns 404
+    missing_res = client.get("/api/tts/models/non_existent_model/status")
+    assert missing_res.status_code == 404
+
+
