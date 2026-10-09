@@ -1091,6 +1091,79 @@ async def plugin_speak_approved(conversation_id: str, body: ApprovedSpeechInput)
     }
 
 
+class ResynthesizeInput(BaseModel):
+    voice: str | None = Field(default=None)
+    set_default: bool = False
+    turn_id: str | None = Field(default=None)
+
+
+@app.post("/api/conversations/{conversation_id}/turns/{turn_index}/resynthesize")
+async def resynthesize_turn(
+    conversation_id: str, turn_index: int, body: ResynthesizeInput
+) -> dict[str, Any]:
+    """Re-synthesize an existing assistant turn without creating an LLM turn.
+
+    The message text is taken from the authoritative server-side turn, so the
+    browser cannot substitute arbitrary text. The result is ephemeral: the
+    audio is returned inline and the temporary clip is deleted immediately.
+    """
+
+    conversation = conversations.get(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if body.turn_id:
+        # The browser-supplied turn id is the stable key; it survives any DOM
+        # reordering that could otherwise shift positional indices.
+        turn = next((item for item in conversation.turns if item.get("turn_id") == body.turn_id), None)
+        if turn is None:
+            raise HTTPException(status_code=404, detail="Turn not found")
+    elif 0 <= turn_index < len(conversation.turns):
+        turn = conversation.turns[turn_index]
+    else:
+        raise HTTPException(status_code=404, detail="Turn not found")
+    text = str(turn.get("text") or "").strip()
+    if turn.get("role") != "assistant" or not text:
+        raise HTTPException(status_code=400, detail="Only assistant turns with text can be re-synthesized")
+
+    requested_voice = (body.voice or "").strip() or conversation.voice
+    speaker = LocalMacOsSpeaker(voice=requested_voice)
+    try:
+        synthesis = await speaker.synthesize_with_metadata(text)
+    except LocalSpeechError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if synthesis is None or not synthesis.path.is_file():
+        raise HTTPException(status_code=400, detail="Cannot synthesize this message")
+
+    try:
+        audio_bytes = await asyncio.to_thread(synthesis.path.read_bytes)
+        mime_type = "audio/mpeg" if synthesis.path.suffix == ".mp3" else "audio/wav"
+    finally:
+        await asyncio.to_thread(_remove_temporary_audio, synthesis.path)
+
+    if body.set_default:
+        conversation.set_selected_voice(requested_voice)
+
+    engine_label = {
+        "edge": "EDGE_TTS",
+        "piper": "PIPER_OFFLINE",
+        "silero": "SILERO_OFFLINE",
+        "macos": "MACOS_SAY",
+    }.get(synthesis.actual_engine, _get_tts_engine(requested_voice))
+    return {
+        "ok": True,
+        "clip_id": str(uuid4()),
+        "turn_id": turn.get("turn_id") or str(uuid4()),
+        "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+        "mime_type": mime_type,
+        "text": text,
+        "voice": requested_voice,
+        "requested_tts_engine": _get_tts_engine(requested_voice),
+        "tts_engine": engine_label,
+        "set_default": bool(body.set_default),
+        "replay": True,
+    }
+
+
 @app.post("/api/conversations/{conversation_id}/tool-approval")
 async def approve_tool(conversation_id: str, body: ToolApprovalInput) -> dict[str, object]:
     if conversation_id not in conversations:
@@ -1934,7 +2007,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                             clip_id=clip_id[:100],
                             state=state,
                             delivered_text=(payload.get("delivered_text")[:4000] if isinstance(payload.get("delivered_text"), str) else None),
-                            metadata={"source": "browser"},
+                            metadata={"source": "browser", "replay": bool(payload.get("replay"))},
                         ),
                     )
                 elif msg_type == "text":

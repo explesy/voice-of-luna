@@ -19,6 +19,8 @@ let streamingPcmUpload = false;
 let pendingStreamingText = "";
 let streamingTextFrame = null;
 let interimTranscriptEntry = null;
+let liveTranscriptAvailable = false;
+let liveTranscriptEnabled = true;
 
 // Audio processing and VAD state are provided by audio-player.js and vad.js
 
@@ -199,16 +201,17 @@ function stopAudioAnalyser() {
 
 // UI State Management
 function setVoiceState(state, statusMessage, modeLabel) {
-  const stateMap = { ready: "idle", idle: "idle", listening: "listening", transcribing: "transcribing", thinking: "thinking", speaking: "speaking", error: "error" };
+  const stateMap = { ready: "idle", idle: "idle", listening: "listening", transcribing: "transcribing", thinking: "thinking", speaking: "speaking", paused: "paused", error: "error" };
   const uiState = stateMap[state] || "error";
   const stage = document.querySelector(".radar-stage");
   const modePill = document.querySelector("[data-mode-pill]");
   const statusEl = document.querySelector("[data-voice-status]");
   const recordBtns = document.querySelectorAll("[data-record]");
   const stopBtns = document.querySelectorAll("[data-stop-speaking]");
+  const pauseBtns = document.querySelectorAll("[data-pause-speaking]");
 
   if (stage) {
-    stage.classList.remove("state-idle", "state-listening", "state-transcribing", "state-thinking", "state-speaking", "state-error");
+    stage.classList.remove("state-idle", "state-listening", "state-transcribing", "state-thinking", "state-speaking", "state-paused", "state-error");
     stage.classList.add(`state-${uiState}`);
   }
 
@@ -244,7 +247,7 @@ function setVoiceState(state, statusMessage, modeLabel) {
 
   // Highlight Stop Speaking Button
   stopBtns.forEach((btn) => {
-    if (uiState === "speaking") {
+    if (uiState === "speaking" || uiState === "paused") {
       btn.classList.add("is-active");
       btn.hidden = false;
     } else {
@@ -252,6 +255,35 @@ function setVoiceState(state, statusMessage, modeLabel) {
       btn.hidden = true;
     }
   });
+
+  // Pause/Resume Button: available while speaking or already paused.
+  pauseBtns.forEach((btn) => {
+    if (uiState === "speaking" || uiState === "paused") {
+      btn.classList.add("is-active");
+      btn.hidden = false;
+    } else {
+      btn.classList.remove("is-active");
+      btn.hidden = true;
+    }
+    const textEl = btn.querySelector(".pause-text");
+    if (textEl) textEl.textContent = uiState === "paused" ? "RESUME" : "PAUSE";
+  });
+}
+
+function togglePauseSpeaking() {
+  if (window.isAudioPaused) {
+    if (typeof resumeAudioPlayback === "function") resumeAudioPlayback();
+    if (!window.isAudioPaused) {
+      setVoiceState("speaking", "Luna responding... Press [Esc] to stop", "SPEAKING // STREAM");
+    }
+    return;
+  }
+  const isPlaying = typeof isAudioQueuePlaying !== "undefined" && isAudioQueuePlaying;
+  if (!isPlaying && !(typeof activeScheduledSources !== "undefined" && activeScheduledSources.length > 0)) return;
+  if (typeof pauseAudioPlayback === "function") pauseAudioPlayback();
+  if (window.isAudioPaused) {
+    setVoiceState("paused", "Paused. Press [P] to resume", "PAUSED // AUDIO");
+  }
 }
 
 function updateFooterStatus(ttsEngine) {
@@ -379,6 +411,13 @@ function voiceFor(language) {
 let socket = null;
 
 function stopSpeaking() {
+  if (currentStreamingEntry) {
+    // Barge-in cancels the in-flight turn; drop its partial assistant bubble so
+    // it cannot be confused with a real server-side turn.
+    currentStreamingEntry.remove();
+    currentStreamingEntry = null;
+    pendingStreamingText = "";
+  }
   if (window.speechSynthesis) {
     window.speechSynthesis.cancel();
   }
@@ -444,6 +483,7 @@ function showInterimTranscript(text) {
     interimTranscriptEntry = document.createElement("div");
     interimTranscriptEntry.className = "log-entry user interim";
     interimTranscriptEntry.dataset.interim = "true";
+    interimTranscriptEntry.dataset.turnIndex = String(feed.querySelectorAll(".log-entry").length);
 
     const header = document.createElement("div");
     header.className = "log-header";
@@ -512,6 +552,7 @@ function appendMessageToFeed(role, text) {
 
   const entry = document.createElement("div");
   entry.className = `log-entry ${role}`;
+  entry.dataset.turnIndex = String(feed.querySelectorAll(".log-entry").length);
   if (role === "assistant") {
     entry.dataset.spokenResponse = "true";
   }
@@ -535,10 +576,38 @@ function appendMessageToFeed(role, text) {
 
   entry.appendChild(header);
   entry.appendChild(body);
+
+  if (role === "assistant") {
+    body.appendChild(buildMessageControls());
+  }
+
   feed.appendChild(entry);
 
   scrollFeedToBottom();
   return entry;
+}
+
+function buildMessageControls() {
+  const controls = document.createElement("div");
+  controls.className = "log-audio";
+
+  const replayBtn = document.createElement("button");
+  replayBtn.type = "button";
+  replayBtn.className = "btn-inline-replay";
+  replayBtn.dataset.replay = "";
+  replayBtn.title = "Replay this response";
+  replayBtn.textContent = "↻ REPLAY";
+
+  const revoiceBtn = document.createElement("button");
+  revoiceBtn.type = "button";
+  revoiceBtn.className = "btn-inline-replay";
+  revoiceBtn.dataset.revoice = "";
+  revoiceBtn.title = "Speak again with another voice";
+  revoiceBtn.textContent = "🎙 REVOICE";
+
+  controls.appendChild(replayBtn);
+  controls.appendChild(revoiceBtn);
+  return controls;
 }
 
 function updateTurnsCount() {
@@ -689,7 +758,9 @@ function handleSocketMessage(event) {
     if (data.tts_engine) {
       updateFooterStatus(data.tts_engine);
     }
-    applyLiveTranscriptAvailability(data.live_transcript_available, data.live_transcript);
+    liveTranscriptAvailable = Boolean(data.live_transcript_available);
+    liveTranscriptEnabled = data.live_transcript !== false;
+    applyLiveTranscriptAvailability(liveTranscriptAvailable, liveTranscriptEnabled);
   } else if (data.type === "voice_updated") {
     if (data.voice) {
       const voiceSelect = document.querySelector("#voice-select");
@@ -803,6 +874,7 @@ function handleSocketMessage(event) {
       updateLatencyHud(data.timing, clientE2e);
     }
     if (currentStreamingEntry) {
+      if (data.turn_id) currentStreamingEntry.dataset.turnId = data.turn_id;
       const textEl = currentStreamingEntry.querySelector(".log-text");
       if (textEl) {
         if (!textEl.textContent && data.turn?.text) {
@@ -811,12 +883,18 @@ function handleSocketMessage(event) {
         formatTerminalText(textEl);
       }
     } else if (data.turn && data.turn.text) {
-      appendMessageToFeed(data.turn.role || "assistant", data.turn.text);
+      const appended = appendMessageToFeed(data.turn.role || "assistant", data.turn.text);
+      if (appended && data.turn_id) appended.dataset.turnId = data.turn_id;
     }
     currentStreamingEntry = null;
     updateTurnsCount();
   } else if (data.type === "error") {
     clearInterimTranscript();
+    if (currentStreamingEntry) {
+      currentStreamingEntry.remove();
+      currentStreamingEntry = null;
+      pendingStreamingText = "";
+    }
     showToast(`// error: ${data.message}`);
     setVoiceState("error", data.message, "ERR // SERVER");
   }
@@ -913,99 +991,124 @@ function speakLatestResponse() {
   window.speechSynthesis.speak(utterance);
 }
 
+function currentVoiceSelection() {
+  return document.querySelector("#voice-select")?.value || null;
+}
+
+async function resynthesizeAndPlay(entry, voice, setDefault) {
+  const conversationEl = document.querySelector("[data-conversation-id]");
+  const conversationId = conversationEl?.dataset?.conversationId;
+  const turnIndex = entry?.dataset?.turnIndex;
+  const turnId = entry?.dataset?.turnId || null;
+  if (!conversationId || turnIndex == null || turnIndex === "") {
+    showToast("// cannot re-synthesize this message");
+    return;
+  }
+  if (window.isAudioPaused && typeof resumeAudioPlayback === "function") {
+    resumeAudioPlayback();
+  }
+  setVoiceState("thinking", "Re-synthesizing speech...", "TTS // SYNTH");
+  try {
+    const resp = await fetch(`/api/conversations/${conversationId}/turns/${turnIndex}/resynthesize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voice, set_default: Boolean(setDefault), turn_id: turnId }),
+    });
+    if (!resp.ok) {
+      throw new Error((await resp.text()) || resp.statusText);
+    }
+    const data = await resp.json();
+    await enqueueAudioChunk(null, entry, data.audio_base64, data.mime_type, null, data.turn_id, data.clip_id, data.text, true);
+    if (data.set_default && data.voice) {
+      const voiceSelect = document.querySelector("#voice-select");
+      if (voiceSelect) {
+        voiceSelect.value = data.voice;
+        // Reuse the standard change handler so the session default is
+        // persisted in localStorage/cookie and synced to the server.
+        voiceSelect.dispatchEvent(new Event("change"));
+      }
+    }
+    showToast(setDefault ? "// VOICE SET AS DEFAULT" : "// RE-SYNTHESIZED (NO CODEX CALL)");
+  } catch (err) {
+    showToast(`// re-synthesis failed: ${err.message || err}`);
+    setVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
+  }
+}
+
 async function replayLatestResponse(targetEntry = null) {
-  stopSpeaking();
   const responses = document.querySelectorAll("[data-spoken-response]");
   const latest = targetEntry || responses[responses.length - 1];
   if (!latest) {
     showToast("// buffer empty. no response to replay");
     return;
   }
-
-  showToast("// replaying last response");
-
-  // 1. If in-memory audio chunk URLs are cached for this response, replay them directly
-  if (latest._audioUrls && latest._audioUrls.length > 0) {
-    playAudioQueue(latest._audioUrls);
-    return;
-  }
-
-  // 2. If server audio element exists in DOM and is playable
-  const localAudio = latest.querySelector("[data-server-audio]");
-  if (localAudio && localAudio.src) {
-    activePlayer = localAudio;
-    localAudio.currentTime = 0;
-    setVoiceState("speaking", "Replaying audio output...", "SPEAKING // REPLAY");
-    try {
-      await localAudio.play();
-      return;
-    } catch (_) {
-      // Audio element failed or expired, fall through to synthesis
-    }
-  }
-
-  const rawText = (latest.querySelector(".log-text")?.dataset?.rawText || latest.querySelector(".log-text")?.textContent || latest.textContent || "").trim();
-  const text = sanitizeForSpeech(rawText);
+  const text = sanitizeForSpeech(
+    (latest.querySelector(".log-text")?.dataset?.rawText || latest.querySelector(".log-text")?.textContent || "").trim()
+  );
   if (!text) return;
 
-  // 3. For Cyrillic text, attempt server-side synthesis via LocalMacOsSpeaker (say -v Milena)
-  if (/\p{Script=Cyrillic}/u.test(text)) {
-    try {
-      const chosenVoice = document.querySelector("#voice-select")?.value || null;
-      const resp = await fetch("/api/speech/synthesize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice: chosenVoice }),
-      });
-      if (resp.ok) {
-        const blob = await resp.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        latest._audioUrls = [blobUrl];
-        playAudioQueue([blobUrl]);
-        return;
-      }
-    } catch (err) {
-      console.warn("Server speech synthesis failed, falling back to browser synth:", err);
+  // Always re-synthesize through the full engine with the current voice (D3).
+  stopSpeaking();
+  showToast("// replaying last response");
+  await resynthesizeAndPlay(latest, currentVoiceSelection(), false);
+}
+
+let revoiceTargetEntry = null;
+
+function openRevoiceDialog(entry) {
+  const dialog = document.querySelector("#revoice-dialog");
+  const select = document.querySelector("#revoice-voice-select");
+  const defaultCheck = document.querySelector("#revoice-set-default");
+  if (!dialog || !select) return;
+
+  select.innerHTML = "";
+  const source = document.querySelector("#voice-select");
+  if (source) {
+    Array.from(source.options).forEach((option) => {
+      if (!option.value || option.value.startsWith("__")) return;
+      const clone = document.createElement("option");
+      clone.value = option.value;
+      clone.textContent = option.textContent;
+      select.appendChild(clone);
+    });
+    if (source.value) select.value = source.value;
+  }
+  if (defaultCheck) defaultCheck.checked = false;
+  revoiceTargetEntry = entry;
+  dialog.hidden = false;
+}
+
+function closeRevoiceDialog() {
+  const dialog = document.querySelector("#revoice-dialog");
+  if (dialog) dialog.hidden = true;
+  revoiceTargetEntry = null;
+}
+
+function initRevoiceDialog() {
+  const dialog = document.querySelector("#revoice-dialog");
+  if (!dialog || dialog.dataset.initialized) return;
+  dialog.dataset.initialized = "true";
+  document.querySelector("#revoice-cancel")?.addEventListener("click", closeRevoiceDialog);
+  document.querySelector("#revoice-speak")?.addEventListener("click", () => {
+    const entry = revoiceTargetEntry;
+    if (!entry) {
+      closeRevoiceDialog();
+      return;
     }
-  }
-
-  // 4. Fallback to browser SpeechSynthesis
-  if (!window.speechSynthesis) {
-    setVoiceState("idle", "Speech synthesis unsupported", "ERR // NO_TTS");
-    return;
-  }
-
-  const lang = languageFor(text);
-  const voice = voiceFor(lang);
-
-  if (lang === "ru-RU" && !voice) {
-    showToast("// no Russian voice found in browser");
-    setVoiceState("idle", "No Russian voice available", "ERR // NO_VOICE");
-    return;
-  }
-
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = voice?.lang || lang;
-  if (voice) {
-    utterance.voice = voice;
-  }
-
-  utterance.addEventListener("start", () => {
-    setVoiceState("speaking", "Replaying speech output...", "SPEAKING // REPLAY");
+    const voice = document.querySelector("#revoice-voice-select")?.value || null;
+    const setDefault = Boolean(document.querySelector("#revoice-set-default")?.checked);
+    closeRevoiceDialog();
+    resynthesizeAndPlay(entry, voice, setDefault);
   });
-  utterance.addEventListener("end", () => {
-    setVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) closeRevoiceDialog();
   });
-  utterance.addEventListener("error", (event) => {
-    if (event.error !== "canceled" && event.error !== "interrupted") {
-      setVoiceState("idle", `Audio error: ${event.error}`, "ERR // SYNTH");
-    } else {
-      setVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !dialog.hidden) {
+      event.stopPropagation();
+      closeRevoiceDialog();
     }
-  });
-
-  window.speechSynthesis.speak(utterance);
+  }, true);
 }
 
 async function startRecording(recordBtn) {
@@ -1232,6 +1335,19 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  // Pause/Resume Button
+  if (event.target.closest("[data-pause-speaking]")) {
+    togglePauseSpeaking();
+    return;
+  }
+
+  // Re-voice: open the per-message voice picker.
+  const revoiceTrigger = event.target.closest("[data-revoice]");
+  if (revoiceTrigger) {
+    openRevoiceDialog(revoiceTrigger.closest("[data-spoken-response]"));
+    return;
+  }
+
   // Replay the response whose control was activated.
   const replayTrigger = event.target.closest("[data-replay]");
   if (replayTrigger) {
@@ -1338,6 +1454,13 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
+  // P: Pause/resume speech playback
+  if ((event.key === "p" || event.key === "P" || event.key === "з" || event.key === "З") && !isInputFocused) {
+    event.preventDefault();
+    togglePauseSpeaking();
+    return;
+  }
+
   // V: Toggle VAD (Voice Activity Detection)
   if ((event.key === "v" || event.key === "V" || event.key === "м" || event.key === "М") && !isInputFocused) {
     event.preventDefault();
@@ -1378,6 +1501,9 @@ document.body.addEventListener("htmx:afterSwap", (event) => {
     connectWebSocket();
     initPluginSelector();
     initVadToggle();
+    initLiveTranscriptToggle();
+    initRevoiceDialog();
+    applyLiveTranscriptAvailability(liveTranscriptAvailable, liveTranscriptEnabled);
     document.querySelectorAll(".log-text").forEach((el) => {
       if (!el.querySelector(".term-link") && !el.querySelector(".log-sources")) {
         formatTerminalText(el);
@@ -2344,6 +2470,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initVadToggle();
   initRemoteWarmupToggle();
   initLiveTranscriptToggle();
+  initRevoiceDialog();
   document.querySelectorAll(".log-text").forEach((el) => {
     if (!el.querySelector(".term-link") && !el.querySelector(".log-sources")) {
       formatTerminalText(el);

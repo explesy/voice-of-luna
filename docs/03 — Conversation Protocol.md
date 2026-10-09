@@ -72,6 +72,23 @@ model response и вызывает `validate_response`; только `allow` и�
 `clip_id`. `completed` подтверждает полное воспроизведение clip; interruption не
 доказывает, до какого слова пользователь его услышал.
 
+## Playback controls
+
+Пользователь может поставить воспроизведение на паузу и возобновить его. `paused` —
+это состояние только аудио-плеера: LLM turn и синтез продолжают работу, а входящие
+audio chunks буферизуются и проигрываются после resume. Для Web Audio resume
+продолжается с сохранённого sample-offset; для `Audio`-element fallback используется
+нативный pause/play, то есть возобновление также происходит с текущей позиции clip.
+Barge-in (`stop`) немедленно прекращает и приостановленное воспроизведение.
+
+Повтор (`replay`) и повтор с другим голосом (`re-voice`) всегда пересинтезируют
+авторитетный текст assistant turn через полный `SpeechSynthesizer`-стек
+(`POST /api/conversations/{id}/turns/{n}/resynthesize`), не вызывая Codex и не
+создавая новый turn. Re-voice эфемерен: текст и голос сессии не меняются, пока не
+запрошено `set_default`. Связанные `output_event` несут metadata `replay: true`,
+чтобы plugin мог отличать повтор от первой доставки. Серверные audio clips
+одноразовые и не сохраняются для последующего replay.
+
 Плагин может запросить воспроизведение заранее утверждённого текста отдельной
 generic host capability. Такая операция не вызывает LLM и не добавляет synthetic
 assistant turn; смысл replay и immutable source остаётся собственностью плагина.

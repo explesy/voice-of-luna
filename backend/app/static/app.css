@@ -854,6 +854,19 @@ body::after {
 .state-speaking .glyph-idle { display: none; }
 .state-speaking .glyph-speaking { display: block; color: var(--term-green); }
 
+/* State: Paused (audio playback only) */
+.state-paused .radar-sweep {
+  stroke: var(--term-amber);
+  animation: none;
+  opacity: 0.5;
+}
+.state-paused .radar-core {
+  stroke: var(--term-amber);
+  fill: rgba(251, 191, 36, 0.15);
+}
+.state-paused .glyph-idle { display: none; }
+.state-paused .glyph-paused { display: block; color: var(--term-amber); }
+
 /* State: Error */
 .state-error .radar-sweep { stroke: var(--term-red); opacity: 0.9; animation: none; }
 .state-error .radar-core { stroke: var(--term-red); }
@@ -1098,6 +1111,63 @@ body::after {
 }
 .btn-inline-replay:hover,
 .btn-inline-replay:focus-visible { color: var(--term-cyan); border-color: var(--term-cyan); }
+
+.log-audio .btn-inline-replay + .btn-inline-replay {
+  margin-left: 4px;
+}
+
+/* ==================== Re-voice Dialog ==================== */
+.revoice-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 6, 16, 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.revoice-panel {
+  width: min(420px, 90vw);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  background: var(--term-surface-elevated);
+  border: 1px solid var(--term-border);
+  border-radius: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.revoice-header {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--term-cyan);
+}
+
+.revoice-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.revoice-row .voice-select {
+  flex: 1;
+}
+
+.revoice-default-row input {
+  accent-color: var(--term-cyan);
+}
+
+.revoice-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 
 /* ==================== Command Prompt Dock ==================== */
 .prompt-dock {

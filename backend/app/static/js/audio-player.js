@@ -76,6 +76,7 @@ var firstAudioPlayTime = null;
 var firstAudioSoundOffsetMs = null;
 var lastSpeechEndTime = null;
 var latestTiming = null;
+var isAudioPaused = false;
 
 function notifyVoiceState(state, message, modeLabel) {
   if (typeof setVoiceState === "function") {
@@ -102,6 +103,7 @@ function sendPlaybackLifecycle(state, item, deliveredText = null) {
     turn_id: item.turnId,
     clip_id: item.clipId,
     delivered_text: deliveredText,
+    replay: Boolean(item.replay),
   }));
 }
 
@@ -123,8 +125,18 @@ function measureFirstSoundOffset(audioBuffer) {
 }
 
 function stopAudioPlayback() {
+  // Any paused-but-started item has already emitted "started"; report it as
+  // interrupted now that barge-in stops it. Not-yet-started queue items are
+  // dropped silently because they never began playback.
+  audioQueue.forEach((item) => {
+    if (item._wasStarted && !item._interrupted) {
+      item._interrupted = true;
+      sendPlaybackLifecycle("interrupted", item);
+    }
+  });
   audioQueue = [];
   isAudioQueuePlaying = false;
+  isAudioPaused = false;
   nextAudioChunkStartTime = 0;
 
   activeScheduledSources.forEach((src) => {
@@ -140,12 +152,63 @@ function stopAudioPlayback() {
   activeScheduledSources = [];
 
   if (currentAudioElement) {
+    const fallbackItem = currentAudioElement._lunaItem;
+    if (fallbackItem && fallbackItem._wasStarted && !fallbackItem._interrupted) {
+      fallbackItem._interrupted = true;
+      sendPlaybackLifecycle("interrupted", fallbackItem);
+    }
     try {
       currentAudioElement.pause();
       currentAudioElement.currentTime = 0;
     } catch (_) {}
     currentAudioElement = null;
   }
+}
+
+function pauseAudioPlayback() {
+  if (isAudioPaused) return;
+  if (activeScheduledSources.length === 0 && !currentAudioElement) return;
+  isAudioPaused = true;
+  const ctx = playbackAudioContext;
+  const now = ctx ? ctx.currentTime : 0;
+  const pausedItems = [];
+  activeScheduledSources.forEach((src) => {
+    const item = src._lunaItem;
+    if (item && !item._interrupted && item.audioBuffer) {
+      const startedAt = item._startTime != null ? item._startTime : now;
+      const elapsed = Math.max(0, now - startedAt);
+      // Remember the playback offset so resume continues mid-clip (D2).
+      // ``_playOffset`` is the offset this playback started from.
+      item._pausedOffset = Math.min((item._playOffset || 0) + elapsed, item.audioBuffer.duration);
+      pausedItems.push(item);
+    }
+    // Suppress the synthetic "ended" that stop() fires so we do not report a
+    // paused clip as completed.
+    src._pausing = true;
+    try {
+      src.stop();
+      src.disconnect();
+    } catch (_) {}
+  });
+  activeScheduledSources = [];
+  audioQueue = [...pausedItems, ...audioQueue];
+  isAudioQueuePlaying = false;
+  nextAudioChunkStartTime = 0;
+  if (currentAudioElement) {
+    try {
+      currentAudioElement.pause();
+    } catch (_) {}
+  }
+}
+
+function resumeAudioPlayback() {
+  if (!isAudioPaused) return;
+  isAudioPaused = false;
+  if (currentAudioElement) {
+    currentAudioElement.play().catch(() => {});
+    return;
+  }
+  scheduleAudioPlayback();
 }
 
 function getPlaybackContext() {
@@ -160,7 +223,7 @@ function getPlaybackContext() {
   }
   return playbackAudioContext;
 }
-async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "audio/wav", rawArrayBuffer = null, turnId = null, clipId = null, text = null) {
+async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "audio/wav", rawArrayBuffer = null, turnId = null, clipId = null, text = null, replay = false) {
   const targetEntry = entry || currentStreamingEntry;
   let blobUrl = null;
   let audioBuffer = null;
@@ -199,7 +262,7 @@ async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "aud
     }
   }
 
-  audioQueue.push({ url, blobUrl, audioBuffer, entry: targetEntry, turnId, clipId, text });
+  audioQueue.push({ url, blobUrl, audioBuffer, entry: targetEntry, turnId, clipId, text, replay });
   if (firstAudioSoundOffsetMs == null && audioBuffer) {
     firstAudioSoundOffsetMs = measureFirstSoundOffset(audioBuffer);
     if (firstAudioSoundOffsetMs != null) {
@@ -211,6 +274,7 @@ async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "aud
 }
 
 function scheduleAudioPlayback() {
+  if (isAudioPaused) return;
   const ctx = getPlaybackContext();
 
   while (audioQueue.length > 0) {
@@ -221,15 +285,20 @@ function scheduleAudioPlayback() {
       notifyVoiceState("speaking", "Luna responding... Press [Esc] to stop", "SPEAKING // STREAM");
 
       const now = ctx.currentTime;
+      const offset = item._pausedOffset || 0;
       const startTime = Math.max(now + 0.005, nextAudioChunkStartTime);
       const source = ctx.createBufferSource();
       source._lunaItem = item;
       source.buffer = item.audioBuffer;
       source.connect(ctx.destination);
-      source.start(startTime);
-      sendPlaybackLifecycle("started", item);
+      source.start(startTime, offset);
+      item._startTime = startTime;
+      item._playOffset = offset;
+      item._pausedOffset = 0;
+      if (!item._wasStarted) sendPlaybackLifecycle("started", item);
+      item._wasStarted = true;
       activeScheduledSources.push(source);
-      nextAudioChunkStartTime = startTime + item.audioBuffer.duration;
+      nextAudioChunkStartTime = startTime + Math.max(0, item.audioBuffer.duration - offset);
 
       if (!firstAudioPlayTime && lastSpeechEndTime) {
         firstAudioPlayTime = performance.now();
@@ -237,12 +306,8 @@ function scheduleAudioPlayback() {
         notifyLatencyHud(latestTiming, clientE2e);
       }
 
-      if (item.entry && item.blobUrl) {
-        if (!item.entry._audioUrls) item.entry._audioUrls = [];
-        item.entry._audioUrls.push(item.blobUrl);
-      }
-
       source.onended = () => {
+        if (source._pausing) return;
         if (!item._interrupted) sendPlaybackLifecycle("completed", item, item.text);
         const idx = activeScheduledSources.indexOf(source);
         if (idx !== -1) activeScheduledSources.splice(idx, 1);
@@ -294,12 +359,9 @@ async function playNextAudioChunkFallback() {
     }
   }
 
-  if (entry && playUrl) {
-    if (!entry._audioUrls) entry._audioUrls = [];
-    entry._audioUrls.push(playUrl);
-  }
-
   const audio = new Audio(playUrl);
+  audio._lunaItem = item;
+  item._wasStarted = true;
   sendPlaybackLifecycle("started", item);
   currentAudioElement = audio;
   activePlayer = audio;
@@ -374,6 +436,8 @@ function playAudioQueue(urls) {
 
 
 window.stopAudioPlayback = stopAudioPlayback;
+window.pauseAudioPlayback = pauseAudioPlayback;
+window.resumeAudioPlayback = resumeAudioPlayback;
 window.mergeBuffers = mergeBuffers;
 window.resampleTo16k = resampleTo16k;
 window.encodeWav16k = encodeWav16k;
