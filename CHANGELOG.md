@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.39.0] - 2026-10-09
+## [0.39.1] - 2026-10-09
+
+### Fixed
+- Fixed `unbound variable` error when expanding empty `PREFLIGHT_ARGS` in `./scripts/run.sh` under Bash 3.2 on macOS with `set -u`.
+
 
 ### Added
 - Developer launcher script (`scripts/run.sh`) with colored output, flag parsing, and automatic preflight integration (fixes #11).

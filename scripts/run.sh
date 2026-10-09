@@ -66,16 +66,16 @@ done
 cd "${BACKEND_DIR}"
 
 if [ "${RUN_PREFLIGHT}" = true ]; then
-  PREFLIGHT_ARGS=()
+  PREFLIGHT_CMD=(uv run python scripts/preflight.py)
   if [ "${PREFLIGHT_STRICT}" = true ]; then
-    PREFLIGHT_ARGS+=("--strict")
+    PREFLIGHT_CMD+=("--strict")
   fi
   if [ "${CHECK_ONLY}" = true ]; then
-    PREFLIGHT_ARGS+=("--check-only")
+    PREFLIGHT_CMD+=("--check-only")
   fi
 
   export PORT="${PORT}"
-  if ! uv run python scripts/preflight.py "${PREFLIGHT_ARGS[@]}"; then
+  if ! "${PREFLIGHT_CMD[@]}"; then
     echo -e "\033[31m\033[1m[Launcher] Preflight checks failed. Aborting startup.\033[0m" >&2
     echo -e "\033[33mHint: Use --no-preflight to bypass diagnostic checks.\033[0m\n" >&2
     exit 1
@@ -89,4 +89,9 @@ fi
 echo -e "\033[1m\033[36m🚀 Starting Voice of Lúna at http://${HOST}:${PORT}\033[0m"
 echo -e "\033[2m   Localhost single-user mode · Press Ctrl+C to stop.\033[0m\n"
 
-exec uv run uvicorn app.main:app --host "${HOST}" --port "${PORT}" ${RELOAD}
+UVICORN_CMD=(uv run uvicorn app.main:app --host "${HOST}" --port "${PORT}")
+if [ -n "${RELOAD}" ]; then
+  UVICORN_CMD+=("${RELOAD}")
+fi
+
+exec "${UVICORN_CMD[@]}"
