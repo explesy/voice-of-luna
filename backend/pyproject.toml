@@ -1,6 +1,6 @@
 [project]
 name = "voice-of-luna-backend"
-version = "0.42.2"
+version = "0.43.0"
 description = "Local-first conversation bridge for Voice of Luna"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,6 +12,11 @@ dependencies = [
   "num2words>=0.5.13",
   "piper-tts>=1.2.0",
   "python-multipart>=0.0.20,<1",
+  "sherpa-onnx>=1.13,<2",
+  # `sherpa-onnx` ships the Python bindings; `sherpa-onnx-core` carries the
+  # platform runtime (libonnxruntime). It is declared explicitly because uv's
+  # project resolver did not add it to the lock from the sdist metadata.
+  "sherpa-onnx-core>=1.13,<2",
   "uvicorn[standard]>=0.30,<1",
 ]
 

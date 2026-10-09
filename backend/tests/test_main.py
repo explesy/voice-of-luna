@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app import main as main_module
 from app.main import app
 from app.transcribe import (
+    create_tone_streaming_session,
     run_tone_shadow,
     tone_shadow_configured,
     tone_streaming_available,
@@ -87,13 +88,95 @@ def test_tone_streaming_finalize_pads_at_input_sample_rate(monkeypatch) -> None:
     )
     monkeypatch.setitem(sys.modules, "sherpa_onnx", fake_sherpa)
 
-    session = main_module.create_tone_streaming_session("model.onnx", "tokens.txt", 16000)
+    session = create_tone_streaming_session("model.onnx", "tokens.txt", 16000)
     asyncio.run(session.push_pcm(b"\x00\x00" * 160, 16000))
     asyncio.run(session.finalize())
 
     # Both the audio frame and the trailing padding must use the same input rate:
     # sherpa's stream resampler rejects a changing input sample rate.
     assert [rate for rate, _ in recorded] == [16000, 16000]
+
+
+def test_stt_models_endpoints() -> None:
+    models = client.get("/api/stt/models")
+    assert models.status_code == 200
+    payload = models.json()
+    ids = {model["id"] for model in payload["models"]}
+    assert {"tone_ru", "kroko_es", "vosk_ru"} <= ids
+    assert isinstance(payload["runtime_available"], bool)
+    assert client.get("/api/stt/models/tone_ru/status").status_code == 200
+    assert client.get("/api/stt/models/does-not-exist/status").status_code == 404
+    assert client.post("/api/stt/models/does-not-exist/download").status_code == 404
+
+
+def test_ready_reports_installed_streaming_model(monkeypatch) -> None:
+    monkeypatch.setenv("VOICE_OF_LUNA_STT_AUTODOWNLOAD", "0")
+    monkeypatch.setattr(main_module.stt_model_manager, "is_installed", lambda model_id: model_id == "tone_ru")
+    with client.websocket_connect("/ws/conversations/test-ws-stream-ready") as ws:
+        ready = ws.receive_json()
+        assert ready["live_transcript_available"] is True
+        assert ready["live_transcript_model"]["id"] == "tone_ru"
+        assert ready["live_transcript_model"]["status"] == "ready"
+
+
+def test_ready_offers_streaming_download_when_missing(monkeypatch) -> None:
+    monkeypatch.setenv("VOICE_OF_LUNA_STT_AUTODOWNLOAD", "0")
+    monkeypatch.setattr(main_module.stt_model_manager, "is_installed", lambda model_id: False)
+    with client.websocket_connect("/ws/conversations/test-ws-stream-missing") as ws:
+        ready = ws.receive_json()
+        assert ready["live_transcript_available"] is False
+        assert ready["live_transcript_model"]["id"] == "tone_ru"
+        assert ready["live_transcript_model"]["status"] == "not_installed"
+
+
+def test_create_streaming_session_selects_engine(monkeypatch, tmp_path) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeStream:
+        def set_option(self, key, value):
+            calls["language"] = value
+
+        def accept_waveform(self, *args):
+            pass
+
+        def input_finished(self):
+            pass
+
+    class FakeRecognizer:
+        def create_stream(self):
+            return FakeStream()
+
+        def is_ready(self, stream):
+            return False
+
+        def decode_stream(self, stream):
+            pass
+
+        def get_result(self, stream):
+            return types.SimpleNamespace(text="")
+
+    def from_transducer(**kwargs):
+        calls["files"] = (kwargs["encoder"], kwargs["decoder"], kwargs["joiner"])
+        return FakeRecognizer()
+
+    fake_sherpa = types.SimpleNamespace(
+        OnlineRecognizer=types.SimpleNamespace(
+            from_transducer=from_transducer,
+            from_t_one_ctc=lambda **kwargs: FakeRecognizer(),
+        )
+    )
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", fake_sherpa)
+
+    model_dir = tmp_path / "vosk"
+    model_dir.mkdir()
+    for name in ("encoder.int8.onnx", "decoder.onnx", "joiner.int8.onnx", "tokens.txt"):
+        (model_dir / name).write_bytes(b"x")
+
+    session = main_module.create_streaming_session("vosk", model_dir, 16000, "ru")
+    assert session is not None
+    assert calls["language"] == "ru"
+    assert str(calls["files"][0]).endswith("encoder.int8.onnx")
+    assert str(calls["files"][2]).endswith("joiner.int8.onnx")
 
 
 def test_creates_and_deletes_conversation() -> None:
@@ -698,6 +781,7 @@ def test_websocket_pcm_stream_buffers_until_end_and_transcribes(monkeypatch, tmp
         clip.write_bytes(b"RIFFwavdata")
         return clip
 
+    monkeypatch.setenv("VOICE_OF_LUNA_STREAMING_STT", "0")
     monkeypatch.setattr(main_module.LocalWhisperTranscriber, "transcribe", fake_transcribe)
     monkeypatch.setattr(main_module.CodexAppServer, "reply_stream", fake_reply_stream)
     monkeypatch.setattr(main_module.LocalMacOsSpeaker, "synthesize", fake_synthesize)
@@ -746,10 +830,9 @@ def test_websocket_pcm_stream_emits_interim_then_authoritative_transcript(monkey
     async def fake_shadow(*args, **kwargs):
         return {"status": "unavailable"}
 
-    monkeypatch.setenv("VOICE_OF_LUNA_TONE_MODEL", "/tmp/t-one.onnx")
-    monkeypatch.setenv("VOICE_OF_LUNA_TONE_TOKENS", "/tmp/tokens.txt")
-    monkeypatch.delenv("VOICE_OF_LUNA_TONE_STREAMING", raising=False)
-    monkeypatch.setattr(main_module, "create_tone_streaming_session", lambda *a, **k: FakeToneSession())
+    monkeypatch.setenv("VOICE_OF_LUNA_STT_AUTODOWNLOAD", "0")
+    monkeypatch.setattr(main_module.stt_model_manager, "is_installed", lambda model_id: True)
+    monkeypatch.setattr(main_module, "create_streaming_session", lambda *a, **k: FakeToneSession())
     monkeypatch.setattr(main_module, "run_tone_shadow", fake_shadow)
     monkeypatch.setattr(main_module.LocalWhisperTranscriber, "transcribe", fake_transcribe)
     monkeypatch.setattr(main_module.CodexAppServer, "reply_stream", fake_reply_stream)
@@ -762,7 +845,7 @@ def test_websocket_pcm_stream_emits_interim_then_authoritative_transcript(monkey
         assert ready["live_transcript"] is True
 
         ws.send_json({"type": "audio_stream_start", "sample_rate": 16_000})
-        assert ws.receive_json()["mode_label"] == "STREAM // T-ONE"
+        assert ws.receive_json()["mode_label"] == "STREAM // TONE"
         assert ws.receive_json()["mode_label"] == "STREAM // PCM"
 
         ws.send_bytes(b"\x00\x00" * 800)
@@ -799,9 +882,7 @@ def test_websocket_pcm_stream_has_no_partials_when_streaming_unavailable(monkeyp
         clip.write_bytes(b"RIFFwavdata")
         return clip
 
-    monkeypatch.delenv("VOICE_OF_LUNA_TONE_MODEL", raising=False)
-    monkeypatch.delenv("VOICE_OF_LUNA_TONE_TOKENS", raising=False)
-    monkeypatch.delenv("VOICE_OF_LUNA_TONE_STREAMING", raising=False)
+    monkeypatch.setenv("VOICE_OF_LUNA_STREAMING_STT", "0")
     monkeypatch.setattr(main_module.LocalWhisperTranscriber, "transcribe", fake_transcribe)
     monkeypatch.setattr(main_module.CodexAppServer, "reply_stream", fake_reply_stream)
     monkeypatch.setattr(main_module.LocalMacOsSpeaker, "synthesize", fake_synthesize)
@@ -853,10 +934,9 @@ def test_websocket_live_transcript_toggle_off_suppresses_partials(monkeypatch, t
     async def fake_shadow(*args, **kwargs):
         return {"status": "unavailable"}
 
-    monkeypatch.setenv("VOICE_OF_LUNA_TONE_MODEL", "/tmp/t-one.onnx")
-    monkeypatch.setenv("VOICE_OF_LUNA_TONE_TOKENS", "/tmp/tokens.txt")
-    monkeypatch.delenv("VOICE_OF_LUNA_TONE_STREAMING", raising=False)
-    monkeypatch.setattr(main_module, "create_tone_streaming_session", lambda *a, **k: FakeToneSession())
+    monkeypatch.setenv("VOICE_OF_LUNA_STT_AUTODOWNLOAD", "0")
+    monkeypatch.setattr(main_module.stt_model_manager, "is_installed", lambda model_id: True)
+    monkeypatch.setattr(main_module, "create_streaming_session", lambda *a, **k: FakeToneSession())
     monkeypatch.setattr(main_module, "run_tone_shadow", fake_shadow)
     monkeypatch.setattr(main_module.LocalWhisperTranscriber, "transcribe", fake_transcribe)
     monkeypatch.setattr(main_module.CodexAppServer, "reply_stream", fake_reply_stream)

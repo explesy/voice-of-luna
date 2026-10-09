@@ -21,6 +21,9 @@ let streamingTextFrame = null;
 let interimTranscriptEntry = null;
 let liveTranscriptAvailable = false;
 let liveTranscriptEnabled = true;
+let liveTranscriptModel = null;
+let liveTranscriptPollTimer = null;
+let liveTranscriptPollingId = null;
 let lastVoiceUiState = "idle";
 
 // Audio processing and VAD state are provided by audio-player.js and vad.js
@@ -792,9 +795,7 @@ function handleSocketMessage(event) {
     if (data.tts_engine) {
       updateFooterStatus(data.tts_engine);
     }
-    liveTranscriptAvailable = Boolean(data.live_transcript_available);
-    liveTranscriptEnabled = data.live_transcript !== false;
-    applyLiveTranscriptAvailability(liveTranscriptAvailable, liveTranscriptEnabled);
+    applyLiveTranscriptState(data);
   } else if (data.type === "voice_updated") {
     if (data.voice) {
       const voiceSelect = document.querySelector("#voice-select");
@@ -823,6 +824,9 @@ function handleSocketMessage(event) {
     if (data.tts_engine) {
       updateFooterStatus(data.tts_engine);
     }
+    if (Object.prototype.hasOwnProperty.call(data, "live_transcript_model")) {
+      applyLiveTranscriptState(data);
+    }
   } else if (data.type === "settings_updated") {
     if (data.locale) {
       const localeSelect = document.querySelector("#locale-select");
@@ -846,6 +850,9 @@ function handleSocketMessage(event) {
     }
     if (data.tts_engine) {
       updateFooterStatus(data.tts_engine);
+    }
+    if (Object.prototype.hasOwnProperty.call(data, "live_transcript_model")) {
+      applyLiveTranscriptState(data);
     }
   } else if (data.type === "plugin_updated") {
     if (Object.prototype.hasOwnProperty.call(data, "panel")) renderPluginPanel(data.panel, data.plugin_id, data.settings || {});
@@ -879,10 +886,11 @@ function handleSocketMessage(event) {
   } else if (data.type === "stt_partial") {
     if (data.text) {
       showInterimTranscript(data.text);
+      const providerLabel = `STREAM // ${(data.provider || "stt").toUpperCase()}`;
       setVoiceState(
         "transcribing",
         `Listening... ${data.text}`,
-        data.final ? "STREAM // T-ONE FINAL" : "STREAM // T-ONE",
+        data.final ? `${providerLabel} FINAL` : providerLabel,
       );
     }
   } else if (data.type === "delta") {
@@ -1557,7 +1565,7 @@ document.body.addEventListener("htmx:afterSwap", (event) => {
     initVadToggle();
     initLiveTranscriptToggle();
     initRevoiceDialog();
-    applyLiveTranscriptAvailability(liveTranscriptAvailable, liveTranscriptEnabled);
+    renderLiveTranscriptChip();
     updateBubbleTransportVisibility(lastVoiceUiState);
     document.querySelectorAll(".log-text").forEach((el) => {
       if (!el.querySelector(".term-link") && !el.querySelector(".log-sources")) {
@@ -1603,16 +1611,107 @@ document.addEventListener("htmx:configRequest", (event) => {
 });
 
 
-function applyLiveTranscriptAvailability(available, enabled) {
+function applyLiveTranscriptState(data) {
+  liveTranscriptAvailable = Boolean(data.live_transcript_available);
+  liveTranscriptEnabled = data.live_transcript !== false;
+  if (Object.prototype.hasOwnProperty.call(data, "live_transcript_model")) {
+    liveTranscriptModel = data.live_transcript_model || null;
+  }
+  renderLiveTranscriptChip();
+}
+
+function renderLiveTranscriptChip() {
   const chip = document.querySelector("#live-transcript-toggle");
   if (!chip) return;
-  if (!available) {
+  const model = liveTranscriptModel;
+  if (!model) {
+    // Backward compatible payloads may still only carry the availability flag.
+    if (liveTranscriptAvailable) {
+      chip.hidden = false;
+      chip.classList.remove("is-download");
+      stopLiveTranscriptPolling();
+      const savedFlag = localStorage.getItem("voice_of_luna_live_transcript");
+      setLiveTranscriptUi(savedFlag === null ? liveTranscriptEnabled !== false : savedFlag !== "false");
+      return;
+    }
     chip.hidden = true;
+    stopLiveTranscriptPolling();
     return;
   }
+  const status = model.status || (model.installed ? "ready" : "not_installed");
+  if (status === "ready") {
+    chip.hidden = false;
+    chip.classList.remove("is-download");
+    stopLiveTranscriptPolling();
+    const saved = localStorage.getItem("voice_of_luna_live_transcript");
+    setLiveTranscriptUi(saved === null ? liveTranscriptEnabled !== false : saved !== "false");
+    return;
+  }
+  // Not installed / downloading / error: expose download progress.
   chip.hidden = false;
-  const saved = localStorage.getItem("voice_of_luna_live_transcript");
-  setLiveTranscriptUi(saved === null ? enabled !== false : saved !== "false");
+  chip.classList.remove("is-auto", "is-manual");
+  chip.classList.add("is-download");
+  chip.dataset.liveTranscript = "download";
+  chip.setAttribute("aria-pressed", "false");
+  const textEl = chip.querySelector(".live-transcript-state-text");
+  const percent = model.progress_percent != null ? model.progress_percent : 0;
+  if (status === "downloading") {
+    if (textEl) textEl.textContent = `↓ ${percent}%`;
+    chip.title = `Скачивается streaming-модель ${model.name || ""} (${percent}%)`;
+    startLiveTranscriptPolling(model.id);
+  } else if (status === "error") {
+    stopLiveTranscriptPolling();
+    if (textEl) textEl.textContent = "!";
+    chip.title = `Ошибка загрузки: ${model.error || "неизвестно"}`;
+  } else {
+    stopLiveTranscriptPolling();
+    if (textEl) textEl.textContent = `↓ ${Math.round(model.size_mb || 0)}MB`;
+    chip.title = `Скачать streaming-модель ${model.name || ""}`;
+  }
+}
+
+function startLiveTranscriptPolling(modelId) {
+  if (liveTranscriptPollTimer && liveTranscriptPollingId === modelId) return;
+  stopLiveTranscriptPolling();
+  liveTranscriptPollingId = modelId;
+  liveTranscriptPollTimer = window.setInterval(async () => {
+    try {
+      const resp = await fetch(`/api/stt/models/${encodeURIComponent(modelId)}/status`);
+      if (!resp.ok) return;
+      const status = await resp.json();
+      if (!liveTranscriptModel || liveTranscriptModel.id !== modelId) {
+        stopLiveTranscriptPolling();
+        return;
+      }
+      liveTranscriptModel = status;
+      if (status.status === "ready") {
+        liveTranscriptAvailable = true;
+        liveTranscriptEnabled = true;
+        showToast("// STREAMING STT ГОТОВ: LIVE ВКЛ");
+      }
+      renderLiveTranscriptChip();
+    } catch (_) {
+      // keep polling; transient network errors are expected
+    }
+  }, 1500);
+}
+
+function stopLiveTranscriptPolling() {
+  if (liveTranscriptPollTimer) {
+    window.clearInterval(liveTranscriptPollTimer);
+    liveTranscriptPollTimer = null;
+  }
+  liveTranscriptPollingId = null;
+}
+
+function requestLiveTranscriptDownload(modelId) {
+  fetch(`/api/stt/models/${encodeURIComponent(modelId)}/download`, { method: "POST" }).catch(() => {});
+  if (liveTranscriptModel) {
+    liveTranscriptModel.status = "downloading";
+    liveTranscriptModel.progress_percent = 0;
+  }
+  renderLiveTranscriptChip();
+  showToast("// ЗАГРУЗКА STREAMING-МОДЕЛИ...");
 }
 
 function setLiveTranscriptUi(enabled) {
@@ -1631,6 +1730,11 @@ function initLiveTranscriptToggle() {
   if (!chip || chip.dataset.initialized) return;
   chip.dataset.initialized = "true";
   chip.addEventListener("click", () => {
+    if (liveTranscriptModel && liveTranscriptModel.status === "downloading") return;
+    if (liveTranscriptModel && liveTranscriptModel.status !== "ready") {
+      requestLiveTranscriptDownload(liveTranscriptModel.id);
+      return;
+    }
     const next = chip.dataset.liveTranscript !== "true";
     localStorage.setItem("voice_of_luna_live_transcript", next ? "true" : "false");
     setLiveTranscriptUi(next);

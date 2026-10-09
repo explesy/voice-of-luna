@@ -10,6 +10,11 @@
 и pseudo-streaming Whisper, а также метриками RTF, аудио-позиции первого
 partial, cadence и пиковой памяти. Результаты и рекомендация — в разделах 5–6.
 
+Выбранные движки затем включены в рантайм (issue #23): `app/stt_manager.py`
+управляет скачиванием и установкой моделей, а `app/transcribe.py` строит
+T-One/transducer-сессию по языку разговора с авто-загрузкой при первом
+использовании.
+
 ## 1. Подготовить окружение
 
 Нужны `ffmpeg` и backend environment:
@@ -20,11 +25,12 @@ cd backend
 uv sync
 ```
 
-`sherpa-onnx` — optional dependency и ставится только для этого эксперимента:
+`sherpa-onnx` — core dependency (с issue #23 streaming STT работает в рантайме),
+поэтому отдельная установка через `--with` больше не нужна:
 
 ```bash
 cd backend
-uv run --with sherpa-onnx python scripts/run_stt_benchmark.py --help
+uv run python scripts/run_stt_benchmark.py --help
 ```
 
 Модели распаковываются в `backend/models/streaming-stt/` (каталог в `.gitignore`).

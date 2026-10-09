@@ -98,10 +98,10 @@ from .transcribe import (
     LocalWhisperTranscriber,
     SpeechToTextProvider,
     run_tone_shadow,
-    create_tone_streaming_session,
+    create_streaming_session,
     tone_shadow_configured,
-    tone_streaming_configured,
 )
+from .stt_manager import sherpa_available, stt_model_manager
 from .whisper_server import WhisperServerManager
 
 whisper_server = WhisperServerManager()
@@ -805,6 +805,28 @@ async def get_tts_model_status(model_id: str) -> dict[str, object]:
     if "error" in status and status.get("status") == "error" and status.get("error") == "Model not found":
         raise HTTPException(status_code=404, detail="Model not found")
     return status
+
+
+@app.get("/api/stt/models")
+async def list_stt_models() -> dict[str, object]:
+    return {"models": stt_model_manager.list_all_models(), "runtime_available": sherpa_available()}
+
+
+@app.post("/api/stt/models/{model_id}/download")
+async def download_stt_model(model_id: str) -> dict[str, object]:
+    if stt_model_manager.get(model_id) is None:
+        raise HTTPException(status_code=404, detail="Model not found")
+    if not sherpa_available():
+        raise HTTPException(status_code=409, detail="sherpa-onnx runtime is not installed")
+    stt_model_manager.start_download(model_id)
+    return {"ok": True, "model_id": model_id, "status": "downloading"}
+
+
+@app.get("/api/stt/models/{model_id}/status")
+async def get_stt_model_status(model_id: str) -> dict[str, object]:
+    if stt_model_manager.get(model_id) is None:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return stt_model_manager.get_status(model_id)
 
 
 @app.get("/api/models")
@@ -1660,19 +1682,69 @@ async def _stream_and_synthesize(
                 break
 
 
+def _streaming_enabled_by_env() -> bool:
+    """Global streaming kill switches (new name + legacy T-One flag)."""
+
+    return (
+        os.environ.get("VOICE_OF_LUNA_STREAMING_STT") != "0"
+        and os.environ.get("VOICE_OF_LUNA_TONE_STREAMING") != "0"
+    )
+
+
+def _streaming_language(conversation: Conversation) -> str:
+    prefix = (conversation.locale or "").split("-")[0].lower()
+    return prefix if prefix in {"ru", "es", "en"} else "auto"
+
+
+def _streaming_engine_model_id(conversation: Conversation) -> str | None:
+    """Resolve the installed streaming model for the conversation locale."""
+
+    if not _streaming_enabled_by_env():
+        return None
+    return stt_model_manager.resolve_model_id(conversation.locale, installed_only=True)
+
+
 def _live_transcript_enabled(conversation: Conversation) -> bool:
     """Resolve the effective live-transcript state for one conversation.
 
     A locally installed streaming model turns streaming on by default (D8).
-    ``tone_streaming_configured`` already accounts for the
-    ``VOICE_OF_LUNA_TONE_STREAMING=0`` operator kill switch. The
-    per-conversation UI toggle can disable it further. When disabled, the batch
-    Whisper path is authoritative.
+    Global kill switches and the per-conversation UI toggle can disable it.
+    When disabled, the batch Whisper path is authoritative.
     """
 
-    if not tone_streaming_configured():
+    if conversation.live_transcript is False:
         return False
-    return conversation.live_transcript is not False
+    return _streaming_engine_model_id(conversation) is not None
+
+
+def _streaming_state(conversation: Conversation) -> dict[str, object]:
+    """Describe streaming availability and the relevant model for the UI."""
+
+    if not _streaming_enabled_by_env():
+        return {"available": False, "model": None}
+    installed_id = _streaming_engine_model_id(conversation)
+    if installed_id:
+        return {"available": True, "model": stt_model_manager.get_status(installed_id)}
+    target_id = stt_model_manager.download_target(conversation.locale)
+    if target_id:
+        return {"available": False, "model": stt_model_manager.get_status(target_id)}
+    return {"available": False, "model": None}
+
+
+def _maybe_autodownload_streaming(conversation: Conversation) -> None:
+    """Start a background download of the locale's default streaming model."""
+
+    if not _streaming_enabled_by_env():
+        return
+    if os.environ.get("VOICE_OF_LUNA_STT_AUTODOWNLOAD", "1") == "0":
+        return
+    if not sherpa_available():
+        return
+    target_id = stt_model_manager.download_target(conversation.locale)
+    if not target_id or stt_model_manager.is_installed(target_id):
+        return
+    # Registered synchronously so /status reports "downloading" right away.
+    stt_model_manager.start_download(target_id)
 
 
 @app.websocket("/ws/conversations/{conversation_id}")
@@ -1682,6 +1754,8 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
     conversation.active_websockets += 1
     _touch_conversation(conversation)
     _prewarm_conversation(conversation)
+    _maybe_autodownload_streaming(conversation)
+    streaming_state = _streaming_state(conversation)
     await websocket.send_json({
         "type": "ready",
         "conversation_id": conversation.id,
@@ -1690,16 +1764,19 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
         "voice": conversation.voice,
         "locale": conversation.locale,
         "tts_engine": _get_tts_engine(conversation.voice),
-        "live_transcript_available": tone_streaming_configured(),
+        "live_transcript_available": streaming_state["available"],
         "live_transcript": _live_transcript_enabled(conversation),
+        "live_transcript_model": streaming_state["model"],
+        "streaming_runtime_available": sherpa_available(),
     })
 
     active_turn_task: asyncio.Task[None] | None = None
     pending_audio_timing: dict[str, int] | None = None
     streaming_pcm: bytearray | None = None
     streaming_sample_rate = 16_000
-    tone_session = None
-    tone_last_partial = ""
+    stream_session = None
+    stream_last_partial = ""
+    stream_provider = "stt"
 
     try:
         while True:
@@ -1779,22 +1856,22 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
 
                 if streaming_pcm is not None:
                     streaming_pcm.extend(raw_bytes)
-                    if tone_session is not None:
+                    if stream_session is not None:
                         try:
-                            partial = await tone_session.push_pcm(raw_bytes, streaming_sample_rate)
+                            partial = await stream_session.push_pcm(raw_bytes, streaming_sample_rate)
                         except Exception as exc:
                             logger.warning("Live transcript push failed, falling back to batch: %s", exc)
                             try:
-                                await tone_session.cancel()
+                                await stream_session.cancel()
                             except Exception:
                                 pass
-                            tone_session = None
+                            stream_session = None
                             partial = ""
-                        if partial and partial != tone_last_partial:
-                            tone_last_partial = partial
+                        if partial and partial != stream_last_partial:
+                            stream_last_partial = partial
                             await websocket.send_json({
                                 "type": "stt_partial",
-                                "provider": "t-one",
+                                "provider": stream_provider,
                                 "text": partial,
                                 "interim": True,
                                 "final": False,
@@ -1821,21 +1898,26 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         continue
                     streaming_sample_rate = sample_rate
                     streaming_pcm = bytearray()
-                    tone_last_partial = ""
-                    tone_session = None
-                    if _live_transcript_enabled(conversation):
+                    stream_last_partial = ""
+                    stream_session = None
+                    stream_provider = "stt"
+                    streaming_model_id = _streaming_engine_model_id(conversation)
+                    if _live_transcript_enabled(conversation) and streaming_model_id:
+                        model_def = stt_model_manager.get(streaming_model_id)
                         try:
-                            tone_session = await asyncio.to_thread(
-                                create_tone_streaming_session,
-                                os.environ["VOICE_OF_LUNA_TONE_MODEL"],
-                                os.environ["VOICE_OF_LUNA_TONE_TOKENS"],
+                            stream_session = await asyncio.to_thread(
+                                create_streaming_session,
+                                model_def.engine,
+                                stt_model_manager.model_dir(streaming_model_id),
                                 sample_rate,
+                                _streaming_language(conversation),
                             )
+                            stream_provider = model_def.engine
                             await websocket.send_json({
                                 "type": "status",
                                 "state": "transcribing",
                                 "message": "Live transcript streaming is active...",
-                                "mode_label": "STREAM // T-ONE",
+                                "mode_label": f"STREAM // {model_def.engine.upper()}",
                             })
                         except LocalTranscriptionError as exc:
                             await websocket.send_json({
@@ -1846,7 +1928,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                             })
                         except Exception as exc:
                             logger.warning("Live transcript session failed, falling back to batch: %s", exc)
-                            tone_session = None
+                            stream_session = None
                             await websocket.send_json({
                                 "type": "status",
                                 "state": "transcribing",
@@ -1867,30 +1949,30 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                     raw_pcm = bytes(streaming_pcm)
                     streaming_pcm = None
                     if not raw_pcm:
-                        if tone_session is not None:
-                            await tone_session.cancel()
-                            tone_session = None
+                        if stream_session is not None:
+                            await stream_session.cancel()
+                            stream_session = None
                         await websocket.send_json({"type": "error", "message": "Audio stream was empty"})
                         continue
-                    if tone_session is not None:
+                    if stream_session is not None:
                         try:
-                            partial = await tone_session.finalize()
+                            partial = await stream_session.finalize()
                         except Exception as exc:
                             logger.warning("Live transcript finalize failed, using batch: %s", exc)
                             partial = ""
-                        if partial and partial != tone_last_partial:
+                        if partial and partial != stream_last_partial:
                             await websocket.send_json({
                                 "type": "stt_partial",
-                                "provider": "t-one",
+                                "provider": stream_provider,
                                 "text": partial,
                                 "interim": True,
                                 "final": True,
                             })
                         try:
-                            await tone_session.cancel()
+                            await stream_session.cancel()
                         except Exception:
                             pass
-                        tone_session = None
+                        stream_session = None
                     client_timing = pending_audio_timing
                     pending_audio_timing = None
                     if active_turn_task and not active_turn_task.done():
@@ -1917,11 +1999,16 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         conversation.set_selected_voice(new_voice)
                         _safe_background_task(prewarm_voice(new_voice), name=f"prewarm-voice-{conversation.id}")
                         base_instructions = await _refresh_conversation_base_instructions(conversation, override_locale=new_locale)
+                        _maybe_autodownload_streaming(conversation)
+                        streaming_state = _streaming_state(conversation)
                         await websocket.send_json({
                             "type": "locale_updated",
                             "locale": new_locale,
                             "voice": new_voice,
                             "tts_engine": _get_tts_engine(new_voice),
+                            "live_transcript_available": streaming_state["available"],
+                            "live_transcript": _live_transcript_enabled(conversation),
+                            "live_transcript_model": streaming_state["model"],
                         })
                 elif msg_type == "set_settings":
                     if "model" in payload and payload["model"]:
@@ -1934,6 +2021,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                     if "locale" in payload and payload["locale"]:
                         conversation.locale = payload["locale"]
                         await _refresh_conversation_base_instructions(conversation)
+                        _maybe_autodownload_streaming(conversation)
                     if "binary_audio" in payload:
                         conversation.binary_audio = bool(payload["binary_audio"])
                     if "live_transcript" in payload:
@@ -1958,6 +2046,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         "locale": conversation.locale,
                         "tts_engine": _get_tts_engine(conversation.voice),
                         "live_transcript": _live_transcript_enabled(conversation),
+                        "live_transcript_model": _streaming_state(conversation)["model"],
                         "remote_warmup_status": warmup_status,
                     })
                 elif msg_type == "set_plugin":
@@ -2049,9 +2138,9 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
         if active_turn_task and not active_turn_task.done():
             active_turn_task.cancel()
         streaming_pcm = None
-        if tone_session is not None:
+        if stream_session is not None:
             try:
-                await tone_session.cancel()
+                await stream_session.cancel()
             except Exception:
                 pass
         conversation.active_websockets = max(0, conversation.active_websockets - 1)

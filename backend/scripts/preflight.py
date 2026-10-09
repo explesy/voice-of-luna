@@ -190,6 +190,43 @@ def run_checks() -> list[CheckResult]:
             remediation="Download Whisper weights: `curl -L https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin -o data/models/ggml-small.bin`",
         ))
 
+    # 4b. Streaming STT (optional sherpa-onnx engines)
+    try:
+        import importlib.util
+
+        sherpa_ok = importlib.util.find_spec("sherpa_onnx") is not None
+    except Exception:
+        sherpa_ok = False
+    if sherpa_ok:
+        streaming_root = BACKEND_ROOT / "models" / "streaming-stt"
+        installed = [
+            d.name
+            for d in streaming_root.iterdir()
+            if d.is_dir()
+        ] if streaming_root.is_dir() else []
+        if installed:
+            results.append(CheckResult(
+                category="Streaming STT",
+                name="sherpa-onnx engines",
+                status="OK",
+                message=f"{len(installed)} streaming model(s) installed ({', '.join(sorted(installed)[:2])})",
+            ))
+        else:
+            results.append(CheckResult(
+                category="Streaming STT",
+                name="sherpa-onnx engines",
+                status="WARN",
+                message="sherpa-onnx present, no streaming models installed yet (auto-download on first use)",
+            ))
+    else:
+        results.append(CheckResult(
+            category="Streaming STT",
+            name="sherpa-onnx engines",
+            status="WARN",
+            message="sherpa-onnx not installed; live transcript will fall back to batch Whisper",
+            remediation="Install dependencies: `cd backend && uv sync`",
+        ))
+
     # 5. Local TTS voices (Piper / Silero / macOS)
     tts_dirs = [
         BACKEND_ROOT / "models",

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 import tempfile
+import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Protocol
 
@@ -106,6 +109,145 @@ def create_tone_streaming_session(model: str, tokens: str, sample_rate: int) -> 
     return ToneStreamingSession(model=model, tokens=tokens, sample_rate=sample_rate)
 
 
+# Engine -> (encoder, decoder, joiner) filenames inside a sherpa-onnx bundle.
+_TRANSDUCER_FILES = {
+    "vosk": ("encoder.int8.onnx", "decoder.onnx", "joiner.int8.onnx"),
+    "kroko": ("encoder.onnx", "decoder.onnx", "joiner.onnx"),
+    "nemotron": ("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx"),
+}
+logger = logging.getLogger("voice_of_luna.transcribe")
+
+# Keep at most two recognizers resident (Nemotron alone is ~1.2 GB) and
+# serialize decoding because a sherpa OnlineRecognizer may be shared by
+# several sessions/threads.
+_transducer_recognizer_cache: "OrderedDict[tuple[str, str], tuple[object, threading.Lock]]" = OrderedDict()
+_transducer_cache_lock = threading.Lock()
+_TRANSDUCER_CACHE_SIZE = 2
+
+
+def _get_transducer_recognizer(engine: str, model_dir: str | Path) -> tuple[object, threading.Lock]:
+    key = (engine, str(model_dir))
+    with _transducer_cache_lock:
+        cached = _transducer_recognizer_cache.get(key)
+        if cached is not None:
+            _transducer_recognizer_cache.move_to_end(key)
+            return cached
+    recognizer = _build_transducer_recognizer(engine, model_dir)
+    entry = (recognizer, threading.Lock())
+    with _transducer_cache_lock:
+        existing = _transducer_recognizer_cache.get(key)
+        if existing is not None:
+            return existing
+        _transducer_recognizer_cache[key] = entry
+        while len(_transducer_recognizer_cache) > _TRANSDUCER_CACHE_SIZE:
+            _transducer_recognizer_cache.popitem(last=False)
+    return entry
+
+
+def _build_transducer_recognizer(engine: str, model_dir: str | Path) -> object:
+    try:
+        import sherpa_onnx
+    except ImportError as exc:
+        raise LocalTranscriptionError(
+            "Streaming STT requires the optional sherpa-onnx package"
+        ) from exc
+    files = _TRANSDUCER_FILES.get(engine)
+    if files is None:
+        raise LocalTranscriptionError(f"Unsupported streaming STT engine: {engine}")
+    directory = Path(model_dir)
+    encoder, decoder, joiner = files
+    return sherpa_onnx.OnlineRecognizer.from_transducer(
+        tokens=str(directory / "tokens.txt"),
+        encoder=str(directory / encoder),
+        decoder=str(directory / decoder),
+        joiner=str(directory / joiner),
+        num_threads=min(os.cpu_count() or 4, 8),
+        sample_rate=16_000,
+        feature_dim=80,
+        enable_endpoint_detection=True,
+        decoding_method="greedy_search",
+    )
+
+
+class TransducerStreamingSession:
+    """Optional sherpa-onnx online transducer session (vosk/kroko/nemotron)."""
+
+    def __init__(
+        self,
+        engine: str,
+        model_dir: str | Path,
+        sample_rate: int = 16_000,
+        language: str | None = None,
+    ) -> None:
+        try:
+            import numpy as np
+        except ImportError as exc:  # pragma: no cover - numpy is a core dependency
+            raise LocalTranscriptionError("Streaming STT requires numpy") from exc
+        self._np = np
+        self._recognizer, self._recognizer_lock = _get_transducer_recognizer(engine, model_dir)
+        self._stream = self._recognizer.create_stream()
+        if language:
+            try:
+                self._stream.set_option("language", language)
+            except Exception as exc:  # pragma: no cover - depends on sherpa build
+                logger.warning("Streaming STT language option '%s' was not applied: %s", language, exc)
+
+    async def push_pcm(self, samples: bytes, sample_rate: int) -> str:
+        audio = self._np.frombuffer(samples, dtype=self._np.int16).astype(self._np.float32) / 32768.0
+        await asyncio.to_thread(self._decode, audio, sample_rate)
+        return self._result_text()
+
+    async def finalize(self) -> str:
+        self._stream.input_finished()
+        await asyncio.to_thread(self._drain)
+        return self._result_text()
+
+    async def cancel(self) -> None:
+        self._stream = None
+
+    def _decode(self, audio: object, sample_rate: int) -> None:
+        if self._stream is None:
+            return
+        with self._recognizer_lock:
+            self._stream.accept_waveform(sample_rate, audio)
+            self._drain_locked()
+
+    def _drain(self) -> None:
+        if self._stream is None:
+            return
+        with self._recognizer_lock:
+            self._drain_locked()
+
+    def _drain_locked(self) -> None:
+        while self._recognizer.is_ready(self._stream):
+            self._recognizer.decode_stream(self._stream)
+
+    def _result_text(self) -> str:
+        if self._stream is None:
+            return ""
+        with self._recognizer_lock:
+            result = self._recognizer.get_result(self._stream)
+        return str(getattr(result, "text", result)).strip()
+
+
+def create_streaming_session(
+    engine: str,
+    model_dir: str | Path,
+    sample_rate: int,
+    language: str | None = None,
+) -> ToneStreamingSession | TransducerStreamingSession:
+    """Build the online session for a selected engine/model directory."""
+
+    if engine == "tone":
+        directory = Path(model_dir)
+        return ToneStreamingSession(
+            model=str(directory / "model.onnx"),
+            tokens=str(directory / "tokens.txt"),
+            sample_rate=sample_rate,
+        )
+    return TransducerStreamingSession(engine, model_dir, sample_rate=sample_rate, language=language)
+
+
 def tone_shadow_configured() -> bool:
     """Return whether the optional local T-One shadow runner is configured."""
 
@@ -137,9 +279,9 @@ def tone_streaming_configured() -> bool:
 async def run_tone_shadow(wav_bytes: bytes) -> dict[str, object]:
     """Run optional T-One diagnostics without affecting the authoritative turn.
 
-    The adapter is deliberately subprocess-based: Sherpa-ONNX is optional and
-    must not alter Luna's Python dependency set or local default path. Raw
-    speech and the returned transcript are never logged or persisted.
+    The adapter is deliberately subprocess-based so a broken sherpa-onnx build
+    cannot take down the conversation path. Raw speech and the returned
+    transcript are never logged or persisted.
     """
 
     model = os.environ.get("VOICE_OF_LUNA_TONE_MODEL")

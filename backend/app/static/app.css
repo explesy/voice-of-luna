@@ -238,6 +238,18 @@ body::after {
   box-shadow: none;
 }
 
+.live-transcript-chip.is-download {
+  color: var(--term-amber);
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+.live-transcript-chip.is-download .chip-led-live {
+  color: var(--term-amber);
+  background: var(--term-amber);
+  box-shadow: 0 0 6px var(--term-amber);
+  animation: corePulse 1s infinite alternate;
+}
+
 .voice-chip-label {
   font-size: 11px;
   font-weight: 700;

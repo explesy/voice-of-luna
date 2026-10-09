@@ -55,8 +55,15 @@ live-режим включён, host дополнительно шлёт `stt_pa
 в `conversation.turns`, не запускает LLM и не является сообщением; при barge-in,
 ошибке или пустом аудио он очищается. Live-режим включается флагом
 `live_transcript` в `ready`/`set_settings` и включён по умолчанию; окружение
-`VOICE_OF_LUNA_TONE_STREAMING=0` выключает его как аварийный переключатель. При
-отсутствии streaming-модели режим деградирует до обычного batch Whisper.
+`VOICE_OF_LUNA_STREAMING_STT=0` (и legacy `VOICE_OF_LUNA_TONE_STREAMING=0`)
+выключает его как аварийный переключатель. Движок выбирается по языку сессии:
+T-One для ru, es-kroko для es, Nemotron — только если уже установлен. Модели
+управляются локальным streaming-STT manager-ом (`/api/stt/models`) и
+скачиваются автоматически при первом использовании
+(`VOICE_OF_LUNA_STT_AUTODOWNLOAD=0` отключает авто-загрузку). При отсутствии
+streaming-модели режим деградирует до обычного batch Whisper, а `ready`
+возвращает `live_transcript_model` со статусом (`ready`/`not_installed`/
+`downloading`/`error`).
 
 ## Optional delivery contracts
 
