@@ -44,6 +44,20 @@ Project Room это относительный путь и ограниченн�
 
 Plugin может добавить prompt context в `beforeTurn`, сохранить собственную заметку в `afterTurn`, отобразить панель через `renderPanel` или объявить native tools через `tools()`. Core применяет timeout и redaction; hook или tool не может задерживать аудио-путь бесконечно. Tool получает capability-oriented context: raw audio, OAuth tokens, process handles и произвольный shell не передаются обычным контрактом. Плагины остаются trusted in-process code, а не security sandbox.
 
+## Live interim transcript
+
+Mic-путь остаётся batch-авторитетным: финальный текст всегда приходит в
+`transcript` из `handle_audio`. Когда локальная streaming-модель установлена и
+live-режим включён, host дополнительно шлёт `stt_partial` с полем `text` и
+`interim: true` по мере распознавания речи. Браузер показывает эти partials в
+ленте как промежуточную user-запись и при получении `transcript` заменяет её
+авторитетным текстом (полная замена, без diffing). Partial никогда не попадает
+в `conversation.turns`, не запускает LLM и не является сообщением; при barge-in,
+ошибке или пустом аудио он очищается. Live-режим включается флагом
+`live_transcript` в `ready`/`set_settings` и включён по умолчанию; окружение
+`VOICE_OF_LUNA_TONE_STREAMING=0` выключает его как аварийный переключатель. При
+отсутствии streaming-модели режим деградирует до обычного batch Whisper.
+
 ## Optional delivery contracts
 
 По умолчанию ответ остаётся streaming-совместимым: host может передавать model

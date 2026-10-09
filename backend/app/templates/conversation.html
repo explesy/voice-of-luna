@@ -132,6 +132,11 @@
               {% endif %}
             </select>
           </div>
+          <button type="button" class="sys-chip vad-toggle-chip live-transcript-chip is-auto" id="live-transcript-toggle" title="Показывать живой промежуточный транскрипт во время речи" hidden>
+            <span class="chip-led chip-led-live"></span>
+            <span class="vad-label">LIVE:</span>
+            <span class="live-transcript-state-text">ON</span>
+          </button>
           {% if conversation.turns|length > 0 %}
           <button type="button" class="btn-term" data-copy-transcript title="Копировать диалог">
             [COPY]

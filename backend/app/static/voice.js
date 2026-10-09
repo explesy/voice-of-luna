@@ -18,6 +18,7 @@ let speechEndDetectedAt = null;
 let streamingPcmUpload = false;
 let pendingStreamingText = "";
 let streamingTextFrame = null;
+let interimTranscriptEntry = null;
 
 // Audio processing and VAD state are provided by audio-player.js and vad.js
 
@@ -428,6 +429,78 @@ function updateLatencyHud(timing, clientE2eMs) {
   }
 }
 
+function showInterimTranscript(text) {
+  if (!text) return;
+  const feed = document.getElementById("messages-feed");
+  if (!feed) return;
+  if (interimTranscriptEntry && !interimTranscriptEntry.isConnected) {
+    interimTranscriptEntry = null;
+  }
+
+  const emptyConsole = feed.querySelector(".empty-console");
+  if (emptyConsole) emptyConsole.remove();
+
+  if (!interimTranscriptEntry) {
+    interimTranscriptEntry = document.createElement("div");
+    interimTranscriptEntry.className = "log-entry user interim";
+    interimTranscriptEntry.dataset.interim = "true";
+
+    const header = document.createElement("div");
+    header.className = "log-header";
+    const roleSpan = document.createElement("span");
+    roleSpan.className = "log-role";
+    roleSpan.textContent = "USER >";
+    header.appendChild(roleSpan);
+
+    const body = document.createElement("div");
+    body.className = "log-body";
+    const textDiv = document.createElement("div");
+    textDiv.className = "log-text";
+    body.appendChild(textDiv);
+
+    interimTranscriptEntry.appendChild(header);
+    interimTranscriptEntry.appendChild(body);
+    feed.appendChild(interimTranscriptEntry);
+  }
+
+  const textEl = interimTranscriptEntry.querySelector(".log-text");
+  if (textEl) textEl.textContent = text;
+  scrollFeedToBottom();
+}
+
+function finalizeInterimTranscript(text) {
+  if (interimTranscriptEntry && !interimTranscriptEntry.isConnected) {
+    interimTranscriptEntry = null;
+  }
+  if (interimTranscriptEntry) {
+    const entry = interimTranscriptEntry;
+    interimTranscriptEntry = null;
+    if (!text) {
+      entry.remove();
+      return null;
+    }
+    entry.classList.remove("interim");
+    delete entry.dataset.interim;
+    const textEl = entry.querySelector(".log-text");
+    if (textEl) {
+      textEl.dataset.rawText = text;
+      textEl.textContent = text;
+      formatTerminalText(textEl);
+    }
+    scrollFeedToBottom();
+    return entry;
+  }
+  if (!text) return null;
+  return appendMessageToFeed("user", text);
+}
+
+function clearInterimTranscript() {
+  if (interimTranscriptEntry) {
+    interimTranscriptEntry.remove();
+    interimTranscriptEntry = null;
+  }
+}
+
 function appendMessageToFeed(role, text) {
   const feed = document.getElementById("messages-feed");
   if (!feed) return null;
@@ -512,20 +585,17 @@ function connectWebSocket() {
       const currentEffort = document.querySelector("#effort-select")?.value;
       const currentPlugin = document.querySelector("#session-plugin-select, #plugin-select, .plugin-select")?.value;
       const currentMode = document.querySelector("#mode-select")?.value || "default";
-      if (currentVoice || currentModel || currentEffort) {
-        socket.send(JSON.stringify({
-          type: "set_settings",
-          voice: currentVoice,
-          model: currentModel,
-          effort: currentEffort,
-          binary_audio: true,
-        }));
-      } else {
-        socket.send(JSON.stringify({
-          type: "set_settings",
-          binary_audio: true,
-        }));
+      const savedLiveTranscript = localStorage.getItem("voice_of_luna_live_transcript");
+      const settings = {
+        voice: currentVoice,
+        model: currentModel,
+        effort: currentEffort,
+        binary_audio: true,
+      };
+      if (savedLiveTranscript !== null) {
+        settings.live_transcript = savedLiveTranscript !== "false";
       }
+      socket.send(JSON.stringify({ type: "set_settings", ...settings }));
       if (currentPlugin) {
         socket.send(JSON.stringify({
           type: "set_plugin",
@@ -541,6 +611,7 @@ function connectWebSocket() {
 
     socket.onclose = () => {
       socket = null;
+      clearInterimTranscript();
       const currentContainer = document.querySelector("[data-conversation-id]");
       if (currentContainer?.dataset?.conversationId === conversationId) {
         setTimeout(connectWebSocket, 2500);
@@ -618,6 +689,7 @@ function handleSocketMessage(event) {
     if (data.tts_engine) {
       updateFooterStatus(data.tts_engine);
     }
+    applyLiveTranscriptAvailability(data.live_transcript_available, data.live_transcript);
   } else if (data.type === "voice_updated") {
     if (data.voice) {
       const voiceSelect = document.querySelector("#voice-select");
@@ -697,10 +769,11 @@ function handleSocketMessage(event) {
     setVoiceState(data.state, data.message, data.mode_label);
   } else if (data.type === "transcript") {
     flushStreamingText();
-    appendMessageToFeed("user", data.text);
+    finalizeInterimTranscript(data.text);
     currentStreamingEntry = null;
   } else if (data.type === "stt_partial") {
     if (data.text) {
+      showInterimTranscript(data.text);
       setVoiceState(
         "transcribing",
         `Listening... ${data.text}`,
@@ -719,6 +792,7 @@ function handleSocketMessage(event) {
     }
     enqueueAudioChunk(data.audio_url, currentStreamingEntry, data.audio_base64, data.mime_type, null, data.turn_id || null, data.clip_id || null, data.text || null);
   } else if (data.type === "turn_completed") {
+    clearInterimTranscript();
     flushStreamingText();
     if (data.tts_engine) {
       updateFooterStatus(data.tts_engine);
@@ -742,6 +816,7 @@ function handleSocketMessage(event) {
     currentStreamingEntry = null;
     updateTurnsCount();
   } else if (data.type === "error") {
+    clearInterimTranscript();
     showToast(`// error: ${data.message}`);
     setVoiceState("error", data.message, "ERR // SERVER");
   }
@@ -942,6 +1017,7 @@ async function startRecording(recordBtn) {
 
   // BARGE-IN: Stop current output immediately
   stopSpeaking();
+  clearInterimTranscript();
 
   try {
     if (typeof window.recordVadTraceSample === "function" && window.vadTraceEnabled) {
@@ -1345,6 +1421,42 @@ document.addEventListener("htmx:configRequest", (event) => {
   }
 });
 
+
+function applyLiveTranscriptAvailability(available, enabled) {
+  const chip = document.querySelector("#live-transcript-toggle");
+  if (!chip) return;
+  if (!available) {
+    chip.hidden = true;
+    return;
+  }
+  chip.hidden = false;
+  const saved = localStorage.getItem("voice_of_luna_live_transcript");
+  setLiveTranscriptUi(saved === null ? enabled !== false : saved !== "false");
+}
+
+function setLiveTranscriptUi(enabled) {
+  const chip = document.querySelector("#live-transcript-toggle");
+  if (!chip) return;
+  chip.classList.toggle("is-auto", enabled);
+  chip.classList.toggle("is-manual", !enabled);
+  const textEl = chip.querySelector(".live-transcript-state-text");
+  if (textEl) textEl.textContent = enabled ? "ON" : "OFF";
+  chip.setAttribute("aria-pressed", enabled ? "true" : "false");
+  chip.dataset.liveTranscript = enabled ? "true" : "false";
+}
+
+function initLiveTranscriptToggle() {
+  const chip = document.querySelector("#live-transcript-toggle");
+  if (!chip || chip.dataset.initialized) return;
+  chip.dataset.initialized = "true";
+  chip.addEventListener("click", () => {
+    const next = chip.dataset.liveTranscript !== "true";
+    localStorage.setItem("voice_of_luna_live_transcript", next ? "true" : "false");
+    setLiveTranscriptUi(next);
+    sendSettingsUpdate({ live_transcript: next });
+    showToast(next ? "// LIVE TRANSCRIPT: ON" : "// LIVE TRANSCRIPT: OFF");
+  });
+}
 
 function initRemoteWarmupToggle() {
   const btn = document.querySelector("#remote-warmup-toggle");
@@ -2231,6 +2343,7 @@ document.addEventListener("DOMContentLoaded", () => {
   window.setInterval(pollToolApprovals, 1000);
   initVadToggle();
   initRemoteWarmupToggle();
+  initLiveTranscriptToggle();
   document.querySelectorAll(".log-text").forEach((el) => {
     if (!el.querySelector(".term-link") && !el.querySelector(".log-sources")) {
       formatTerminalText(el);

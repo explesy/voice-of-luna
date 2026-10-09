@@ -200,6 +200,9 @@ class Conversation:
     remote_warmup_status: str = "cold"
     thread_generation: int = 0
     binary_audio: bool = False
+    # Per-session live streaming transcript preference. ``None`` means "auto":
+    # streaming is enabled whenever a local streaming model is available.
+    live_transcript: bool | None = None
 
     def set_selected_voice(self, voice: str) -> None:
         """Persist the user's voice choice while keeping legacy ``voice`` callers in sync."""

@@ -111,10 +111,23 @@ def tone_shadow_configured() -> bool:
     )
 
 
-def tone_streaming_configured() -> bool:
-    """Return whether online T-One mode was explicitly enabled."""
+def tone_streaming_available() -> bool:
+    """Return whether a local T-One streaming model is installed/configured."""
 
-    return tone_shadow_configured() and os.environ.get("VOICE_OF_LUNA_TONE_STREAMING") == "1"
+    return tone_shadow_configured()
+
+
+def tone_streaming_configured() -> bool:
+    """Return whether online T-One streaming is allowed by configuration.
+
+    Streaming is a supported configuration (resolved decision D8): it is on by
+    default whenever a local streaming model is available, rather than
+    requiring an explicit opt-in environment flag. The runtime still applies
+    the per-conversation UI toggle. ``VOICE_OF_LUNA_TONE_STREAMING=0`` is an
+    operator kill switch that forces batch Whisper only.
+    """
+
+    return tone_streaming_available() and os.environ.get("VOICE_OF_LUNA_TONE_STREAMING") != "0"
 
 
 async def run_tone_shadow(wav_bytes: bytes) -> dict[str, object]:

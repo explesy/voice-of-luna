@@ -226,6 +226,18 @@ body::after {
   box-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
 }
 
+.chip-led-live {
+  color: var(--term-cyan);
+  background: var(--term-cyan);
+  box-shadow: 0 0 6px var(--term-cyan-glow);
+}
+
+.live-transcript-chip.is-manual .chip-led-live {
+  color: var(--text-dark);
+  background: var(--text-dark);
+  box-shadow: none;
+}
+
 .voice-chip-label {
   font-size: 11px;
   font-weight: 700;
@@ -957,6 +969,21 @@ body::after {
 
 .log-entry.assistant .log-role {
   color: var(--term-green);
+}
+
+.log-entry.interim .log-role {
+  color: var(--term-cyan);
+  opacity: 0.7;
+}
+
+.log-entry.interim .log-body {
+  border-left-style: dashed;
+}
+
+.log-entry.interim .log-text {
+  color: var(--text-dim);
+  font-style: italic;
+  opacity: 0.85;
 }
 
 .log-body {

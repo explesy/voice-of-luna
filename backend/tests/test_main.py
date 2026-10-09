@@ -6,7 +6,12 @@ from fastapi.testclient import TestClient
 
 from app import main as main_module
 from app.main import app
-from app.transcribe import run_tone_shadow, tone_shadow_configured, tone_streaming_configured
+from app.transcribe import (
+    run_tone_shadow,
+    tone_shadow_configured,
+    tone_streaming_available,
+    tone_streaming_configured,
+)
 
 
 client = TestClient(app)
@@ -26,10 +31,27 @@ def test_tone_shadow_reports_missing_local_executable(monkeypatch) -> None:
     assert result == {"status": "unavailable", "reason": "sherpa_executable_not_found"}
 
 
-def test_tone_streaming_requires_explicit_opt_in(monkeypatch) -> None:
+def test_tone_streaming_defaults_on_when_model_configured(monkeypatch) -> None:
     monkeypatch.setenv("VOICE_OF_LUNA_TONE_MODEL", "/tmp/t-one.onnx")
     monkeypatch.setenv("VOICE_OF_LUNA_TONE_TOKENS", "/tmp/tokens.txt")
     monkeypatch.delenv("VOICE_OF_LUNA_TONE_STREAMING", raising=False)
+    assert tone_streaming_available() is True
+    assert tone_streaming_configured() is True
+
+
+def test_tone_streaming_env_kill_switch_forces_batch_mode(monkeypatch) -> None:
+    monkeypatch.setenv("VOICE_OF_LUNA_TONE_MODEL", "/tmp/t-one.onnx")
+    monkeypatch.setenv("VOICE_OF_LUNA_TONE_TOKENS", "/tmp/tokens.txt")
+    monkeypatch.setenv("VOICE_OF_LUNA_TONE_STREAMING", "0")
+    assert tone_streaming_available() is True
+    assert tone_streaming_configured() is False
+
+
+def test_tone_streaming_unavailable_without_model(monkeypatch) -> None:
+    monkeypatch.delenv("VOICE_OF_LUNA_TONE_MODEL", raising=False)
+    monkeypatch.delenv("VOICE_OF_LUNA_TONE_TOKENS", raising=False)
+    monkeypatch.delenv("VOICE_OF_LUNA_TONE_STREAMING", raising=False)
+    assert tone_streaming_available() is False
     assert tone_streaming_configured() is False
 
 
@@ -658,6 +680,180 @@ def test_websocket_pcm_stream_buffers_until_end_and_transcribes(monkeypatch, tmp
         transcript = ws.receive_json()
         assert transcript["type"] == "transcript"
         assert transcript["text"] == "Потоковый запрос"
+
+
+def test_websocket_pcm_stream_emits_interim_then_authoritative_transcript(monkeypatch, tmp_path) -> None:
+    class FakeToneSession:
+        async def push_pcm(self, samples, sample_rate):
+            return "промежуточный"
+
+        async def finalize(self):
+            return "промежуточный финал"
+
+        async def cancel(self):
+            return None
+
+    async def fake_transcribe(_, path):
+        return "авторитетный текст"
+
+    async def fake_reply_stream(self, text):
+        yield "Ответ."
+
+    async def fake_synthesize(self, text):
+        clip = tmp_path / "interim_reply.wav"
+        clip.write_bytes(b"RIFFwavdata")
+        return clip
+
+    async def fake_shadow(*args, **kwargs):
+        return {"status": "unavailable"}
+
+    monkeypatch.setenv("VOICE_OF_LUNA_TONE_MODEL", "/tmp/t-one.onnx")
+    monkeypatch.setenv("VOICE_OF_LUNA_TONE_TOKENS", "/tmp/tokens.txt")
+    monkeypatch.delenv("VOICE_OF_LUNA_TONE_STREAMING", raising=False)
+    monkeypatch.setattr(main_module, "create_tone_streaming_session", lambda *a, **k: FakeToneSession())
+    monkeypatch.setattr(main_module, "run_tone_shadow", fake_shadow)
+    monkeypatch.setattr(main_module.LocalWhisperTranscriber, "transcribe", fake_transcribe)
+    monkeypatch.setattr(main_module.CodexAppServer, "reply_stream", fake_reply_stream)
+    monkeypatch.setattr(main_module.LocalMacOsSpeaker, "synthesize", fake_synthesize)
+
+    with client.websocket_connect("/ws/conversations/test-ws-interim") as ws:
+        ready = ws.receive_json()
+        assert ready["type"] == "ready"
+        assert ready["live_transcript_available"] is True
+        assert ready["live_transcript"] is True
+
+        ws.send_json({"type": "audio_stream_start", "sample_rate": 16_000})
+        assert ws.receive_json()["mode_label"] == "STREAM // T-ONE"
+        assert ws.receive_json()["mode_label"] == "STREAM // PCM"
+
+        ws.send_bytes(b"\x00\x00" * 800)
+        partial = ws.receive_json()
+        assert partial["type"] == "stt_partial"
+        assert partial["text"] == "промежуточный"
+        assert partial["interim"] is True
+        assert partial["final"] is False
+
+        ws.send_json({"type": "audio_stream_end"})
+        final_partial = ws.receive_json()
+        assert final_partial["type"] == "stt_partial"
+        assert final_partial["text"] == "промежуточный финал"
+        assert final_partial["interim"] is True
+        assert final_partial["final"] is True
+
+        transcribing = ws.receive_json()
+        assert transcribing["type"] == "status"
+        assert transcribing["state"] == "transcribing"
+        transcript = ws.receive_json()
+        assert transcript["type"] == "transcript"
+        assert transcript["text"] == "авторитетный текст"
+
+
+def test_websocket_pcm_stream_has_no_partials_when_streaming_unavailable(monkeypatch, tmp_path) -> None:
+    async def fake_transcribe(_, path):
+        return "батч"
+
+    async def fake_reply_stream(self, text):
+        yield "Ответ."
+
+    async def fake_synthesize(self, text):
+        clip = tmp_path / "batch_reply.wav"
+        clip.write_bytes(b"RIFFwavdata")
+        return clip
+
+    monkeypatch.delenv("VOICE_OF_LUNA_TONE_MODEL", raising=False)
+    monkeypatch.delenv("VOICE_OF_LUNA_TONE_TOKENS", raising=False)
+    monkeypatch.delenv("VOICE_OF_LUNA_TONE_STREAMING", raising=False)
+    monkeypatch.setattr(main_module.LocalWhisperTranscriber, "transcribe", fake_transcribe)
+    monkeypatch.setattr(main_module.CodexAppServer, "reply_stream", fake_reply_stream)
+    monkeypatch.setattr(main_module.LocalMacOsSpeaker, "synthesize", fake_synthesize)
+
+    with client.websocket_connect("/ws/conversations/test-ws-no-interim") as ws:
+        ready = ws.receive_json()
+        assert ready["type"] == "ready"
+        assert ready["live_transcript_available"] is False
+        assert ready["live_transcript"] is False
+
+        ws.send_json({"type": "audio_stream_start", "sample_rate": 16_000})
+        stream_status = ws.receive_json()
+        assert stream_status["type"] == "status"
+        assert stream_status["mode_label"] == "STREAM // PCM"
+
+        ws.send_bytes(b"\x00\x00" * 400)
+        ws.send_json({"type": "audio_stream_end"})
+
+        transcribing = ws.receive_json()
+        assert transcribing["type"] == "status"
+        assert transcribing["state"] == "transcribing"
+        transcript = ws.receive_json()
+        assert transcript["type"] == "transcript"
+        assert transcript["text"] == "батч"
+
+
+def test_websocket_live_transcript_toggle_off_suppresses_partials(monkeypatch, tmp_path) -> None:
+    class FakeToneSession:
+        async def push_pcm(self, samples, sample_rate):
+            return "не должно появиться"
+
+        async def finalize(self):
+            return "не должно появиться"
+
+        async def cancel(self):
+            return None
+
+    async def fake_transcribe(_, path):
+        return "батч"
+
+    async def fake_reply_stream(self, text):
+        yield "Ответ."
+
+    async def fake_synthesize(self, text):
+        clip = tmp_path / "toggle_off_reply.wav"
+        clip.write_bytes(b"RIFFwavdata")
+        return clip
+
+    async def fake_shadow(*args, **kwargs):
+        return {"status": "unavailable"}
+
+    monkeypatch.setenv("VOICE_OF_LUNA_TONE_MODEL", "/tmp/t-one.onnx")
+    monkeypatch.setenv("VOICE_OF_LUNA_TONE_TOKENS", "/tmp/tokens.txt")
+    monkeypatch.delenv("VOICE_OF_LUNA_TONE_STREAMING", raising=False)
+    monkeypatch.setattr(main_module, "create_tone_streaming_session", lambda *a, **k: FakeToneSession())
+    monkeypatch.setattr(main_module, "run_tone_shadow", fake_shadow)
+    monkeypatch.setattr(main_module.LocalWhisperTranscriber, "transcribe", fake_transcribe)
+    monkeypatch.setattr(main_module.CodexAppServer, "reply_stream", fake_reply_stream)
+    monkeypatch.setattr(main_module.LocalMacOsSpeaker, "synthesize", fake_synthesize)
+
+    with client.websocket_connect("/ws/conversations/test-ws-live-off") as ws:
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json({"type": "set_settings", "live_transcript": False})
+        settings = ws.receive_json()
+        assert settings["type"] == "settings_updated"
+        assert settings["live_transcript"] is False
+
+        ws.send_json({"type": "audio_stream_start", "sample_rate": 16_000})
+        stream_status = ws.receive_json()
+        assert stream_status["type"] == "status"
+        assert stream_status["mode_label"] == "STREAM // PCM"
+
+        ws.send_bytes(b"\x00\x00" * 400)
+        ws.send_json({"type": "audio_stream_end"})
+
+        messages = [ws.receive_json(), ws.receive_json()]
+        assert not any(message["type"] == "stt_partial" for message in messages)
+        transcript = next(message for message in messages if message["type"] == "transcript")
+        assert transcript["text"] == "батч"
+
+
+def test_websocket_live_transcript_disabled_by_env_kill_switch(monkeypatch) -> None:
+    monkeypatch.setenv("VOICE_OF_LUNA_TONE_MODEL", "/tmp/t-one.onnx")
+    monkeypatch.setenv("VOICE_OF_LUNA_TONE_TOKENS", "/tmp/tokens.txt")
+    monkeypatch.setenv("VOICE_OF_LUNA_TONE_STREAMING", "0")
+
+    with client.websocket_connect("/ws/conversations/test-ws-live-kill") as ws:
+        ready = ws.receive_json()
+        assert ready["type"] == "ready"
+        assert ready["live_transcript_available"] is False
+        assert ready["live_transcript"] is False
 
 
 def test_api_speech_synthesize_success(monkeypatch, tmp_path) -> None:
