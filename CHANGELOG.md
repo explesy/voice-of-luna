@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-10-09
+
+### Added
+- Live interim transcript while the microphone is active: streaming STT partials now appear directly in the conversation feed in a distinct interim style, at the same position where the final transcript lands (issue #16, decision D9).
+- `LIVE` toolbar toggle to enable or disable the live transcript per session; it is shown and defaulted on whenever a local streaming STT model is installed. The preference is persisted in browser storage and kept in memory for the conversation's process lifetime (decision D8).
+
+### Changed
+- Streaming STT is now a supported configuration rather than an env-only shadow: a locally installed T-One model enables it by default, with `VOICE_OF_LUNA_TONE_STREAMING=0` retained as an operator kill switch. The authoritative transcript remains the batch Whisper result (decision D11).
+
+### Fixed
+- Finalization and cancellation hygiene: the interim feed entry is replaced by the authoritative Whisper transcript with no duplicated history entry, and is cleared on barge-in, error, or empty audio stream so stale interim text cannot linger (decisions D11/D12).
+- An empty final transcript no longer creates an empty user bubble in the feed.
+
 ## [0.40.3] - 2026-10-09
 
 ### Fixed
