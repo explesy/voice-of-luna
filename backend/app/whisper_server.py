@@ -18,6 +18,19 @@ WHISPER_MODEL_PRESETS: dict[str, list[str]] = {
 }
 
 
+def _catalog_stt_path(model_id: str) -> Path | None:
+    """Resolve a batch STT catalog id to its installed ggml file (if any)."""
+
+    from app.tts_manager import MODEL_CATALOG, find_model_file, get_model_storage_dir
+
+    definition = MODEL_CATALOG.get(model_id)
+    if definition is None or definition.kind != "stt" or not definition.files:
+        return None
+    first = definition.files[0].filename
+    found = find_model_file(first)
+    return found or (get_model_storage_dir() / first)
+
+
 def resolve_whisper_model_path(model_path: Path | str | None = None) -> Path:
     """Resolve Whisper model path from explicit param, env variable, or search discovery."""
     project_root = Path(__file__).resolve().parents[2]
@@ -29,6 +42,12 @@ def resolve_whisper_model_path(model_path: Path | str | None = None) -> Path:
     configured = str(model_path or os.environ.get("VOICE_OF_LUNA_WHISPER_MODEL") or "").strip()
 
     if configured:
+        # A batch STT catalog id resolves to its exact configured asset. If the
+        # asset is not installed this returns its expected path, so the caller
+        # fails clearly instead of silently transcribing with another model.
+        catalog_path = _catalog_stt_path(configured)
+        if catalog_path is not None:
+            return catalog_path
         p = Path(configured)
         if p.is_file():
             return p
@@ -73,6 +92,33 @@ class WhisperServerManager:
         self.threads = min(os.cpu_count() or 4, 8)
         self._process: asyncio.subprocess.Process | None = None
         self._http_client: httpx.AsyncClient | None = None
+        self._owns_process = False
+        self.serving_model_path: Path | None = None
+
+    @property
+    def owns_process(self) -> bool:
+        """True when this manager started the resident whisper-server itself."""
+
+        return self._owns_process
+
+    def serves_model(self, path: Path | str | None) -> bool:
+        """Whether the resident HTTP server can be trusted to serve ``path``.
+
+        ``None`` means automatic selection: the caller did not pick a specific
+        catalog model, so the resident server's startup model is authoritative.
+        A concrete path is only served when this manager owns the process and
+        that process loaded exactly this file. An externally started server is
+        never treated as serving a specific selected model.
+        """
+
+        if path is None:
+            return True
+        if not self._owns_process or self.serving_model_path is None:
+            return False
+        try:
+            return Path(path).resolve() == self.serving_model_path.resolve()
+        except OSError:
+            return False
 
     @property
     def server_url(self) -> str:
@@ -101,11 +147,24 @@ class WhisperServerManager:
     async def start(self) -> bool:
         enabled = os.environ.get("VOICE_OF_LUNA_WHISPER_SERVER", "true").lower() not in ("false", "0", "no")
         if not enabled:
+            self._owns_process = False
+            self.serving_model_path = None
             return False
         if shutil.which("whisper-server") is None or not self.model_path.is_file():
+            self._owns_process = False
+            self.serving_model_path = None
             return False
 
+        if self._process is not None and self._process.returncode is None and await self.is_healthy():
+            self._owns_process = True
+            self.serving_model_path = self.model_path
+            return True
+
         if await self.is_healthy():
+            # Some other process already listens on the port. We cannot confirm
+            # which model it loaded, so do not claim to serve a selected model.
+            self._owns_process = False
+            self.serving_model_path = None
             return True
 
         self._process = await asyncio.create_subprocess_exec(
@@ -126,9 +185,13 @@ class WhisperServerManager:
 
         for _ in range(30):
             if await self.is_healthy():
+                self._owns_process = True
+                self.serving_model_path = self.model_path
                 return True
             if self._process.returncode is not None:
                 self._process = None
+                self._owns_process = False
+                self.serving_model_path = None
                 return False
             await asyncio.sleep(0.1)
 
@@ -136,6 +199,8 @@ class WhisperServerManager:
         return False
 
     async def close(self) -> None:
+        self._owns_process = False
+        self.serving_model_path = None
         if self._http_client is not None:
             client = self._http_client
             self._http_client = None

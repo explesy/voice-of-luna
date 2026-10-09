@@ -39,14 +39,14 @@
           <div class="sys-chip model-selector-chip" title="{{ ui.model_chip_title if ui else 'Выбор модели Codex' }}">
             <span class="chip-led chip-led-model"></span>
             <label for="model-select" class="voice-chip-label">MODEL:</label>
-            <select id="model-select" class="voice-select" aria-label="{{ ui.model_aria_label if ui else 'Выбор модели' }}">
+            <select id="model-select" class="voice-select" data-models-source="{{ models_source }}" aria-label="{{ ui.model_aria_label if ui else 'Выбор модели' }}">
               {% for m in models %}
-              <option value="{{ m.id }}" {% if m.id == active_model %}selected{% endif %}>
-                {{ m.displayName }}
+              <option value="{{ m.id }}" data-source="{{ m.source or 'preset' }}" {% if m.id == active_model %}selected{% endif %}>
+                {{ m.displayName }}{% if (m.source or 'preset') != 'live' %} [PRESET]{% endif %}
               </option>
               {% endfor %}
               {% if not models %}
-              <option value="gpt-6-luna" selected>GPT-6-Luna</option>
+              <option value="gpt-6-luna" data-source="preset" selected>GPT-6-Luna [PRESET]</option>
               {% endif %}
             </select>
           </div>
@@ -54,12 +54,26 @@
             <span class="chip-led chip-led-effort"></span>
             <label for="effort-select" class="voice-chip-label">EFFORT:</label>
             <select id="effort-select" class="voice-select" aria-label="{{ ui.effort_aria_label if ui else 'Уровень reasoning' }}">
-              <option value="low" {% if active_effort == 'low' %}selected{% endif %}>low (fast)</option>
-              <option value="medium" {% if active_effort == 'medium' %}selected{% endif %}>medium</option>
-              <option value="high" {% if active_effort == 'high' %}selected{% endif %}>high</option>
-              <option value="xhigh" {% if active_effort == 'xhigh' %}selected{% endif %}>xhigh</option>
+              {% for effort in supported_efforts %}
+              <option value="{{ effort }}" {% if active_effort == effort %}selected{% endif %}>{{ effort }}{% if effort == 'low' %} (fast){% endif %}</option>
+              {% endfor %}
             </select>
           </div>
+          <div class="sys-chip stt-selector-chip" title="{{ ui.stt_chip_title if ui else 'Модель распознавания речи для завершённой записи' }}">
+            <span class="chip-led chip-led-stt"></span>
+            <label for="stt-model-select" class="voice-chip-label">STT:</label>
+            <select id="stt-model-select" class="voice-select" aria-label="{{ ui.stt_aria_label if ui else 'Выбор модели распознавания речи' }}">
+              <option value="" data-catalog-status="recommended" {% if not stt_model %}selected{% endif %}>{{ ui.stt_auto if ui else 'AUTO' }}{% if stt_model_resolved %} ({{ stt_model_resolved }}){% endif %}</option>
+              {% for m in stt_models %}
+              {% if m.catalog_status != 'deprecated' or stt_model == m.id %}
+              <option value="{{ m.id }}" data-status="{{ m.status }}" data-catalog-status="{{ m.catalog_status }}" data-installed="{{ 'true' if m.installed else 'false' }}" data-size-mb="{{ m.size_mb }}" data-batch="{{ 'true' if m.batch else 'false' }}" {% if m.id == (stt_model or stt_model_resolved) %}selected{% endif %}>
+                {{ m.name }}{% if m.installed %} ★{% else %} [↓ {{ m.size_mb|int }}MB]{% endif %}{% if m.catalog_status == 'legacy' %} [LEGACY]{% elif m.catalog_status == 'deprecated' %} [DEPRECATED]{% endif %}
+              </option>
+              {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          {% macro voice_option(v, active_voice) %}<option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %} data-engine="{{ v.engine }}" data-installed="{{ 'true' if v.is_downloaded else 'false' }}" data-model-id="{{ v.model_id or '' }}" data-languages="{{ v.languages|join(',') }}" data-multilingual="{{ 'true' if v.multilingual else 'false' }}" data-code-switching="{{ v.code_switching }}" data-catalog-status="{{ v.catalog_status }}" data-deprecation-reason="{{ v.deprecation_reason }}" title="{{ v.deprecation_reason }}">{{ v.name }} — {{ v.locale|replace('_', '-') }}{% if v.is_downloaded %} ★{% elif v.engine in ('piper', 'silero') %} [↓ {{ v.size_mb|int }}MB]{% endif %}{% if v.multilingual %} 🌐{% endif %}{% if v.catalog_status == 'deprecated' %} [DEPRECATED{% if v.deprecation_reason %}: {{ v.deprecation_reason }}{% endif %}]{% elif v.catalog_status == 'legacy' %} [LEGACY]{% endif %}</option>{% endmacro %}
           <div class="sys-chip voice-selector-chip" data-russian-voice="{{ active_voice }}" title="{{ ui.voice_chip_title if ui else 'Выбор языка и голоса' }}">
             <span class="chip-led chip-led-voice"></span>
             <label for="voice-select" class="voice-chip-label">VOICE:</label>
@@ -67,53 +81,39 @@
             <select id="voice-select" class="voice-select" data-russian-voice="{{ active_voice }}" aria-label="{{ ui.voice_aria_label if ui else 'Выбор голоса' }}">
               {% if edge_voices %}
               <optgroup label="{{ ui.optgroup_edge if ui else 'Нейросеть (Edge Cloud · Бесплатно)' }}">
-                {% for v in edge_voices %}
-                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
-                  {{ v.name }} — {{ v.locale|replace('_', '-') }} ★
-                </option>
-                {% endfor %}
+                {% for v in edge_voices if v.catalog_status != 'deprecated' %}{{ voice_option(v, active_voice) }}{% endfor %}
               </optgroup>
               {% endif %}
               {% if piper_voices %}
               <optgroup label="{{ ui.optgroup_piper if ui else 'Локальная нейросеть (Piper ONNX · Offline)' }}">
-                {% for v in piper_voices %}
-                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %} data-engine="{{ v.engine }}" data-installed="{{ 'true' if v.is_downloaded else 'false' }}" data-model-id="{{ v.model_id or '' }}">
-                  {{ v.name }} — {{ v.locale|replace('_', '-') }}{% if v.is_downloaded %} ★{% else %} [↓ {{ v.size_mb|int }}MB]{% endif %}
-                </option>
-                {% endfor %}
+                {% for v in piper_voices if v.catalog_status != 'deprecated' %}{{ voice_option(v, active_voice) }}{% endfor %}
               </optgroup>
               {% endif %}
               {% if silero_voices %}
               <optgroup label="{{ ui.optgroup_silero if ui else 'Локальная нейросеть (Silero · Offline)' }}">
-                {% for v in silero_voices %}
-                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %} data-engine="{{ v.engine }}" data-installed="{{ 'true' if v.is_downloaded else 'false' }}" data-model-id="{{ v.model_id or '' }}">
-                  {{ v.name }} — {{ v.locale|replace('_', '-') }}{% if v.is_downloaded %} ★{% else %} [↓ {{ v.size_mb|int }}MB]{% endif %}
-                </option>
-                {% endfor %}
+                {% for v in silero_voices if v.catalog_status != 'deprecated' %}{{ voice_option(v, active_voice) }}{% endfor %}
               </optgroup>
               {% endif %}
               {% if local_russian_voices %}
               <optgroup label="{{ ui.optgroup_macos if ui else 'Локальные macOS (Offline)' }}">
-                {% for v in local_russian_voices %}
-                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
-                  {{ v.name }} — {{ v.locale|replace('_', '-') }}{% if v.is_enhanced %} ★{% endif %}
-                </option>
-                {% endfor %}
+                {% for v in local_russian_voices if v.catalog_status != 'deprecated' %}{{ voice_option(v, active_voice) }}{% endfor %}
               </optgroup>
               {% elif russian_voices and not edge_voices %}
               <optgroup label="{{ ui.optgroup_russian if ui else 'Русский (Russian)' }}">
-                {% for v in russian_voices %}
-                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
-                  {{ v.name }} — {{ v.locale|replace('_', '-') }}{% if v.is_enhanced %} ★{% endif %}
-                </option>
-                {% endfor %}
+                {% for v in russian_voices if v.catalog_status != 'deprecated' %}{{ voice_option(v, active_voice) }}{% endfor %}
               </optgroup>
               {% endif %}
               {% set active_is_other = other_voices and (other_voices | selectattr("name", "equalto", active_voice) | list | length > 0) %}
               {% if active_is_other %}
+              {% set active_other = (other_voices | selectattr('name', 'equalto', active_voice) | first) %}
               <option id="active-other-voice" value="{{ active_voice }}" selected>
-                {{ active_voice }} — {{ (other_voices | selectattr('name', 'equalto', active_voice) | first).locale|replace('_', '-') }}
+                {{ active_voice }} — {{ active_other.locale|replace('_', '-') }}{% if active_other.catalog_status == 'deprecated' %} [DEPRECATED]{% endif %}
               </option>
+              {% endif %}
+              {% if deprecated_voices %}
+              <optgroup id="deprecated-voices-group" label="{{ ui.optgroup_deprecated if ui else 'Устаревшие (Deprecated)' }}" hidden>
+                {% for v in deprecated_voices %}{{ voice_option(v, active_voice) }}{% endfor %}
+              </optgroup>
               {% endif %}
               {% if other_voices %}
               <option value="__expand_other__">{{ ui.expand_other if ui else '▶ Другие языки' }} (+{{ other_voices|length }})...</option>
@@ -122,14 +122,13 @@
               <option value="{{ active_voice }}" selected>{{ active_voice }}</option>
               {% endif %}
             </select>
+            <button type="button" class="voice-filter-toggle" id="legacy-voices-toggle" title="{{ ui.legacy_toggle_title if ui else 'Показать устаревшие голоса' }}">DEPRECATED</button>
+            <button type="button" class="voice-filter-toggle" id="multilingual-filter" title="{{ ui.multilingual_filter_title if ui else 'Только голоса с нативной сменой языка' }}">🌐 NATIVE</button>
+            <span class="voice-filter-empty" id="multilingual-filter-empty" hidden>{{ ui.multilingual_empty if ui else 'Нет голосов с нативной сменой языка' }}</span>
             {% if other_voices %}
             <template id="other-voices-template">
               <optgroup id="other-voices-group" label="{{ ui.optgroup_other if ui else 'Другие языки (Other)' }}">
-                {% for v in other_voices %}
-                <option value="{{ v.name }}" {% if v.name == active_voice %}selected{% endif %}>
-                  {{ v.name }} — {{ v.locale|replace('_', '-') }}
-                </option>
-                {% endfor %}
+                {% for v in other_voices %}{{ voice_option(v, active_voice) }}{% endfor %}
               </optgroup>
             </template>
             {% endif %}
@@ -208,6 +207,8 @@
       window._PLUGINS = {{ plugins | tojson }};
       window._ACTIVE_PLUGIN = {{ active_plugin | tojson }};
       window._ACTIVE_PLUGIN_MODE = {{ active_plugin_mode | tojson }};
+      window._MODELS = {{ models | tojson }};
+      window._ACTIVE_MODEL = {{ active_model | tojson }};
     </script>
     <script src="/static/js/audio-player.js?v={{ version }}"></script>
     <script src="/static/js/terminal-formatter.js?v={{ version }}"></script>

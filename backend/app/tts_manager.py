@@ -18,6 +18,8 @@ import time
 import urllib.request
 import urllib.error
 
+from . import model_catalog
+
 logger = logging.getLogger("voice_of_luna.tts_manager")
 
 
@@ -33,7 +35,7 @@ class ModelFileSpec:
 class TTSModelDefinition:
     id: str
     name: str
-    engine: str  # "piper" | "silero" | "edge" | "macos"
+    engine: str  # "piper" | "silero" | "edge" | "macos" | "whisper"
     locale: str
     description: str
     size_mb: float
@@ -41,20 +43,87 @@ class TTSModelDefinition:
     files: list[ModelFileSpec] = field(default_factory=list)
     is_cloud: bool = False
     is_builtin: bool = False
+    kind: str = model_catalog.MODEL_KIND_TTS
+    catalog_status: str = model_catalog.CATALOG_STATUS_RECOMMENDED
+    deprecation_reason: str = ""
+    languages: tuple[str, ...] = ()
+    multilingual: bool = False
+    code_switching: str = model_catalog.CODE_SWITCHING_NONE
+    streaming: bool = False
+    user_defined: bool = False
+    voice_model_keys: dict[str, str] = field(default_factory=dict)
+    # Validated per-voice capability declarations for user-defined models.
+    # Built-in voices fall back to the neutral capability table instead.
+    voice_capability_overrides: dict[str, model_catalog.VoiceCapability] = field(default_factory=dict)
+
+    @property
+    def is_deprecated(self) -> bool:
+        return model_catalog.is_deprecated(self.catalog_status)
+
+    @property
+    def is_downloadable(self) -> bool:
+        return any(spec.url for spec in self.files)
+
+    def voice_capabilities(self) -> list[dict[str, object]]:
+        """Return per-voice language capability entries (issue #14 / #13)."""
+
+        entries: list[dict[str, object]] = []
+        for voice in self.voices:
+            capability = self.voice_capability_overrides.get(voice) or model_catalog.voice_capability(
+                voice,
+                self.locale,
+                status=self.catalog_status,
+                deprecation_reason=self.deprecation_reason,
+            )
+            entry = capability.to_dict()
+            entry["name"] = voice
+            entry["model_id"] = self.id
+            entries.append(entry)
+        return entries
+
+    def resolved_languages(self) -> tuple[str, ...]:
+        if self.languages:
+            return self.languages
+        if self.voices:
+            override = self.voice_capability_overrides.get(self.voices[0])
+            if override is not None:
+                return override.languages
+            return model_catalog.voice_capability(
+                self.voices[0], self.locale
+            ).languages
+        return model_catalog.languages_for_locale(self.locale)
 
     def to_dict(self, installed: bool = False, status: str = "ready") -> dict[str, object]:
+        voice_capabilities = self.voice_capabilities()
+        multilingual = self.multilingual or any(
+            bool(entry.get("multilingual")) for entry in voice_capabilities
+        )
+        code_switching = self.code_switching
+        if code_switching == model_catalog.CODE_SWITCHING_NONE and voice_capabilities:
+            code_switching = str(voice_capabilities[0].get("code_switching") or model_catalog.CODE_SWITCHING_NONE)
+        languages = list(self.resolved_languages())
         return {
             "id": self.id,
             "name": self.name,
             "engine": self.engine,
+            "kind": self.kind,
             "locale": self.locale,
+            "languages": languages,
             "description": self.description,
             "size_mb": self.size_mb,
             "voices": self.voices,
+            "voice_capabilities": voice_capabilities,
+            "multilingual": multilingual,
+            "code_switching": code_switching,
+            "streaming": self.streaming,
             "installed": installed,
             "status": status,
+            "catalog_status": self.catalog_status,
+            "deprecation_reason": self.deprecation_reason or None,
             "is_cloud": self.is_cloud,
             "is_builtin": self.is_builtin,
+            "user_defined": self.user_defined,
+            "downloadable": self.is_downloadable,
         }
 
 
@@ -283,6 +352,45 @@ MODEL_CATALOG: dict[str, TTSModelDefinition] = {
     ),
 }
 
+# Whisper ggml models are speech-to-text assets. They stay in this catalog so the
+# existing file readiness / checksum / download machinery keeps working, but
+# they are tagged with ``kind="stt"`` and surfaced through the STT endpoints.
+for _whisper_id in ("whisper_large_v3_turbo", "whisper_small"):
+    _model = MODEL_CATALOG[_whisper_id]
+    _model.kind = model_catalog.MODEL_KIND_STT
+    _model.multilingual = True
+    _model.code_switching = model_catalog.CODE_SWITCHING_SEGMENT_ONLY
+
+# Explicit decisions for stale entries (issue #14).
+MODEL_CATALOG["silero_v4_ru"].catalog_status = model_catalog.CATALOG_STATUS_DEPRECATED
+MODEL_CATALOG["silero_v4_ru"].deprecation_reason = "Заменена Silero v5 (чище произношение, 24/48 кГц)"
+MODEL_CATALOG["whisper_small"].catalog_status = model_catalog.CATALOG_STATUS_LEGACY
+MODEL_CATALOG["whisper_small"].deprecation_reason = "Заменена Whisper Large-v3-Turbo; оставлена для машин с малым объёмом RAM"
+
+# Batch (non-streaming) speech-to-text model ids that ship with the app.
+BUILTIN_BATCH_STT_MODEL_IDS = ("whisper_large_v3_turbo", "whisper_small")
+DEFAULT_BATCH_STT_MODEL_ID = "whisper_large_v3_turbo"
+
+
+def batch_stt_models() -> list[TTSModelDefinition]:
+    """Return Whisper ggml definitions, newest first, for the STT selector."""
+
+    return [
+        MODEL_CATALOG[model_id]
+        for model_id in (*BUILTIN_BATCH_STT_MODEL_IDS,)
+        if model_id in MODEL_CATALOG
+    ] + [
+        model
+        for model in MODEL_CATALOG.values()
+        if model.kind == model_catalog.MODEL_KIND_STT
+        and model.user_defined
+    ]
+
+
+def is_batch_stt_model(model_id: str) -> bool:
+    model = MODEL_CATALOG.get(model_id)
+    return bool(model and model.kind == model_catalog.MODEL_KIND_STT)
+
 
 def get_model_storage_dir() -> Path:
     """Return the primary directory used to store TTS models."""
@@ -348,7 +456,98 @@ class TTSModelManager:
         self._stats: dict[str, dict[str, object]] = {}
         self._errors: dict[str, str] = {}
         self._checksum_cache: dict[tuple[str, int, int, str], bool] = {}
+        self._user_model_errors: list[str] = []
         self._lock = asyncio.Lock()
+
+    # -- user-defined models ---------------------------------------------------
+
+    @property
+    def user_model_errors(self) -> list[str]:
+        """Sanitized validation errors from the last user catalog load."""
+
+        return list(self._user_model_errors)
+
+    def register_user_models(self) -> list[str]:
+        """(Re)load user-defined models from ``VOICE_OF_LUNA_MODELS_CONFIG``.
+
+        Idempotent: previously registered user entries are removed first so a
+        reload replaces the snapshot instead of accumulating duplicates.
+        Invalid entries are skipped and reported; built-ins are never replaced.
+        """
+
+        for model_id in [mid for mid, model in MODEL_CATALOG.items() if model.user_defined]:
+            MODEL_CATALOG.pop(model_id, None)
+            self._errors.pop(model_id, None)
+            self._stats.pop(model_id, None)
+            self._downloads.pop(model_id, None)
+
+        reserved_ids = set(MODEL_CATALOG)
+        # Reserve streaming-STT ids too: a user model must not shadow e.g. tone_ru,
+        # which would otherwise be routed to the wrong manager by the STT endpoints.
+        try:
+            from .stt_manager import STREAMING_MODEL_CATALOG
+
+            reserved_ids.update(STREAMING_MODEL_CATALOG)
+        except Exception:  # pragma: no cover - defensive only
+            pass
+        reserved_filenames = {
+            spec.filename.casefold() for model in MODEL_CATALOG.values() for spec in model.files
+        }
+        reserved_voices = {
+            voice.casefold() for model in MODEL_CATALOG.values() for voice in model.voices
+        }
+        load = model_catalog.load_user_model_config(
+            reserved_ids=reserved_ids,
+            reserved_filenames=reserved_filenames,
+            reserved_voices=reserved_voices,
+        )
+        for spec in load.models:
+            MODEL_CATALOG[spec.id] = TTSModelDefinition(
+                id=spec.id,
+                name=spec.name,
+                engine=spec.engine,
+                locale=spec.locale,
+                description=spec.description,
+                size_mb=spec.size_mb,
+                voices=[voice.name for voice in spec.voices],
+                files=[
+                    ModelFileSpec(
+                        filename=asset.filename,
+                        url=asset.url,
+                        size_bytes=asset.size_bytes,
+                        sha256=asset.sha256,
+                    )
+                    for asset in spec.assets
+                ],
+                kind=spec.kind,
+                catalog_status=spec.catalog_status,
+                deprecation_reason=spec.deprecation_reason,
+                languages=spec.languages,
+                multilingual=spec.multilingual,
+                code_switching=spec.code_switching,
+                streaming=False,
+                user_defined=True,
+                voice_model_keys=(
+                    {spec.voices[0].name: spec.model_key} if spec.voices and spec.model_key else {}
+                ),
+                voice_capability_overrides={
+                    voice.name: model_catalog.VoiceCapability(
+                        languages=voice.languages,
+                        multilingual=voice.multilingual,
+                        code_switching=voice.code_switching,
+                        status=spec.catalog_status,
+                        deprecation_reason=spec.deprecation_reason,
+                    )
+                    for voice in spec.voices
+                },
+            )
+        self._invalidate_checksum_cache()
+        self._user_model_errors = list(load.errors)
+        if load.models:
+            logger.info("Registered %d user-defined model(s) from %s", len(load.models), load.path)
+        for error in load.errors:
+            logger.warning("User model config problem: %s", error)
+        return list(load.errors)
 
     def _invalidate_checksum_cache(self, model_id: str | None = None) -> None:
         if model_id is None:
@@ -389,10 +588,11 @@ class TTSModelManager:
         return True
 
     def get_model_for_voice(self, voice_name: str) -> TTSModelDefinition | None:
-        """Find model definition for a given voice name."""
+        """Find model definition for a given voice name (exact match first)."""
         for model in MODEL_CATALOG.values():
             if voice_name in model.voices:
                 return model
+        for model in MODEL_CATALOG.values():
             for v in model.voices:
                 if voice_name.lower() in v.lower() or v.lower() in voice_name.lower():
                     return model
@@ -417,11 +617,31 @@ class TTSModelManager:
         data["speed_kbps"] = stats.get("speed_kbps", 0.0)
         data["eta_seconds"] = stats.get("eta_seconds", 0)
         data["error"] = err
+        if not installed and defn.user_defined and not defn.is_downloadable:
+            data["install_hint"] = (
+                "This model references local files only. Place them in the models directory; "
+                "no download is performed."
+            )
         return data
 
-    def list_all_models(self) -> list[dict[str, object]]:
-        """Return full list of models with current statuses."""
-        return [self.get_status(m_id) for m_id in MODEL_CATALOG]
+    def list_all_models(self, kind: str | None = None) -> list[dict[str, object]]:
+        """Return full list of models with current statuses, optionally by kind."""
+
+        return [
+            self.get_status(m_id)
+            for m_id, definition in MODEL_CATALOG.items()
+            if kind is None or definition.kind == kind
+        ]
+
+    def recommended_model_ids(self, kind: str | None = None) -> list[str]:
+        """Ids that are safe to use as automatic defaults (deprecated excluded)."""
+
+        return [
+            m_id
+            for m_id, definition in MODEL_CATALOG.items()
+            if definition.catalog_status != model_catalog.CATALOG_STATUS_DEPRECATED
+            and (kind is None or definition.kind == kind)
+        ]
 
     async def download_model(self, model_id: str) -> Path:
         """Download model files asynchronously with concurrency protection."""
@@ -431,6 +651,12 @@ class TTSModelManager:
 
         if defn.is_cloud or defn.is_builtin:
             return get_model_storage_dir()
+
+        if not defn.is_downloadable:
+            raise ValueError(
+                f"Model '{model_id}' declares only local assets; install its files manually "
+                "into a model search directory"
+            )
 
         if self.is_ready(model_id):
             first_file = find_model_file(defn.files[0].filename)

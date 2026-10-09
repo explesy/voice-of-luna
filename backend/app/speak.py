@@ -12,6 +12,7 @@ import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from app import model_catalog
 from app.num_normalizer import normalize_numbers_for_speech
 
 logger = logging.getLogger("voice_of_luna.speak")
@@ -43,6 +44,16 @@ class VoiceInfo:
     is_downloaded: bool = True
     model_id: str | None = None
     size_mb: float = 0.0
+    languages: tuple[str, ...] = ()
+    multilingual: bool = False
+    code_switching: str = model_catalog.CODE_SWITCHING_NONE
+    catalog_status: str = model_catalog.CATALOG_STATUS_RECOMMENDED
+    deprecation_reason: str = ""
+    user_defined: bool = False
+
+    @property
+    def is_deprecated(self) -> bool:
+        return model_catalog.is_deprecated(self.catalog_status)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -89,10 +100,34 @@ def is_silero_available() -> bool:
     )
 
 
+def registered_voice_model(voice_name: str):
+    """Return the catalog model that owns an exact voice name, if any.
+
+    Registry lookup takes precedence over heuristic name matching so a custom
+    voice whose name contains e.g. "Neural" is not misclassified as Edge.
+    """
+
+    if not voice_name:
+        return None
+    from app.tts_manager import MODEL_CATALOG
+
+    for model in MODEL_CATALOG.values():
+        if voice_name in model.voices:
+            return model
+    folded = voice_name.casefold()
+    for model in MODEL_CATALOG.values():
+        if any(voice.casefold() == folded for voice in model.voices):
+            return model
+    return None
+
+
 def is_edge_voice(voice_name: str) -> bool:
     """Check if the given voice name corresponds to an Edge TTS neural voice."""
     if not voice_name:
         return False
+    model = registered_voice_model(voice_name)
+    if model is not None:
+        return model.engine == "edge"
     return (
         voice_name in EDGE_VOICES
         or "edge" in voice_name.lower()
@@ -118,6 +153,9 @@ def is_silero_voice(voice_name: str) -> bool:
     """Check if the given voice name corresponds to a Silero offline neural voice."""
     if not voice_name:
         return False
+    model = registered_voice_model(voice_name)
+    if model is not None:
+        return model.engine == "silero"
     return (
         voice_name in SILERO_VOICES
         or "silero" in voice_name.lower()
@@ -141,6 +179,9 @@ def is_piper_voice(voice_name: str) -> bool:
     """Check if the given voice name corresponds to a Piper offline neural voice."""
     if not voice_name:
         return False
+    model = registered_voice_model(voice_name)
+    if model is not None:
+        return model.engine == "piper"
     return (
         voice_name in PIPER_VOICES
         or "piper" in voice_name.lower()
@@ -149,6 +190,9 @@ def is_piper_voice(voice_name: str) -> bool:
 
 
 def _engine_for_voice(voice_name: str) -> str:
+    model = registered_voice_model(voice_name)
+    if model is not None:
+        return model.engine
     if is_edge_voice(voice_name):
         return "edge"
     if is_piper_voice(voice_name):
@@ -158,8 +202,22 @@ def _engine_for_voice(voice_name: str) -> str:
     return "macos"
 
 
-def resolve_piper_model(voice_name: str) -> str:
-    """Resolve human-readable voice name to Piper model filename prefix."""
+def resolve_piper_model(voice_name: str) -> str | None:
+    """Resolve a voice name to its Piper model filename stem.
+
+    Returns ``None`` for an unknown voice instead of silently substituting a
+    different built-in model, so an unavailable custom voice fails clearly
+    rather than being attributed to Dmitri.
+    """
+
+    model = registered_voice_model(voice_name)
+    if model is not None and model.engine == "piper":
+        key = model.voice_model_keys.get(voice_name)
+        if key:
+            return key
+        onnx = next((spec.filename for spec in model.files if spec.filename.endswith(".onnx")), None)
+        if onnx:
+            return onnx[: -len(".onnx")]
     if voice_name in PIPER_VOICES:
         return PIPER_VOICES[voice_name]
     for k, v in PIPER_VOICES.items():
@@ -172,7 +230,29 @@ def resolve_piper_model(voice_name: str) -> str:
         return "ru_RU-ruslan-medium"
     if "irina" in lower:
         return "ru_RU-irina-medium"
-    return "ru_RU-dmitri-medium"
+    if "lessac" in lower:
+        return "en_US-lessac-medium"
+    return None
+
+
+def _piper_model_languages(model_key: str) -> tuple[str, ...]:
+    """Languages supported by a Piper model key, from the catalog when known."""
+
+    from app.tts_manager import MODEL_CATALOG
+
+    target = f"{model_key}.onnx"
+    for model in MODEL_CATALOG.values():
+        if model.engine != "piper":
+            continue
+        if model_key in model.voice_model_keys.values() or any(spec.filename == target for spec in model.files):
+            languages = model.resolved_languages()
+            if languages:
+                return languages
+    if model_key.startswith("en_"):
+        return ("en",)
+    if model_key.startswith("ru_"):
+        return ("ru",)
+    return ()
 
 
 # ---------------------------------------------------------------------------
@@ -364,14 +444,9 @@ def _get_silero_model(model_filename: str = "silero_v4_ru.pt"):
     model_path = find_model_file(target_file)
     model_id = "silero_v5_ru" if "v5" in target_file else "silero_v4_ru"
 
-    # Fallback to alternate Silero version if requested is not present
-    if model_path is None or not tts_model_manager.is_ready(model_id):
-        alt_file = "silero_v5_ru.pt" if target_file == "silero_v4_ru.pt" else "silero_v4_ru.pt"
-        alt_id = "silero_v5_ru" if "v5" in alt_file else "silero_v4_ru"
-        alt_path = find_model_file(alt_file)
-        if alt_path is not None and tts_model_manager.is_ready(alt_id):
-            target_file, model_id, model_path = alt_file, alt_id, alt_path
-
+    # No silent cross-version substitution: if the requested Silero version is
+    # not installed, fail so the normal fallback machinery can pick a different
+    # voice and report the voice that actually produced the audio.
     if model_path is None or not tts_model_manager.is_ready(model_id):
         raise LocalSpeechError(
             f"Silero model '{target_file}' is missing or failed checksum verification. "
@@ -440,7 +515,7 @@ async def prewarm_voice(voice_name: str | None) -> None:
     elif is_piper_voice(voice_name):
         model_key = resolve_piper_model(voice_name)
         model = tts_model_manager.get_model_for_voice(voice_name)
-        if model and tts_model_manager.is_ready(model.id):
+        if model_key and model and tts_model_manager.is_ready(model.id):
             await asyncio.to_thread(_get_piper_voice, model_key)
 
 
@@ -793,7 +868,7 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
         ),
     ]
 
-    _cached_installed_voices = (
+    _cached_installed_voices = _apply_voice_capabilities(
         edge_ru_voices
         + piper_ru_voices
         + silero_ru_voices
@@ -802,8 +877,63 @@ def get_installed_voices(force_refresh: bool = False) -> list[VoiceInfo]:
         + piper_en_voices
         + edge_es_voices
         + other_voices
+        + _user_defined_piper_voices()
     )
     return _cached_installed_voices
+
+
+def _apply_voice_capabilities(voices: list[VoiceInfo]) -> list[VoiceInfo]:
+    """Fill language/status metadata for voices whose model did not declare it."""
+
+    for voice in voices:
+        if voice.languages:
+            # User-defined voices already declare their capability.
+            continue
+        capability = model_catalog.voice_capability(voice.name, voice.locale)
+        voice.languages = capability.languages
+        voice.code_switching = capability.code_switching
+        voice.multilingual = capability.multilingual
+        voice.catalog_status = capability.status
+        voice.deprecation_reason = capability.deprecation_reason
+    return voices
+
+
+def _user_defined_piper_voices() -> list[VoiceInfo]:
+    """Build VoiceInfo entries for user-defined Piper models (issue #14)."""
+
+    from app.tts_manager import MODEL_CATALOG, tts_model_manager
+
+    voices: list[VoiceInfo] = []
+    for model in MODEL_CATALOG.values():
+        if not (model.user_defined and model.engine == "piper"):
+            continue
+        for voice_name in model.voices:
+            capability = model.voice_capability_overrides.get(voice_name) or model_catalog.voice_capability(
+                voice_name,
+                model.locale,
+                status=model.catalog_status,
+                deprecation_reason=model.deprecation_reason,
+            )
+            voices.append(
+                VoiceInfo(
+                    name=voice_name,
+                    locale=model.locale,
+                    sample=f"User-defined voice: {voice_name}",
+                    is_russian="ru" in capability.languages,
+                    is_enhanced=False,
+                    engine="piper",
+                    is_downloaded=tts_model_manager.is_ready(model.id),
+                    model_id=model.id,
+                    size_mb=model.size_mb,
+                    languages=capability.languages,
+                    multilingual=capability.multilingual,
+                    code_switching=capability.code_switching,
+                    catalog_status=capability.status,
+                    deprecation_reason=capability.deprecation_reason,
+                    user_defined=True,
+                )
+            )
+    return voices
 
 
 def get_default_voice() -> str:
@@ -819,18 +949,31 @@ def get_default_voice() -> str:
         "Svetlana (Neural · Edge)",
     ):
         for v in voices:
-            if v.name == candidate and (getattr(v, "is_downloaded", True) or v.engine in ("macos", "edge")):
+            if (
+                v.name == candidate
+                and not v.is_deprecated
+                and (getattr(v, "is_downloaded", True) or v.engine in ("macos", "edge"))
+            ):
                 return v.name
     for v in voices:
-        if v.is_russian:
+        if v.is_russian and not v.is_deprecated:
             return v.name
     return "Milena"
 
 
 def get_default_voice_for_locale(locale: str) -> str:
-    """Find the best default voice for a given locale (e.g. 'en-US' -> 'Jenny (Neural · Edge)', 'es-ES' -> 'Elvira')."""
+    """Find the best default voice for a given locale (e.g. 'en-US' -> 'Jenny (Neural · Edge)', 'es-ES' -> 'Elvira').
+
+    Deprecated voices are never chosen automatically. A multilingual voice that
+    covers the requested language is preferred, then a matching installed voice.
+    """
     norm = (locale or "").lower().replace("_", "-")
-    voices = get_installed_voices()
+    prefix = norm.split("-")[0]
+    voices = [v for v in get_installed_voices() if not v.is_deprecated]
+    if prefix:
+        for v in voices:
+            if v.multilingual and prefix in (v.languages or ()):
+                return v.name
     if norm.startswith("en"):
         for v in voices:
             if v.name == "Jenny (Neural · Edge)":
@@ -868,6 +1011,8 @@ def voice_matches_locale(voice_name: str, locale: str) -> bool:
     voices = get_installed_voices()
     for v in voices:
         if v.name.lower() == voice_name.lower():
+            if v.languages:
+                return prefix in v.languages or (v.multilingual and prefix in v.languages)
             v_loc = v.locale.lower().replace("_", "-")
             return v_loc.startswith(prefix)
     name_lower = voice_name.lower()
@@ -904,18 +1049,20 @@ def get_voice_for_locale(
     Can optionally filter by allowed_engines or excluded_engines.
     """
     prefix = locale_prefix.lower()
-    voices = get_installed_voices()
+    voices = [v for v in get_installed_voices() if not v.is_deprecated]
     if allowed_engines is not None:
         voices = [v for v in voices if v.engine in allowed_engines]
     if excluded_engines is not None:
         voices = [v for v in voices if v.engine not in excluded_engines]
 
     for v in voices:
-        if v.locale.lower().startswith(prefix):
-            if v.is_enhanced or any(preferred in v.name.lower() for preferred in ("mónica", "monica", "paulina", "samantha")):
+        languages = v.languages or model_catalog.languages_for_locale(v.locale)
+        if prefix in languages:
+            if v.is_enhanced or v.multilingual or any(preferred in v.name.lower() for preferred in ("mónica", "monica", "paulina", "samantha")):
                 return v.name
     for v in voices:
-        if v.locale.lower().startswith(prefix):
+        languages = v.languages or model_catalog.languages_for_locale(v.locale)
+        if prefix in languages or v.locale.lower().startswith(prefix):
             return v.name
     return None
 
@@ -1079,7 +1226,13 @@ class LocalMacOsSpeaker:
             destination.unlink(missing_ok=True)
             raise
 
-    async def _synthesize_macos(self, clean_text: str, active_voice: str) -> Path | None:
+    def _macos_effective_voice(self, clean_text: str, active_voice: str) -> str | None:
+        """Return the voice ``say`` will actually use, or None if it cannot speak.
+
+        Extracted so callers can report the true voice rather than claiming the
+        requested one when the Russian-voice/Spanish-text heuristic switches.
+        """
+
         is_russian = "ru" in active_voice.lower() or "milena" in active_voice.lower()
         if is_russian and not re.search(r"[\u0400-\u052f]", clean_text):
             spanish_voice = get_voice_for_locale("es")
@@ -1087,9 +1240,15 @@ class LocalMacOsSpeaker:
                 re.search(r"[áéíóúüñ¿¡]", clean_text, re.IGNORECASE)
                 or any(w in clean_text.lower().split() for w in ("hola", "el", "la", "de", "que", "y", "en", "un", "por", "para", "con", "no", "es", "estás", "estoy", "amigo", "luna"))
             ):
-                active_voice = spanish_voice
-            else:
-                return None
+                return spanish_voice
+            return None
+        return active_voice
+
+    async def _synthesize_macos(self, clean_text: str, active_voice: str) -> Path | None:
+        effective_voice = self._macos_effective_voice(clean_text, active_voice)
+        if effective_voice is None:
+            return None
+        active_voice = effective_voice
 
         if shutil.which("say") is None:
             raise LocalSpeechError("macOS say is required for local speech")
@@ -1173,12 +1332,16 @@ class LocalMacOsSpeaker:
         import wave
 
         model_key = resolve_piper_model(voice_name)
-        is_english_model = model_key.startswith("en_")
-        if not is_english_model and not re.search(r"[\u0400-\u052f]", clean_text):
+        if not model_key:
+            raise LocalSpeechError(f"Piper voice '{voice_name}' is not registered or installed")
+        languages = _piper_model_languages(model_key)
+        russian_only = languages == ("ru",)
+        if russian_only and not re.search(r"[\u0400-\u052f]", clean_text):
             raise LocalSpeechError(f"Piper Russian TTS only supports Cyrillic text: '{clean_text[:40]}'")
-        piper_text = clean_text if is_english_model else normalize_numbers_for_speech(clean_text)
-        if not is_english_model:
-            piper_text = transliterate_latin_for_speech(piper_text)
+        if russian_only:
+            piper_text = transliterate_latin_for_speech(normalize_numbers_for_speech(clean_text))
+        else:
+            piper_text = clean_text
         descriptor, raw_wav = tempfile.mkstemp(prefix="voice-of-luna-speech-", suffix=".wav")
         os.close(descriptor)
         destination = Path(raw_wav)
@@ -1217,15 +1380,19 @@ class LocalMacOsSpeaker:
                 candidates.append(candidate)
         return candidates
 
-    async def _synthesize_candidate(self, clean_text: str, voice_name: str) -> Path | None:
+    async def _synthesize_candidate(self, clean_text: str, voice_name: str) -> tuple[Path | None, str]:
+        """Synthesize one candidate, returning the path and the voice actually used."""
+
         engine = _engine_for_voice(voice_name)
         if engine == "edge":
-            return await self._synthesize_edge(clean_text, voice_name)
+            return await self._synthesize_edge(clean_text, voice_name), voice_name
         if engine == "piper":
-            return await self._synthesize_piper(clean_text, voice_name)
+            return await self._synthesize_piper(clean_text, voice_name), voice_name
         if engine == "silero":
-            return await self._synthesize_silero(clean_text, voice_name)
-        return await self._synthesize_macos(clean_text, voice_name)
+            return await self._synthesize_silero(clean_text, voice_name), voice_name
+        effective = self._macos_effective_voice(clean_text, voice_name)
+        path = await self._synthesize_macos(clean_text, voice_name)
+        return path, (effective or voice_name)
 
     async def synthesize_with_metadata(
         self, text: str, voice: str | None = None
@@ -1246,15 +1413,15 @@ class LocalMacOsSpeaker:
         failures: list[str] = []
         for candidate in candidates:
             try:
-                path = await self._synthesize_candidate(clean_text, candidate)
+                path, actual_voice = await self._synthesize_candidate(clean_text, candidate)
                 if path is None:
                     raise LocalSpeechError(f"voice '{candidate}' produced no audio")
                 return SpeechSynthesisResult(
                     path=path,
                     requested_engine=requested_engine,
-                    actual_engine=_engine_for_voice(candidate),
+                    actual_engine=_engine_for_voice(actual_voice),
                     fallback_reason="; ".join(failures) if failures else None,
-                    actual_voice=candidate,
+                    actual_voice=actual_voice,
                 )
             except Exception as exc:
                 failures.append(f"{candidate}: {exc}")

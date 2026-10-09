@@ -82,7 +82,8 @@ def test_resolve_piper_model() -> None:
     assert resolve_piper_model("Denis (Piper Neural · Offline)") == "ru_RU-denis-medium"
     assert resolve_piper_model("Ruslan (Piper Neural · Offline)") == "ru_RU-ruslan-medium"
     assert resolve_piper_model("unknown_irina_voice") == "ru_RU-irina-medium"
-    assert resolve_piper_model("unknown_other") == "ru_RU-dmitri-medium"
+    # Unknown voices must not silently fall through to a built-in model.
+    assert resolve_piper_model("unknown_other") is None
 
 
 def test_api_list_tts_models() -> None:

@@ -2043,3 +2043,38 @@ kbd {
     gap: 2px;
   }
 }
+
+/* Model catalog status UI (issue #14) */
+.chip-led-stt {
+  color: var(--term-green, #7dff9b);
+  background: var(--term-green, #7dff9b);
+  box-shadow: 0 0 6px var(--term-green, #7dff9b);
+}
+
+.stt-selector-chip .voice-select {
+  max-width: 150px;
+}
+
+.voice-filter-toggle {
+  cursor: pointer;
+  user-select: none;
+  font-family: inherit;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  border: 1px solid var(--term-border, #2a2f45);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--term-dim, #6b7294);
+}
+
+.voice-filter-toggle.is-active {
+  color: var(--term-amber, #ffcf6b);
+  border-color: var(--term-amber, #ffcf6b);
+}
+
+.voice-filter-empty {
+  font-size: 8px;
+  color: var(--term-dim, #6b7294);
+  white-space: nowrap;
+}

@@ -1390,8 +1390,8 @@ def test_api_settings_endpoint_and_cookie_persistence() -> None:
         },
     )
     assert page.status_code == 200
-    assert 'value="gpt-5.6-luna" selected' in page.text
-    assert 'value="high" selected' in page.text
+    assert re.search(r'value="gpt-5\.6-luna"[^>]*selected', page.text)
+    assert re.search(r'value="high"[^>]*selected', page.text)
 
 
 def test_remote_warmup_setting_is_enabled_by_default_and_can_be_disabled(monkeypatch) -> None:

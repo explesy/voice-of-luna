@@ -187,6 +187,9 @@ class Conversation:
     selected_voice: str | None = None
     locale: str = "ru-RU"
     model_name: str | None = None
+    # The user's explicit request, retained even when it is unavailable so the
+    # UI can explain the difference instead of silently reattributing the turn.
+    requested_model: str | None = None
     reasoning_effort: str = "low"
     plugin_id: str = "neutral"
     plugin_mode: str = "default"
@@ -200,6 +203,10 @@ class Conversation:
     remote_warmup_status: str = "cold"
     thread_generation: int = 0
     binary_audio: bool = False
+    # Selected batch (Whisper ggml) STT model for completed audio turns. ``None``
+    # means automatic: the recommended installed model is used. Live streaming
+    # STT is a separate, locale-routed feature.
+    stt_model: str | None = None
     # Per-session live streaming transcript preference. ``None`` means "auto":
     # streaming is enabled whenever a local streaming model is available.
     live_transcript: bool | None = None

@@ -136,6 +136,24 @@ _STATUS_CACHE_TTL = 60.0  # seconds
 _GLOBAL_MODELS_CACHE: tuple[float, list[dict[str, Any]]] | None = None
 
 
+def _tag_models(models: list[dict[str, Any]], source: str) -> list[dict[str, Any]]:
+    """Return copies tagged with their provenance for the UI (issue #14).
+
+    ``source`` is ``live`` for a successful Codex ``model/list`` response and
+    ``preset`` for the offline fallback list. Preset entries are never labelled
+    as live, so an unavailable model is not attributed to the runtime.
+    """
+
+    tagged: list[dict[str, Any]] = []
+    for model in models:
+        entry = dict(model)
+        entry["source"] = source
+        entry.setdefault("supportedReasoningEffortsSource", "inferred" if source == "preset" else "live")
+        entry.setdefault("available", source == "live")
+        tagged.append(entry)
+    return tagged
+
+
 class CodexAppServer:
     """One local Codex process and ephemeral thread for one conversation.
 
@@ -223,7 +241,9 @@ class CodexAppServer:
 
         runtime = await self.status()
         if not runtime.available:
-            return FALLBACK_MODELS
+            # Do not cache: the runtime may become available shortly, and a
+            # cached preset list would then be served as if it were live.
+            return _tag_models(FALLBACK_MODELS, "preset")
 
         try:
             await self._ensure_thread()
@@ -231,7 +251,8 @@ class CodexAppServer:
             data = result.get("data", [])
             models: list[dict[str, Any]] = []
             for item in data:
-                efforts = item.get("supportedReasoningEfforts") or [
+                declared_efforts = item.get("supportedReasoningEfforts")
+                efforts = declared_efforts or [
                     {"reasoningEffort": "low", "description": "Fast responses"},
                     {"reasoningEffort": "medium", "description": "Balanced"},
                     {"reasoningEffort": "high", "description": "High reasoning"},
@@ -242,15 +263,18 @@ class CodexAppServer:
                     "description": item.get("description", ""),
                     "defaultReasoningEffort": item.get("defaultReasoningEffort", "low"),
                     "supportedReasoningEfforts": efforts,
+                    "supportedReasoningEffortsSource": "live" if declared_efforts else "inferred",
                 })
             if models:
-                _GLOBAL_MODELS_CACHE = (now, models)
-                return models
+                tagged = _tag_models(models, "live")
+                _GLOBAL_MODELS_CACHE = (now, tagged)
+                return tagged
         except Exception as exc:
             logger.debug("model/list RPC failed, falling back to presets: %s", exc)
 
-        _GLOBAL_MODELS_CACHE = (now, FALLBACK_MODELS)
-        return FALLBACK_MODELS
+        preset = _tag_models(FALLBACK_MODELS, "preset")
+        _GLOBAL_MODELS_CACHE = (now, preset)
+        return preset
 
     async def set_base_instructions(self, base_instructions: str) -> None:
         """Update base instructions. If a thread is running, closes it so next turn uses new instructions."""

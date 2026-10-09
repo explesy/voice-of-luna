@@ -50,6 +50,7 @@ from .conversation_service import (
     plugin_storage,
 )
 from .i18n import get_ui_text
+from . import model_catalog
 
 from fastapi import (
     FastAPI,
@@ -101,7 +102,14 @@ from .transcribe import (
     create_streaming_session,
     tone_shadow_configured,
 )
-from .stt_manager import sherpa_available, stt_model_manager
+from .stt_manager import (
+    get_batch_stt_model,
+    is_batch_stt_model,
+    list_batch_stt_models,
+    resolve_batch_stt_model_id,
+    sherpa_available,
+    stt_model_manager,
+)
 from .whisper_server import WhisperServerManager
 
 whisper_server = WhisperServerManager()
@@ -110,10 +118,79 @@ CONVERSATION_REAPER_INTERVAL_SECONDS = 60
 _DEFAULT_SPEAKER_SYNTHESIZE = LocalMacOsSpeaker.synthesize
 
 
-def _build_stt_provider(*, language: str | None, prompt: str | None) -> SpeechToTextProvider:
-    """Build the configured batch STT capability for a completed audio turn."""
+def _build_stt_provider(
+    *, language: str | None, prompt: str | None, stt_model: str | None = None
+) -> SpeechToTextProvider:
+    """Build the configured batch STT capability for a completed audio turn.
 
-    return LocalWhisperTranscriber(language=language, prompt=prompt)
+    When a specific batch Whisper model is selected, transcription must use that
+    exact asset. The resident ``whisper-server`` may have loaded a different
+    model, so HTTP is only used when the server is known to serve this file;
+    otherwise the CLI path runs the selected model explicitly.
+    """
+
+    if not stt_model:
+        return LocalWhisperTranscriber(language=language, prompt=prompt)
+    definition = get_batch_stt_model(stt_model)
+    if definition is None or not definition.files:
+        return LocalWhisperTranscriber(language=language, prompt=prompt)
+    from app.tts_manager import find_model_file
+
+    model_path = find_model_file(definition.files[0].filename)
+    if model_path is None or not model_path.is_file():
+        raise LocalTranscriptionError(
+            f"Selected speech-to-text model '{stt_model}' is not installed locally"
+        )
+    return LocalWhisperTranscriber(
+        model_path=model_path,
+        language=language,
+        prompt=prompt,
+        prefer_server=whisper_server.serves_model(model_path),
+    )
+
+
+def _resolve_conversation_stt_model(conversation: Conversation) -> tuple[str | None, str | None]:
+    """Return the effective batch STT model id and a fallback reason, if any."""
+
+    return resolve_batch_stt_model_id(conversation.stt_model)
+
+
+def _require_batch_stt_model(conversation: Conversation) -> str | None:
+    """Resolve the batch STT model for a turn, failing on an unusable explicit choice.
+
+    An explicit selection that cannot be used must never silently fall back to
+    the automatic model, otherwise the transcript would be attributed to the
+    wrong model. ``None`` (automatic) is still allowed to resolve to nothing and
+    use the default transcriber.
+    """
+
+    resolved, reason = resolve_batch_stt_model_id(conversation.stt_model)
+    if conversation.stt_model and resolved is None:
+        raise LocalTranscriptionError(
+            reason or f"Selected speech-to-text model '{conversation.stt_model}' is not available"
+        )
+    return resolved
+
+
+def _stt_catalog_errors() -> list[str]:
+    """Sanitized user-model configuration errors for the UI."""
+
+    from app.tts_manager import tts_model_manager
+
+    return tts_model_manager.user_model_errors
+
+
+def _stt_model_context(conversation: Conversation) -> dict[str, object]:
+    """Describe the selected batch STT model for UI/WS messages."""
+
+    resolved, fallback_reason = _resolve_conversation_stt_model(conversation)
+    definition = get_batch_stt_model(resolved) if resolved else None
+    return {
+        "stt_model": conversation.stt_model,
+        "stt_model_resolved": resolved,
+        "stt_model_name": definition.name if definition else None,
+        "stt_model_fallback": fallback_reason,
+    }
 
 
 async def _record_tone_shadow_observation(conversation_id: str, wav_bytes: bytes) -> None:
@@ -258,6 +335,11 @@ def format_terminal_text(text: str) -> Markup:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    from app.tts_manager import tts_model_manager
+
+    # Register user-defined models before any voice cache or STT resolution.
+    tts_model_manager.register_user_models()
+    get_installed_voices(force_refresh=True)
     await whisper_server.start()
     reaper_task = asyncio.create_task(_conversation_reaper())
     try:
@@ -408,8 +490,11 @@ async def _get_view_context(request: Request, conversation: Conversation | None 
         await _apply_plugin_to_conversation(conversation, active_p, cookie_p_mode)
 
     all_voices = [v.to_dict() for v in get_installed_voices()]
-    russian_voices = [v for v in all_voices if v["is_russian"]]
-    other_voices = [v for v in all_voices if not v["is_russian"]]
+    deprecated_voices = [v for v in all_voices if v.get("catalog_status") == "deprecated"]
+    # Deprecated voices live in their own opt-in group, not in the everyday lists.
+    active_voices = [v for v in all_voices if v.get("catalog_status") != "deprecated"]
+    russian_voices = [v for v in active_voices if v["is_russian"]]
+    other_voices = [v for v in active_voices if not v["is_russian"]]
     # Keep the everyday list focused on Russian voices.  Previously this used
     # every Edge voice, which made English and Spanish voices appear in the
     # primary group without a locale marker.
@@ -424,13 +509,52 @@ async def _get_view_context(request: Request, conversation: Conversation | None 
     else:
         models = await CodexAppServer().list_models()
 
-    requested_model = (conversation.model_name if conversation else None) or (cookie_model.strip('"') if cookie_model else None)
+    cookie_stt_model = request.cookies.get("voice_of_luna_stt_model")
+    if cookie_stt_model and conversation and conversation.stt_model is None:
+        conversation.stt_model = cookie_stt_model.strip('"') or None
+
+    requested_model = (
+        (conversation.requested_model if conversation else None)
+        or (conversation.model_name if conversation else None)
+        or (cookie_model.strip('"') if cookie_model else None)
+    )
     available_model_ids = {str(model.get("id")) for model in models if model.get("id")}
-    active_model = requested_model if requested_model in available_model_ids else (DEFAULT_MODEL if DEFAULT_MODEL in available_model_ids else (models[0]["id"] if models else DEFAULT_MODEL))
-    active_effort = (conversation.reasoning_effort if conversation else None) or (cookie_effort.strip('"') if cookie_effort else "low")
+    model_fallback_reason: str | None = None
+    if requested_model and requested_model in available_model_ids:
+        active_model = requested_model
+    elif DEFAULT_MODEL in available_model_ids:
+        active_model = DEFAULT_MODEL
+        if requested_model:
+            model_fallback_reason = f"Requested model '{requested_model}' is not available; using '{DEFAULT_MODEL}'."
+    elif models:
+        active_model = str(models[0]["id"])
+        if requested_model:
+            model_fallback_reason = f"Requested model '{requested_model}' is not available; using '{active_model}'."
+    else:
+        active_model = DEFAULT_MODEL
+        if requested_model:
+            model_fallback_reason = f"Requested model '{requested_model}' is not available; using '{DEFAULT_MODEL}'."
     if conversation:
+        if requested_model:
+            conversation.requested_model = requested_model
         conversation.model_name = active_model
+    active_effort = (conversation.reasoning_effort if conversation else None) or (cookie_effort.strip('"') if cookie_effort else "low")
+    active_model_entry = next((m for m in models if str(m.get("id")) == active_model), None)
+    supported_efforts = [
+        str(item.get("reasoningEffort"))
+        for item in (active_model_entry or {}).get("supportedReasoningEfforts", [])
+        if item.get("reasoningEffort")
+    ] or ["low", "medium", "high", "xhigh"]
+    if active_effort not in supported_efforts:
+        active_effort = supported_efforts[0]
+    if conversation:
         conversation.reasoning_effort = active_effort
+    stt_context = _stt_model_context(conversation) if conversation else {
+        "stt_model": None,
+        "stt_model_resolved": None,
+        "stt_model_name": None,
+        "stt_model_fallback": None,
+    }
     if remote_warmup_enabled and conversation:
         _schedule_conversation_warmup(
             conversation, str(active_model), str(active_effort)
@@ -451,11 +575,18 @@ async def _get_view_context(request: Request, conversation: Conversation | None 
         "local_russian_voices": local_russian_voices,
         "other_voices": other_voices,
         "all_voices": all_voices,
+        "deprecated_voices": deprecated_voices,
         "models": models,
+        "models_source": str(models[0].get("source")) if models else "preset",
         "active_model": active_model,
+        "requested_model": requested_model,
+        "model_fallback_reason": model_fallback_reason,
         "active_effort": active_effort,
+        "supported_efforts": supported_efforts,
+        "stt_models": list_batch_stt_models(),
+        **stt_context,
+        "stt_errors": _stt_catalog_errors(),
         "remote_warmup_enabled": remote_warmup_enabled,
-        "supported_efforts": ["low", "medium", "high", "xhigh"],
         "plugins": all_plugins,
         "active_plugin": active_plugin,
         "active_plugin_mode": active_plugin_mode,
@@ -475,7 +606,9 @@ def _get_voice_context(request: Request, conversation: Conversation | None = Non
     if conversation:
         conversation.set_selected_voice(active_voice)
     all_voices = [v.to_dict() for v in get_installed_voices()]
-    russian_voices = [v for v in all_voices if v["is_russian"]]
+    deprecated_voices = [v for v in all_voices if v.get("catalog_status") == "deprecated"]
+    active_voices = [v for v in all_voices if v.get("catalog_status") != "deprecated"]
+    russian_voices = [v for v in active_voices if v["is_russian"]]
     edge_voices = [v for v in russian_voices if v.get("engine") == "edge"]
     piper_voices = [v for v in russian_voices if v.get("engine") == "piper"]
     silero_voices = [v for v in russian_voices if v.get("engine") == "silero"]
@@ -488,8 +621,9 @@ def _get_voice_context(request: Request, conversation: Conversation | None = Non
         "piper_voices": piper_voices,
         "silero_voices": silero_voices,
         "local_russian_voices": local_russian_voices,
-        "other_voices": [v for v in all_voices if not v["is_russian"]],
+        "other_voices": [v for v in active_voices if not v["is_russian"]],
         "all_voices": all_voices,
+        "deprecated_voices": deprecated_voices,
         "models": [],
         "active_model": DEFAULT_MODEL,
         "active_effort": "low",
@@ -691,8 +825,9 @@ async def create_audio_turn_fragment(
             wav_path = await _convert_to_wav(temporary_path)
         t_wav = time.perf_counter()
         stt_config = resolve_stt_config(conversation)
+        batch_model_id = _require_batch_stt_model(conversation)
         transcript = await _build_stt_provider(
-            language=stt_config.language, prompt=stt_config.prompt
+            language=stt_config.language, prompt=stt_config.prompt, stt_model=batch_model_id
         ).transcribe(wav_path)
         t_stt = time.perf_counter()
         conversation.turns.append({"role": "user", "text": transcript})
@@ -771,10 +906,16 @@ async def list_available_voices(request: Request) -> dict[str, object]:
 
 
 @app.get("/api/tts/models")
-async def list_tts_models() -> dict[str, object]:
+async def list_tts_models(kind: str | None = None) -> dict[str, object]:
     from app.tts_manager import tts_model_manager
 
-    return {"models": tts_model_manager.list_all_models()}
+    # Default keeps the historical full list (including Whisper assets) for
+    # backwards compatibility; the TTS picker requests ?kind=tts.
+    if kind in (None, ""):
+        return {"models": tts_model_manager.list_all_models()}
+    if kind not in ("tts", "stt"):
+        raise HTTPException(status_code=400, detail="kind must be 'tts' or 'stt'")
+    return {"models": tts_model_manager.list_all_models(kind=kind)}
 
 
 @app.post("/api/tts/models/{model_id}/download")
@@ -809,11 +950,30 @@ async def get_tts_model_status(model_id: str) -> dict[str, object]:
 
 @app.get("/api/stt/models")
 async def list_stt_models() -> dict[str, object]:
-    return {"models": stt_model_manager.list_all_models(), "runtime_available": sherpa_available()}
+    return {
+        "models": [*stt_model_manager.list_all_models(), *list_batch_stt_models()],
+        "streaming": stt_model_manager.list_all_models(),
+        "batch": list_batch_stt_models(),
+        "runtime_available": sherpa_available(),
+        "errors": _stt_catalog_errors(),
+    }
 
 
 @app.post("/api/stt/models/{model_id}/download")
 async def download_stt_model(model_id: str) -> dict[str, object]:
+    from app.speak import get_installed_voices
+    from app.tts_manager import tts_model_manager
+
+    if is_batch_stt_model(model_id):
+        # Whisper does not need the optional sherpa-onnx runtime.
+        async def _bg_batch() -> None:
+            try:
+                await tts_model_manager.download_model(model_id)
+            except Exception as exc:
+                logger.error("Download failed for batch STT model '%s': %s", model_id, exc)
+
+        _safe_background_task(_bg_batch(), name=f"download-stt-model-{model_id}")
+        return {"ok": True, "model_id": model_id, "status": "downloading"}
     if stt_model_manager.get(model_id) is None:
         raise HTTPException(status_code=404, detail="Model not found")
     if not sherpa_available():
@@ -824,6 +984,12 @@ async def download_stt_model(model_id: str) -> dict[str, object]:
 
 @app.get("/api/stt/models/{model_id}/status")
 async def get_stt_model_status(model_id: str) -> dict[str, object]:
+    from app.tts_manager import tts_model_manager
+
+    if is_batch_stt_model(model_id):
+        status = tts_model_manager.get_status(model_id)
+        status["batch"] = True
+        return status
     if stt_model_manager.get(model_id) is None:
         raise HTTPException(status_code=404, detail="Model not found")
     return stt_model_manager.get_status(model_id)
@@ -840,12 +1006,70 @@ async def list_available_models(request: Request) -> dict[str, object]:
     cookie_effort = request.cookies.get("voice_of_luna_effort")
     requested_model = cookie_model.strip('"') if cookie_model else None
     available_model_ids = {str(model.get("id")) for model in models if model.get("id")}
-    active_model = requested_model if requested_model in available_model_ids else (DEFAULT_MODEL if DEFAULT_MODEL in available_model_ids else (models[0]["id"] if models else DEFAULT_MODEL))
+    model_fallback_reason: str | None = None
+    if requested_model and requested_model in available_model_ids:
+        active_model = requested_model
+    elif DEFAULT_MODEL in available_model_ids:
+        active_model = DEFAULT_MODEL
+        if requested_model:
+            model_fallback_reason = f"Requested model '{requested_model}' is not available; using '{DEFAULT_MODEL}'."
+    elif models:
+        active_model = str(models[0]["id"])
+        if requested_model:
+            model_fallback_reason = f"Requested model '{requested_model}' is not available; using '{active_model}'."
+    else:
+        active_model = DEFAULT_MODEL
     return {
         "models": models,
+        "models_source": str(models[0].get("source")) if models else "preset",
         "active_model": active_model,
+        "requested_model": requested_model,
+        "model_fallback_reason": model_fallback_reason,
         "active_effort": cookie_effort.strip('"') if cookie_effort else "low",
     }
+
+
+@app.get("/api/models/catalog")
+async def list_model_catalog() -> dict[str, object]:
+    """Read-only unified catalog grouped by kind/engine/locale (issue #14)."""
+    from app.tts_manager import tts_model_manager
+
+    tts_entries = tts_model_manager.list_all_models(kind="tts")
+    batch_entries = list_batch_stt_models()
+    streaming_entries = stt_model_manager.list_all_models()
+    models: list[dict[str, object]] = []
+    for entry in tts_entries:
+        models.append(entry)
+    for entry in [*batch_entries, *streaming_entries]:
+        models.append(entry)
+    try:
+        provider = CodexAppServer()
+        try:
+            llm_models = await provider.list_models()
+        finally:
+            await provider.close()
+        for entry in llm_models:
+            models.append({
+                "id": entry.get("id"),
+                "name": entry.get("displayName") or entry.get("id"),
+                "kind": "llm",
+                "engine": "codex",
+                "locale": "multi",
+                "languages": [],
+                "multilingual": None,
+                "code_switching": None,
+                "speech": False,
+                "catalog_status": "recommended",
+                "deprecation_reason": None,
+                "status": "ready" if entry.get("source") == "live" else "preset",
+                "installed": entry.get("source") == "live",
+                "source": entry.get("source", "preset"),
+                "supportedReasoningEfforts": entry.get("supportedReasoningEfforts", []),
+            })
+    except Exception as exc:
+        logger.debug("LLM catalog discovery failed: %s", exc)
+    grouped = model_catalog.group_catalog(models)
+    return {"models": models, "errors": _stt_catalog_errors(), **grouped}
 
 
 class SettingsInput(BaseModel):
@@ -854,6 +1078,7 @@ class SettingsInput(BaseModel):
     voice: str | None = None
     locale: str | None = None
     remote_warmup: bool | None = None
+    stt_model: str | None = None
 
 
 @app.post("/api/settings")
@@ -898,6 +1123,21 @@ async def update_settings(body: SettingsInput, response: Response) -> dict[str, 
             httponly=False,
             samesite="lax",
         )
+    stt_model = body.stt_model
+    if "stt_model" in body.model_fields_set:
+        # Explicit null means "automatic" and must clear the persisted choice.
+        if stt_model and not is_batch_stt_model(stt_model):
+            raise HTTPException(status_code=400, detail="Unknown batch speech-to-text model")
+        if stt_model:
+            response.set_cookie(
+                key="voice_of_luna_stt_model",
+                value=stt_model,
+                max_age=365 * 24 * 3600,
+                httponly=False,
+                samesite="lax",
+            )
+        else:
+            response.delete_cookie("voice_of_luna_stt_model")
     active_model = body.model or DEFAULT_MODEL
     active_effort = body.effort or "low"
     remote_warmup_enabled = body.remote_warmup is not False
@@ -908,6 +1148,7 @@ async def update_settings(body: SettingsInput, response: Response) -> dict[str, 
         "effort": body.effort,
         "voice": body.voice or get_active_voice(),
         "locale": body.locale,
+        "stt_model": stt_model,
         "remote_warmup": remote_warmup_enabled,
         "remote_warmup_status": warmup_status,
     }
@@ -982,6 +1223,9 @@ async def create_conversation(request: Request) -> dict[str, str]:
         conversation.set_selected_voice(cookie_voice.strip('"'))
     elif cookie_locale:
         conversation.set_selected_voice(get_default_voice_for_locale(conversation.locale))
+    cookie_stt_model = request.cookies.get("voice_of_luna_stt_model")
+    if cookie_stt_model:
+        conversation.stt_model = cookie_stt_model.strip('"') or None
     conversations[conversation.id] = conversation
     await _refresh_conversation_base_instructions(conversation)
     _prewarm_conversation(conversation)
@@ -1760,6 +2004,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
         "type": "ready",
         "conversation_id": conversation.id,
         "model": conversation.model_name,
+        "requested_model": conversation.requested_model,
         "effort": conversation.reasoning_effort,
         "voice": conversation.voice,
         "locale": conversation.locale,
@@ -1768,6 +2013,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
         "live_transcript": _live_transcript_enabled(conversation),
         "live_transcript_model": streaming_state["model"],
         "streaming_runtime_available": sherpa_available(),
+        **_stt_model_context(conversation),
     })
 
     active_turn_task: asyncio.Task[None] | None = None
@@ -1816,8 +2062,11 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                             wav_path = await _convert_to_wav(temporary_path)
                         t_audio_prepared = time.perf_counter()
                         stt_config = resolve_stt_config(conversation)
+                        batch_model_id = _require_batch_stt_model(conversation)
                         transcript = await _build_stt_provider(
-                            language=stt_config.language, prompt=stt_config.prompt
+                            language=stt_config.language,
+                            prompt=stt_config.prompt,
+                            stt_model=batch_model_id,
                         ).transcribe(wav_path)
                         t_stt = time.perf_counter()
                         if tone_shadow_configured():
@@ -2013,6 +2262,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                 elif msg_type == "set_settings":
                     if "model" in payload and payload["model"]:
                         conversation.model_name = payload["model"]
+                        conversation.requested_model = payload["model"]
                     if "effort" in payload and payload["effort"]:
                         conversation.reasoning_effort = payload["effort"]
                     if "voice" in payload and payload["voice"]:
@@ -2024,6 +2274,15 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         _maybe_autodownload_streaming(conversation)
                     if "binary_audio" in payload:
                         conversation.binary_audio = bool(payload["binary_audio"])
+                    if "stt_model" in payload:
+                        requested_stt = payload.get("stt_model") or None
+                        if requested_stt and not is_batch_stt_model(requested_stt):
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": "Unknown batch speech-to-text model",
+                            })
+                        else:
+                            conversation.stt_model = requested_stt
                     if "live_transcript" in payload:
                         conversation.live_transcript = bool(payload["live_transcript"])
                     warmup_status = "off"
@@ -2048,6 +2307,7 @@ async def conversation_websocket(websocket: WebSocket, conversation_id: str):
                         "live_transcript": _live_transcript_enabled(conversation),
                         "live_transcript_model": _streaming_state(conversation)["model"],
                         "remote_warmup_status": warmup_status,
+                        **_stt_model_context(conversation),
                     })
                 elif msg_type == "set_plugin":
                     new_plugin = payload.get("plugin_id", "neutral").strip()

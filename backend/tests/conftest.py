@@ -4,6 +4,18 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def reset_codex_model_caches():
+    """Keep Codex model/status discovery caches from leaking between tests."""
+    from app import codex
+
+    codex._GLOBAL_MODELS_CACHE = None
+    codex._STATUS_CACHE = None
+    yield
+    codex._GLOBAL_MODELS_CACHE = None
+    codex._STATUS_CACHE = None
+
+
+@pytest.fixture(autouse=True)
 def prevent_streaming_model_downloads(monkeypatch, tmp_path):
     """Streaming STT must never download or read the developer machine's models in tests."""
     from app import main

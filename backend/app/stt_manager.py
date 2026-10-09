@@ -20,12 +20,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import model_catalog
+
 logger = logging.getLogger("voice_of_luna.stt_manager")
 
 _RELEASE_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
 
 
-@dataclass(frozen=True)
+@dataclass
 class StreamingSTTModel:
     id: str
     name: str
@@ -39,6 +41,10 @@ class StreamingSTTModel:
     archive_size_bytes: int
     auto_download: bool = False
     opt_in: bool = False
+    catalog_status: str = model_catalog.CATALOG_STATUS_RECOMMENDED
+    deprecation_reason: str = ""
+    multilingual: bool = False
+    code_switching: str = model_catalog.CODE_SWITCHING_SEGMENT_ONLY
 
     @property
     def size_mb(self) -> float:
@@ -49,6 +55,7 @@ class StreamingSTTModel:
             "id": self.id,
             "name": self.name,
             "engine": self.engine,
+            "kind": model_catalog.MODEL_KIND_STT,
             "languages": list(self.languages),
             "description": self.description,
             "size_mb": self.size_mb,
@@ -56,6 +63,12 @@ class StreamingSTTModel:
             "status": status,
             "auto_download": self.auto_download,
             "opt_in": self.opt_in,
+            "streaming": True,
+            "multilingual": self.multilingual,
+            "code_switching": self.code_switching,
+            "catalog_status": self.catalog_status,
+            "deprecation_reason": self.deprecation_reason or None,
+            "user_defined": False,
         }
 
 
@@ -128,6 +141,12 @@ STREAMING_MODEL_CATALOG: dict[str, StreamingSTTModel] = {
 
 DEFAULT_MODEL_BY_LOCALE = {"ru": "tone_ru", "es": "kroko_es"}
 
+# Explicit catalog status decisions for streaming models (issue #14).
+STREAMING_MODEL_CATALOG["vosk_ru"].catalog_status = model_catalog.CATALOG_STATUS_LEGACY
+STREAMING_MODEL_CATALOG["vosk_ru"].deprecation_reason = "Ниже точность, чем у T-One; оставлена как лёгкий вариант"
+for _nemotron_id in ("nemotron320", "nemotron560"):
+    STREAMING_MODEL_CATALOG[_nemotron_id].multilingual = True
+
 
 def _default_model_root() -> Path:
     configured = os.environ.get("VOICE_OF_LUNA_STT_MODEL_DIR")
@@ -174,24 +193,50 @@ class StreamingSTTManager:
 
     def default_model_id(self, locale: str) -> str | None:
         prefix = (locale or "").split("-")[0].lower()
-        return DEFAULT_MODEL_BY_LOCALE.get(prefix)
+        preferred = DEFAULT_MODEL_BY_LOCALE.get(prefix)
+        if preferred and STREAMING_MODEL_CATALOG[preferred].catalog_status == model_catalog.CATALOG_STATUS_DEPRECATED:
+            return None
+        return preferred
 
-    def resolve_model_id(self, locale: str, *, installed_only: bool = False) -> str | None:
+    def resolve_model_id(
+        self,
+        locale: str,
+        *,
+        installed_only: bool = False,
+        preferred_id: str | None = None,
+    ) -> str | None:
         """Pick the streaming model for a locale.
 
         Prefers the locale default, then any already-installed model that covers
         the language (including opt-in ones). With ``installed_only=False`` the
         default is returned even when it still needs downloading.
+
+        When ``preferred_id`` is supplied it is honoured only if it exists, is
+        not deprecated, covers the locale and (with ``installed_only``) is
+        installed. A requested model that cannot be used returns ``None`` so the
+        caller reports the mismatch instead of silently using another model.
         """
 
         prefix = (locale or "").split("-")[0].lower()
+        if preferred_id:
+            definition = self.get(preferred_id)
+            if (
+                definition is not None
+                and definition.catalog_status != model_catalog.CATALOG_STATUS_DEPRECATED
+                and prefix in definition.languages
+                and (not installed_only or self.is_installed(preferred_id))
+            ):
+                return preferred_id
+            return None
         preferred = self.default_model_id(locale)
         if preferred and (not installed_only or self.is_installed(preferred)):
             return preferred
         installed = [
             model.id
             for model in STREAMING_MODEL_CATALOG.values()
-            if prefix in model.languages and self.is_installed(model.id)
+            if prefix in model.languages
+            and model.catalog_status != model_catalog.CATALOG_STATUS_DEPRECATED
+            and self.is_installed(model.id)
         ]
         if installed:
             installed.sort(key=lambda mid: STREAMING_MODEL_CATALOG[mid].archive_size_bytes)
@@ -347,6 +392,76 @@ class StreamingSTTManager:
 stt_model_manager = StreamingSTTManager()
 
 
+def list_batch_stt_models() -> list[dict[str, Any]]:
+    """Return batch Whisper models (built-in + user-defined) for the STT selector."""
+
+    from .tts_manager import batch_stt_models, tts_model_manager
+
+    entries: list[dict[str, Any]] = []
+    for definition in batch_stt_models():
+        entry = tts_model_manager.get_status(definition.id)
+        entry["batch"] = True
+        entries.append(entry)
+    return entries
+
+
+def get_batch_stt_model(model_id: str) -> Any:
+    """Return the STT batch model definition for an id, or None."""
+
+    from .tts_manager import MODEL_CATALOG
+
+    definition = MODEL_CATALOG.get(model_id)
+    if definition is None or definition.kind != model_catalog.MODEL_KIND_STT:
+        return None
+    return definition
+
+
+def is_batch_stt_model(model_id: str) -> bool:
+    """Whether an id names a batch (Whisper ggml) speech-to-text model."""
+
+    from .tts_manager import MODEL_CATALOG
+
+    definition = MODEL_CATALOG.get(model_id)
+    return bool(definition and definition.kind == model_catalog.MODEL_KIND_STT)
+
+
+def resolve_batch_stt_model_id(selected_id: str | None) -> tuple[str | None, str | None]:
+    """Resolve a requested batch model id to a usable one.
+
+    Returns ``(model_id, fallback_reason)``. ``selected_id=None`` means
+    automatic: the first installed recommended model, preferring the shipped
+    default. A saved id that is no longer installed or valid falls back with a
+    reason rather than being silently attributed to another model.
+    """
+
+    from .tts_manager import (
+        DEFAULT_BATCH_STT_MODEL_ID,
+        MODEL_CATALOG,
+        batch_stt_models,
+        tts_model_manager,
+    )
+
+    if selected_id:
+        definition = MODEL_CATALOG.get(selected_id)
+        if definition is None or definition.kind != model_catalog.MODEL_KIND_STT:
+            return None, f"Selected STT model '{selected_id}' is not available; using the automatic model."
+        if tts_model_manager.is_ready(selected_id):
+            return selected_id, None
+        return None, f"Selected STT model '{selected_id}' is not installed; using the automatic model."
+
+    ordered = batch_stt_models()
+    for definition in ordered:
+        if definition.id == DEFAULT_BATCH_STT_MODEL_ID and tts_model_manager.is_ready(definition.id):
+            return definition.id, None
+    for definition in ordered:
+        if (
+            definition.catalog_status != model_catalog.CATALOG_STATUS_DEPRECATED
+            and tts_model_manager.is_ready(definition.id)
+        ):
+            return definition.id, None
+    return None, None
+
+
 __all__ = [
     "StreamingSTTManager",
     "StreamingSTTModel",
@@ -354,4 +469,8 @@ __all__ = [
     "DEFAULT_MODEL_BY_LOCALE",
     "stt_model_manager",
     "sherpa_available",
+    "list_batch_stt_models",
+    "get_batch_stt_model",
+    "is_batch_stt_model",
+    "resolve_batch_stt_model_id",
 ]

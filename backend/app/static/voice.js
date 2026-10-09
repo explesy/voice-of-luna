@@ -805,6 +805,10 @@ function handleSocketMessage(event) {
       updateFooterStatus(data.tts_engine);
     }
     applyLiveTranscriptState(data);
+    applySttState(data);
+    if (data.requested_model && data.model && data.requested_model !== data.model) {
+      showToast(`// МОДЕЛЬ ${data.requested_model} НЕДОСТУПНА -> ${data.model}`);
+    }
   } else if (data.type === "voice_updated") {
     if (data.voice) {
       const voiceSelect = document.querySelector("#voice-select");
@@ -862,6 +866,9 @@ function handleSocketMessage(event) {
     }
     if (Object.prototype.hasOwnProperty.call(data, "live_transcript_model")) {
       applyLiveTranscriptState(data);
+    }
+    if (Object.prototype.hasOwnProperty.call(data, "stt_model")) {
+      applySttState(data);
     }
   } else if (data.type === "plugin_updated") {
     if (Object.prototype.hasOwnProperty.call(data, "panel")) renderPluginPanel(data.panel, data.plugin_id, data.settings || {});
@@ -1863,6 +1870,114 @@ function collapseOtherVoices(fallbackValue) {
   return true;
 }
 
+// Batch STT model selection (issue #14)
+function applySttState(data) {
+  if (!Object.prototype.hasOwnProperty.call(data, "stt_model")) return;
+  const select = document.querySelector("#stt-model-select");
+  if (!select) return;
+  const requested = data.stt_model || "";
+  const resolved = data.stt_model_resolved || "";
+  const option = Array.from(select.options).find((opt) => opt.value === requested);
+  if (option) {
+    select.value = requested;
+  } else {
+    select.value = "";
+    const autoOpt = select.querySelector('option[value=""]');
+    if (autoOpt && resolved) {
+      autoOpt.textContent = `AUTO (${resolved})`;
+    }
+  }
+  select.dataset.resolved = resolved;
+  if (data.stt_model_fallback) {
+    showToast(`// STT: ${data.stt_model_fallback}`);
+  }
+}
+
+function initSttSelector() {
+  const select = document.querySelector("#stt-model-select");
+  if (!select || select.dataset.initialized) return;
+  select.dataset.initialized = "true";
+  select.addEventListener("change", (event) => {
+    const chosen = event.target.value || null;
+    const opt = Array.from(select.options).find((item) => item.value === (chosen || ""));
+    if (opt && opt.dataset.installed === "false" && opt.dataset.batch === "true") {
+      // Ask the server to fetch the selected batch model, then re-select it.
+      fetch(`/api/stt/models/${encodeURIComponent(chosen)}/download`, { method: "POST" })
+        .then((resp) => (resp.ok ? resp.json() : null))
+        .then((payload) => {
+          if (payload && payload.ok) showToast(`// ЗАГРУЗКА STT-МОДЕЛИ: ${chosen}`);
+        })
+        .catch(() => {});
+    }
+    sendSettingsUpdate({ stt_model: chosen });
+  });
+}
+
+// Voice status filters: deprecated reveal + native code-switching filter
+function applyVoiceFilters() {
+  const select = document.querySelector("#voice-select");
+  if (!select) return;
+  const legacyToggle = document.querySelector("#legacy-voices-toggle");
+  const multiToggle = document.querySelector("#multilingual-filter");
+  const showLegacy = Boolean(legacyToggle && legacyToggle.classList.contains("is-active"));
+  const onlyMultilingual = Boolean(multiToggle && multiToggle.classList.contains("is-active"));
+  const deprecatedGroup = select.querySelector("#deprecated-voices-group");
+  if (deprecatedGroup) deprecatedGroup.hidden = !showLegacy;
+
+  let visibleMultilingual = 0;
+  Array.from(select.querySelectorAll("option")).forEach((option) => {
+    if (!option.value || option.value.startsWith("__")) return;
+    const isMultilingual = option.dataset.multilingual === "true";
+    if (isMultilingual) visibleMultilingual += 1;
+    option.hidden = onlyMultilingual && !isMultilingual;
+  });
+  const empty = document.querySelector("#multilingual-filter-empty");
+  if (empty) empty.hidden = !(onlyMultilingual && visibleMultilingual === 0);
+}
+
+function initVoiceFilters() {
+  const legacyToggle = document.querySelector("#legacy-voices-toggle");
+  if (legacyToggle && !legacyToggle.dataset.initialized) {
+    legacyToggle.dataset.initialized = "true";
+    legacyToggle.addEventListener("click", () => {
+      legacyToggle.classList.toggle("is-active");
+      applyVoiceFilters();
+    });
+  }
+  const multiToggle = document.querySelector("#multilingual-filter");
+  if (multiToggle && !multiToggle.dataset.initialized) {
+    multiToggle.dataset.initialized = "true";
+    multiToggle.addEventListener("click", () => {
+      multiToggle.classList.toggle("is-active");
+      applyVoiceFilters();
+    });
+  }
+  applyVoiceFilters();
+}
+
+// Effort options follow the selected Codex model's supported efforts
+function updateEffortOptions(modelId) {
+  const select = document.querySelector("#effort-select");
+  const models = window._MODELS;
+  if (!select || !Array.isArray(models)) return select ? select.value : null;
+  const entry = models.find((model) => model.id === modelId);
+  const efforts = (entry && entry.supportedReasoningEfforts ? entry.supportedReasoningEfforts : [])
+    .map((item) => item.reasoningEffort)
+    .filter(Boolean);
+  if (!efforts.length) return select.value;
+  const current = select.value;
+  select.innerHTML = "";
+  efforts.forEach((effort) => {
+    const option = document.createElement("option");
+    option.value = effort;
+    option.textContent = effort === "low" ? "low (fast)" : effort;
+    select.appendChild(option);
+  });
+  const effective = efforts.includes(current) ? current : efforts[0];
+  select.value = effective;
+  return effective;
+}
+
 // Voice selection & persistence
 function initVoiceSelector() {
   const select = document.querySelector("#voice-select");
@@ -2156,7 +2271,17 @@ function initSettingsSelectors() {
       const chosenModel = e.target.value;
       localStorage.setItem("voice_of_luna_model", chosenModel);
       document.cookie = `voice_of_luna_model=${encodeURIComponent(chosenModel)}; path=/; max-age=31536000; SameSite=Lax`;
-      sendSettingsUpdate({ model: chosenModel, remote_warmup: localStorage.getItem("voice_of_luna_remote_warmup") !== "false" });
+      // Keep the persisted/used effort consistent with the newly displayed one.
+      const effectiveEffort = updateEffortOptions(chosenModel);
+      if (effectiveEffort) {
+        localStorage.setItem("voice_of_luna_effort", effectiveEffort);
+        document.cookie = `voice_of_luna_effort=${encodeURIComponent(effectiveEffort)}; path=/; max-age=31536000; SameSite=Lax`;
+      }
+      sendSettingsUpdate({
+        model: chosenModel,
+        effort: effectiveEffort || undefined,
+        remote_warmup: localStorage.getItem("voice_of_luna_remote_warmup") !== "false",
+      });
       showToast(`// MODEL: ${chosenModel}`);
     });
   }
@@ -2631,6 +2756,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   initLocaleSelector();
   initVoiceSelector();
+  initVoiceFilters();
+  initSttSelector();
   initSettingsSelectors();
   initPluginSelector();
   initPluginModal();

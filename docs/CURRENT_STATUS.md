@@ -1,7 +1,7 @@
 # Voice of Lúna — Current Status
 
 Updated: 2026-10-09
-Current release: **0.43.2** (2026-10-09)
+Current release: **0.44.0** (2026-10-09)
 
 Purpose: compact current truth for fresh-session startup. This is not a changelog, task list, benchmark table, or replacement for the numbered canonical docs.
 
@@ -19,7 +19,8 @@ The current product is a local single-user tool, not a public multi-user service
 - Speech playback controls: pause/resume, per-message replay, and ephemeral re-voice through the full TTS stack without a new Codex turn.
 - Streaming speech segmentation / pipelined TTS and measured latency stages.
 - Client-side adaptive VAD and instant barge-in/cancellation.
-- Live model discovery from the local Codex runtime and per-session reasoning selection.
+- Live model discovery from the local Codex runtime and per-session reasoning selection, with `live`/`preset` provenance labels so an unavailable model is not silently reattributed.
+- Unified, user-extensible model catalog: `recommended / legacy / deprecated` lifecycle status, per-voice `languages`/`multilingual`/`code_switching` capability metadata, selectable batch Whisper STT model, and Piper/Whisper models added through a validated `VOICE_OF_LUNA_MODELS_CONFIG` file.
 - Optional cancellation-safe warmup.
 - Trusted in-process plugin system with plugin-owned settings, panels/actions, tools and namespaced persistent state.
 - Separately installed plugins can be discovered through Python entry points (`voice_of_luna.plugins`).
@@ -31,6 +32,7 @@ For product overview and UX: `README.md`, `docs/00 — PROJECT README.md`, `docs
 For architecture: `docs/02 — Technical Architecture.md`.
 For neutral turn-taking/plugin protocol: `docs/03 — Conversation Protocol.md`.
 For measured performance: `docs/05 — Latency & Performance Benchmarks.md`.
+For the model catalog, per-voice language capability and user-defined models: `docs/07 — Model Catalog & User Models.md`.
 
 ## Architectural boundaries
 

@@ -346,10 +346,12 @@ class LocalWhisperTranscriber:
         language: str | None = None,
         server_url: str | None = None,
         prompt: str | None = None,
+        prefer_server: bool = True,
     ) -> None:
         from app.whisper_server import resolve_whisper_model_path
 
         self.model_path = resolve_whisper_model_path(model_path)
+        self.prefer_server = prefer_server
         self.language = language or os.environ.get("VOICE_OF_LUNA_WHISPER_LANGUAGE", "ru")
         self.prompt = prompt or os.environ.get("VOICE_OF_LUNA_WHISPER_PROMPT")
         host = os.environ.get("VOICE_OF_LUNA_WHISPER_HOST", "127.0.0.1")
@@ -379,9 +381,10 @@ class LocalWhisperTranscriber:
     ) -> str:
         target_language = language or self.language
         target_prompt = prompt or self.prompt
-        transcript = await self._transcribe_http(audio_path, target_language, target_prompt)
-        if transcript is not None:
-            return transcript
+        if self.prefer_server:
+            transcript = await self._transcribe_http(audio_path, target_language, target_prompt)
+            if transcript is not None:
+                return transcript
         return await self._transcribe_cli(audio_path, target_language, target_prompt)
 
     async def _transcribe_http(
