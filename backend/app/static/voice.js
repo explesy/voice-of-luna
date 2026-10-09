@@ -406,9 +406,18 @@ let socket = null;
 
 function stopSpeaking() {
   if (currentStreamingEntry) {
-    // Barge-in cancels the in-flight turn; drop its partial assistant bubble so
-    // it cannot be confused with a real server-side turn.
-    currentStreamingEntry.remove();
+    // Flush whatever already arrived, then keep the bubble if it has text.
+    // STOP must only silence audio; it must not erase an answer the user
+    // already saw. A still-empty bubble is dropped so no ghost remains.
+    flushStreamingText();
+    const textEl = currentStreamingEntry.querySelector(".log-text");
+    const hasText = Boolean((textEl?.dataset?.rawText || textEl?.textContent || "").trim());
+    if (!hasText) {
+      currentStreamingEntry.remove();
+    } else if (textEl) {
+      textEl.dataset.rawText = textEl.textContent;
+      formatTerminalText(textEl);
+    }
     currentStreamingEntry = null;
     pendingStreamingText = "";
   }
@@ -887,9 +896,10 @@ function handleSocketMessage(event) {
     if (data.text) {
       showInterimTranscript(data.text);
       const providerLabel = `STREAM // ${(data.provider || "stt").toUpperCase()}`;
+      // The interim words live in the feed only; the sidebar status stays neutral.
       setVoiceState(
         "transcribing",
-        `Listening... ${data.text}`,
+        "Listening...",
         data.final ? `${providerLabel} FINAL` : providerLabel,
       );
     }

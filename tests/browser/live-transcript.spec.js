@@ -43,6 +43,35 @@ test("interim transcript is replaced by the final authoritative transcript", asy
   expect(pageErrors).toEqual([]);
 });
 
+test("interim transcript is not duplicated in the sidebar status line", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.speechSynthesis = { cancel() {}, speak() {} };
+  });
+
+  await page.routeWebSocket(/\/ws\/conversations\//, (socket) => {
+    socket.send(JSON.stringify({
+      type: "ready",
+      locale: "ru-RU",
+      live_transcript_available: true,
+      live_transcript: true,
+    }));
+  });
+
+  await page.goto("/");
+  await expect(page.locator("[data-conversation-id]")).toBeVisible();
+
+  await page.evaluate(() => {
+    handleSocketMessage({
+      data: JSON.stringify({ type: "stt_partial", provider: "tone", text: "привет как", interim: true, final: false }),
+    });
+  });
+
+  await expect(page.locator(".log-entry.user.interim .log-text")).toHaveText("привет как");
+  const status = page.locator("[data-voice-status]");
+  await expect(status).toContainText("Listening");
+  await expect(status).not.toContainText("привет");
+});
+
 test("interim transcript is cleared on error and on empty final transcript", async ({ page }) => {
   await page.addInitScript(() => {
     window.speechSynthesis = { cancel() {}, speak() {} };
