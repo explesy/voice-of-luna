@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.1] - 2026-10-09
+
+### Fixed
+- Live interim transcript no longer duplicates the recognized words in the left sidebar status line; the partial text appears only in the feed (issue #24).
+- Pressing STOP (or Esc / starting a new recording) while the reply is still streaming no longer deletes the already-visible assistant text; only a still-empty bubble is removed (issue #25).
+
 ## [0.43.0] - 2026-10-09
 
 ### Added
