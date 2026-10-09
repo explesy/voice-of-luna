@@ -1,7 +1,7 @@
 # Voice of Lúna — Current Status
 
 Updated: 2026-10-09
-Current release: **0.42.2** (2026-10-09)
+Current release: **0.43.0** (2026-10-09)
 
 Purpose: compact current truth for fresh-session startup. This is not a changelog, task list, benchmark table, or replacement for the numbered canonical docs.
 
@@ -15,7 +15,7 @@ The current product is a local single-user tool, not a public multi-user service
 
 - Browser voice + text turns with persistent same-thread Codex conversation.
 - Local Whisper speech recognition and multi-tier TTS (Piper, optional Silero, Edge TTS, macOS system fallback).
-- Optional live interim transcript while speaking (local streaming STT partials in the feed, replaced by the authoritative Whisper transcript; per-session `LIVE` toggle, batch fallback when unavailable).
+- Live interim transcript while speaking (local streaming STT partials in the feed, replaced by the authoritative Whisper transcript; per-session `LIVE` toggle, batch fallback when unavailable). Language-routed engines (T-One ru, es-kroko es, opt-in Nemotron) are downloaded on first use through the streaming-STT model manager.
 - Speech playback controls: pause/resume, per-message replay, and ephemeral re-voice through the full TTS stack without a new Codex turn.
 - Streaming speech segmentation / pipelined TTS and measured latency stages.
 - Client-side adaptive VAD and instant barge-in/cancellation.

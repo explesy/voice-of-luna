@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-10-09
+
+### Added
+- Streaming STT now works in the app (issue #23). The runtime is language-routed: T-One for Russian, es-kroko for Spanish, and Nemotron 3.5 when it is installed; the selected engine streams partials into the feed and falls back to batch Whisper when unavailable.
+- Local streaming-STT model manager with on-demand download + extraction (`/api/stt/models`, `/api/stt/models/{id}/download`, `/api/stt/models/{id}/status`). The language's default model is downloaded automatically on first use (`VOICE_OF_LUNA_STT_AUTODOWNLOAD=0` disables it; `VOICE_OF_LUNA_STREAMING_STT=0` forces batch mode).
+- The `LIVE` chip now shows model download progress and enables the toggle when the model is ready.
+
+### Changed
+- `sherpa-onnx` (and its platform runtime `sherpa-onnx-core`) are now core dependencies so streaming works after a normal `uv sync`.
+
+### Fixed
+- The language-routed transducer path keeps the per-stream language option for Nemotron and reuses one loaded recognizer per engine.
+
 ## [0.42.2] - 2026-10-09
 
 ### Added
