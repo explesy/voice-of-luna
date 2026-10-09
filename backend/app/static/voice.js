@@ -973,6 +973,8 @@ function flushStreamingText() {
 }
 
 function speakLatestResponse() {
+  // Make sure any buffered streaming text is on screen before reading it.
+  flushStreamingText();
   const responses = document.querySelectorAll("[data-spoken-response]");
   const latest = responses[responses.length - 1];
   if (!latest || latest.dataset.spoken) return;

@@ -225,6 +225,11 @@ function getPlaybackContext() {
 }
 async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "audio/wav", rawArrayBuffer = null, turnId = null, clipId = null, text = null, replay = false) {
   const targetEntry = entry || currentStreamingEntry;
+  // Server-streamed audio counts as delivered: never let the browser-TTS
+  // fallback (speakLatestResponse) read this message aloud a second time.
+  if (targetEntry && targetEntry.dataset) {
+    targetEntry.dataset.spoken = "true";
+  }
   let blobUrl = null;
   let audioBuffer = null;
 
