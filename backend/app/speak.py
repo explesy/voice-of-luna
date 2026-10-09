@@ -80,9 +80,12 @@ PIPER_VOICES: dict[str, str] = {
 
 
 def is_silero_available() -> bool:
-    """Check if PyTorch (torch) is installed for Silero offline neural voices."""
+    """Check if PyTorch (torch) and SciPy (scipy) are installed for Silero offline neural voices."""
     import importlib.util
-    return importlib.util.find_spec("torch") is not None
+    return (
+        importlib.util.find_spec("torch") is not None
+        and importlib.util.find_spec("scipy") is not None
+    )
 
 
 def is_edge_voice(voice_name: str) -> bool:

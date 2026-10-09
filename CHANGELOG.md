@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.39.1] - 2026-10-09
+## [0.39.2] - 2026-10-09
+
+### Fixed
+- Fixed Silero v5 neural model runtime failure by adding required `scipy` dependency to `[project.optional-dependencies] silero` and checking `scipy` in `is_silero_available()`.
+
 
 ### Fixed
 - Fixed `unbound variable` error when expanding empty `PREFLIGHT_ARGS` in `./scripts/run.sh` under Bash 3.2 on macOS with `set -u`.
