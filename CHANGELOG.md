@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Fixed fatal `ReferenceError: initProjectRootApply is not defined` in `voice.js` caused by missing function declarations, which blocked `DOMContentLoaded` listeners, disabled voice selection event handling, and prevented TTS model downloads from starting.
+- Added automatic migration from legacy default model (`gpt-5.6-luna`) to `gpt-6-luna` in browser `localStorage` and cookies on page open, ensuring existing users see and use `GPT-6-Luna` by default.
 - Added dynamic version cache busting to static script and stylesheet tags in `index.html` (`/static/voice.js?v={{ version }}` and `/static/app.css?v={{ version }}`).
 - Ensured uninstalled voice selection on page load automatically triggers background download and status tracking.
 
