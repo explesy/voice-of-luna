@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.3] - 2026-10-09
+
+### Fixed
+- Fixed missing model response text in chat feed during gated delivery / non-streaming plugin turns (`_gated_turn_and_synthesize`), emitting a `delta` event upon validation approval and ensuring `audio_chunk` and `turn_completed` handlers fallback to create assistant feed entries when streaming deltas are omitted.
+
+### Changed
+- Streamlined plugin panel actions: clicking action buttons (such as Start or Reset) automatically synchronizes input field values (`[data-plugin-setting]`) without requiring a separate Apply click, and surfaces descriptive status/error toast feedback in the UI.
+
 ## [0.40.2] - 2026-10-09
 
 ### Fixed

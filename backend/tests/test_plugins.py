@@ -405,3 +405,36 @@ def test_plugin_panel_rich_rendering_with_textarea():
         root_page = client.get("/")
         assert 'id="plugin-result-modal"' in root_page.text
 
+
+def test_websocket_gated_turn_delivers_delta_event(monkeypatch):
+    if "gated" not in plugin_manager._plugins:
+        plugin_manager.register(GatedPlugin())
+    created = client.post("/api/conversations")
+    conv_id = created.json()["id"]
+    selected = client.post(f"/api/conversations/{conv_id}/plugin", json={"plugin_id": "gated", "mode": "default"})
+    assert selected.status_code == 200
+
+    async def fake_reply(model, text, context_prompt=None, **kwargs):
+        return "unsafe model output"
+
+    monkeypatch.setattr(main_module, "_call_reply", fake_reply)
+
+    with client.websocket_connect(f"/ws/conversations/{conv_id}") as ws:
+        ready_msg = ws.receive_json()
+        assert ready_msg["type"] == "ready"
+
+        ws.send_json({"type": "text", "text": "hello gated"})
+
+        messages = []
+        while True:
+            msg = ws.receive_json()
+            messages.append(msg)
+            if msg["type"] in ("turn_completed", "error"):
+                break
+
+        msg_types = [m["type"] for m in messages]
+        assert "delta" in msg_types
+        delta_msg = next(m for m in messages if m["type"] == "delta")
+        assert delta_msg["delta"] == "Safe replacement"
+
+

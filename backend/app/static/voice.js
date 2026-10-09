@@ -567,6 +567,9 @@ function handleSocketMessage(event) {
         const decoder = new TextDecoder("utf-8");
         const meta = JSON.parse(decoder.decode(headerBytes));
         const audioBuffer = event.data.slice(3 + headerLen);
+        if (!currentStreamingEntry && meta.text) {
+          currentStreamingEntry = appendMessageToFeed("assistant", meta.text);
+        }
         enqueueAudioChunk(
           meta.audio_url || (meta.clip_id ? `/speech/${meta.clip_id}` : null),
           currentStreamingEntry,
@@ -711,6 +714,9 @@ function handleSocketMessage(event) {
     pendingStreamingText += data.delta || "";
     scheduleStreamingTextFlush();
   } else if (data.type === "audio_chunk") {
+    if (!currentStreamingEntry && data.text) {
+      currentStreamingEntry = appendMessageToFeed("assistant", data.text);
+    }
     enqueueAudioChunk(data.audio_url, currentStreamingEntry, data.audio_base64, data.mime_type, null, data.turn_id || null, data.clip_id || null, data.text || null);
   } else if (data.type === "turn_completed") {
     flushStreamingText();
@@ -725,8 +731,13 @@ function handleSocketMessage(event) {
     if (currentStreamingEntry) {
       const textEl = currentStreamingEntry.querySelector(".log-text");
       if (textEl) {
+        if (!textEl.textContent && data.turn?.text) {
+          textEl.textContent = data.turn.text;
+        }
         formatTerminalText(textEl);
       }
+    } else if (data.turn && data.turn.text) {
+      appendMessageToFeed(data.turn.role || "assistant", data.turn.text);
     }
     currentStreamingEntry = null;
     updateTurnsCount();
@@ -2098,15 +2109,42 @@ function initProjectRootApply() {
 function initProjectRoomActions() {
   const convId = document.querySelector("[data-conversation-id]")?.dataset?.conversationId;
   if (!convId) return;
-  document.querySelectorAll("[data-plugin-action]").forEach((button) => button.addEventListener("click", async () => {
-    const action = button.dataset.pluginAction;
-    if (action === "forget" && !window.confirm("Forget this plugin data?")) return;
-    const response = await fetch(`/api/conversations/${convId}/plugin/action`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
+  document.querySelectorAll("[data-plugin-action]").forEach((button) => {
+    if (button.dataset.actionInitialized) return;
+    button.dataset.actionInitialized = "true";
+    button.addEventListener("click", async () => {
+      const action = button.dataset.pluginAction;
+      if (action === "forget" && !window.confirm("Forget this plugin data?")) return;
+
+      // Automatically sync input settings before executing plugin actions so user doesn't need to click APPLY
+      const selector = document.querySelector("#session-plugin-select, #plugin-select, .plugin-select");
+      const modeSelector = document.querySelector("#mode-select");
+      if (document.querySelectorAll("[data-plugin-setting]").length > 0) {
+        sendPluginUpdate(selector?.value || "neutral", modeSelector?.value || "default");
+      }
+
+      try {
+        const response = await fetch(`/api/conversations/${convId}/plugin/action`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          if (action === "start_session") {
+            showToast("// ТРЕНИРОВКА АКТИВНА: Говорите [Space] или напишите в чат");
+          } else if (action === "reset") {
+            showToast("// СЕССИЯ СБРОШЕНА");
+          } else {
+            showToast(`// PLUGIN ACTION: ${action.toUpperCase()}`);
+          }
+        } else {
+          showToast(`// ОШИБКА ДЕЙСТВИЯ: ${payload.detail || response.statusText}`);
+        }
+      } catch (err) {
+        showToast(`// СЕТЕВАЯ ОШИБКА: ${err.message}`);
+      }
     });
-    if (response.ok) showToast(`// PLUGIN ACTION: ${action.toUpperCase()}`);
-  }));
+  });
 }
 
 async function pollToolApprovals() {

@@ -1274,6 +1274,7 @@ async def _gated_turn_and_synthesize(
             await websocket.send_json({"type": "error", "message": "Plugin rejected the model response"})
             return
         approved = str(decision.text or generated).strip()
+        await websocket.send_json({"type": "delta", "delta": approved})
         speaker_voice = resolve_turn_language(conversation, user_text=prompt_text).speaker_voice
         speaker = LocalMacOsSpeaker(voice=speaker_voice)
         if getattr(speaker.synthesize, "__func__", None) is not _DEFAULT_SPEAKER_SYNTHESIZE:
