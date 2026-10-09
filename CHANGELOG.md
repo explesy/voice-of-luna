@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-10-09
+
+### Added
+- Unified, user-extensible model catalog (issue #14): a normalized `GET /api/models/catalog` view grouping TTS/STT/LLM entries by kind/engine/locale with `recommended / legacy / deprecated` lifecycle status and status counts.
+- Per-voice language capability metadata (`languages`, `multilingual`, `code_switching: native | segment_only | none`) exposed by `/api/voices` and `/api/tts/models`, with a multilingual badge and `NATIVE` filter in the voice selector. This is the capability input required by #13's mixed-language routing.
+- User-defined models via a validated `VOICE_OF_LUNA_MODELS_CONFIG` JSON file: add Piper `.onnx` voices and Whisper `ggml` models (downloadable with `https` + `sha256`, or local-only files) without patching code. Invalid entries are skipped with sanitized errors.
+- First-class batch speech-to-text selection in the UI (`STT:` chip), persisted per session and reflected in WebSocket `ready`/`settings_updated`.
+- `live`/`preset` provenance labels for Codex model discovery, plus requested-vs-resolved model reporting so an unavailable saved model is no longer silently reattributed.
+- Reasoning-effort options now follow the selected model's `supportedReasoningEfforts`.
+
+### Changed
+- Silero v4 (`silero_v4_ru`) is marked `deprecated` (superseded by Silero v5) and excluded from automatic defaults; its voices are hidden behind a `DEPRECATED` toggle. Whisper small is marked `legacy`; the recommended batch model is Whisper Large-v3-Turbo.
+- Silero no longer silently substitutes the other model version; the voice that actually produced audio is reported.
+- Batch Whisper transcription uses the resident `whisper-server` only when it is known to have loaded the selected file; otherwise the selected model runs through `whisper-cli`, so a transcript is never attributed to the wrong model.
+- Unknown Piper voice names no longer fall back to the Dmitri model; custom Piper voices resolve exactly.
+
+### Fixed
+- Model discovery/status caches no longer leak between test cases.
+
 ## [0.43.2] - 2026-10-09
 
 ### Fixed
