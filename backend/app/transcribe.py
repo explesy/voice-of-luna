@@ -52,9 +52,11 @@ class ToneStreamingSession:
             ) from exc
         self._np = np
         # T-One's feature extractor is configured for 8 kHz. Sherpa accepts
-        # arbitrary input sample rates in accept_waveform(), so browser audio
-        # can remain at its native rate while endpoint padding uses 8 kHz.
+        # arbitrary input sample rates in accept_waveform(), but a single stream
+        # must keep a constant input rate, so trailing padding is fed at the same
+        # rate as the last pushed frame.
         self._model_sample_rate = 8_000
+        self._input_sample_rate = sample_rate or 16_000
         self._recognizer = sherpa_onnx.OnlineRecognizer.from_t_one_ctc(
             model=model,
             tokens=tokens,
@@ -65,13 +67,15 @@ class ToneStreamingSession:
         self._stream = self._recognizer.create_stream()
 
     async def push_pcm(self, samples: bytes, sample_rate: int) -> str:
+        if sample_rate:
+            self._input_sample_rate = sample_rate
         audio = self._np.frombuffer(samples, dtype=self._np.int16).astype(self._np.float32) / 32768.0
         await asyncio.to_thread(self._decode, audio, sample_rate)
         return self._result_text()
 
     async def finalize(self) -> str:
-        padding = self._np.zeros(int(0.66 * self._model_sample_rate), dtype=self._np.float32)
-        await asyncio.to_thread(self._decode, padding, self._model_sample_rate)
+        padding = self._np.zeros(int(0.66 * self._input_sample_rate), dtype=self._np.float32)
+        await asyncio.to_thread(self._decode, padding, self._input_sample_rate)
         self._stream.input_finished()
         await asyncio.to_thread(self._drain)
         return self._result_text()

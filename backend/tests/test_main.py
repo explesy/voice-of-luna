@@ -1,5 +1,7 @@
 import asyncio
 import re
+import sys
+import types
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -55,6 +57,43 @@ def test_tone_streaming_unavailable_without_model(monkeypatch) -> None:
     assert tone_streaming_configured() is False
 
 
+
+
+def test_tone_streaming_finalize_pads_at_input_sample_rate(monkeypatch) -> None:
+    recorded: list[tuple] = []
+
+    class FakeStream:
+        def accept_waveform(self, sample_rate, audio):
+            recorded.append((sample_rate, len(audio)))
+
+        def input_finished(self):
+            pass
+
+    class FakeRecognizer:
+        def create_stream(self):
+            return FakeStream()
+
+        def is_ready(self, stream):
+            return False
+
+        def decode_stream(self, stream):
+            pass
+
+        def get_result(self, stream):
+            return types.SimpleNamespace(text="ok")
+
+    fake_sherpa = types.SimpleNamespace(
+        OnlineRecognizer=types.SimpleNamespace(from_t_one_ctc=lambda **kwargs: FakeRecognizer())
+    )
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", fake_sherpa)
+
+    session = main_module.create_tone_streaming_session("model.onnx", "tokens.txt", 16000)
+    asyncio.run(session.push_pcm(b"\x00\x00" * 160, 16000))
+    asyncio.run(session.finalize())
+
+    # Both the audio frame and the trailing padding must use the same input rate:
+    # sherpa's stream resampler rejects a changing input sample rate.
+    assert [rate for rate, _ in recorded] == [16000, 16000]
 
 
 def test_creates_and_deletes_conversation() -> None:

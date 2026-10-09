@@ -23,3 +23,6 @@ backend/models/
 node_modules/
 test-results/
 playwright-report/
+
+# Local STT benchmark output
+benchmark-results/
