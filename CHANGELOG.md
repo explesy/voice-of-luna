@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-10-09
+
+### Added
+- Playback transport controls for spoken replies: pause/resume mid-clip (sample-accurate on the Web Audio path; native pause/play on the `Audio`-element fallback) with a first-class `paused` voice state; incoming audio chunks are buffered while paused (issue #15).
+- Per-message REPLAY and RE-VOICE controls in the conversation feed. Both re-synthesize the authoritative server-side assistant turn text through the full local/Edge TTS stack (Piper/Silero/Edge/macOS) with no Codex call and no new turn (`POST /api/conversations/{id}/turns/{n}/resynthesize`).
+- Re-voice voice picker with an optional "set as session voice" checkbox; re-voice is ephemeral by default and never changes the message text.
+
+### Changed
+- `output_event` playback lifecycle now carries `replay: true` for replay/re-voice so plugins can count replays separately from first delivery (decision D5).
+
 ## [0.41.0] - 2026-10-09
 
 ### Added
