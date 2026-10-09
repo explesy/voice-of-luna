@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.40.0] - 2026-10-09
+## [0.40.1] - 2026-10-09
+
+### Changed
+- Set default LLM model to `gpt-6-luna` (GPT-6-Luna), prioritizing it as the default conversation model across view contexts, settings endpoints, and fallback catalogs.
+
 
 ### Added
 - Explicit sticky terminal download banner (`#model-download-banner`) showing model name, live percentage, transfer speed, MB downloaded, and remaining ETA (fixes #12).

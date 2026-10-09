@@ -36,6 +36,7 @@ client = TestClient(app)
 # ---------------------------------------------------------------------------
 
 AI_MODELS_MATRIX = [
+    ("gpt-6-luna", ["low", "medium", "high", "xhigh"]),
     ("gpt-5.6-luna", ["low", "medium", "high", "xhigh"]),
     ("gpt-5.6-sol", ["low", "medium", "high", "xhigh"]),
     ("gpt-5.6-terra", ["low", "medium", "high", "xhigh"]),

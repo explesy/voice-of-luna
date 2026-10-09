@@ -553,3 +553,10 @@ def test_list_models(monkeypatch) -> None:
         await provider.close()
 
     asyncio.run(exercise())
+
+
+def test_default_model_is_gpt_6_luna() -> None:
+    from app.codex import DEFAULT_MODEL, FALLBACK_MODELS
+    assert DEFAULT_MODEL == "gpt-6-luna"
+    assert any(m["id"] == "gpt-6-luna" for m in FALLBACK_MODELS)
+

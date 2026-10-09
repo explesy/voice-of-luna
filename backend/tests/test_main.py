@@ -836,6 +836,20 @@ def test_api_models_does_not_reinsert_an_unavailable_saved_model(monkeypatch) ->
     assert response.json()["active_model"] == "gpt-5.6-luna"
 
 
+def test_default_model_prioritized_when_available(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+    async def fake_list_models(_):
+        return [{"id": "gpt-6.1-sol"}, {"id": "gpt-6-luna"}, {"id": "gpt-5.6-luna"}]
+
+    monkeypatch.setattr(main_module.CodexAppServer, "list_models", fake_list_models)
+    monkeypatch.setattr(main_module.CodexAppServer, "close", AsyncMock())
+
+    response = client.get("/api/models")
+    assert response.status_code == 200
+    assert response.json()["active_model"] == "gpt-6-luna"
+
+
+
 def test_voice_selection_does_not_change_another_conversations_default_voice() -> None:
     from app.speak import get_default_voice, reset_active_voice
 

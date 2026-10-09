@@ -426,7 +426,7 @@ async def _get_view_context(request: Request, conversation: Conversation | None 
 
     requested_model = (conversation.model_name if conversation else None) or (cookie_model.strip('"') if cookie_model else None)
     available_model_ids = {str(model.get("id")) for model in models if model.get("id")}
-    active_model = requested_model if requested_model in available_model_ids else (models[0]["id"] if models else DEFAULT_MODEL)
+    active_model = requested_model if requested_model in available_model_ids else (DEFAULT_MODEL if DEFAULT_MODEL in available_model_ids else (models[0]["id"] if models else DEFAULT_MODEL))
     active_effort = (conversation.reasoning_effort if conversation else None) or (cookie_effort.strip('"') if cookie_effort else "low")
     if conversation:
         conversation.model_name = active_model
@@ -818,7 +818,7 @@ async def list_available_models(request: Request) -> dict[str, object]:
     cookie_effort = request.cookies.get("voice_of_luna_effort")
     requested_model = cookie_model.strip('"') if cookie_model else None
     available_model_ids = {str(model.get("id")) for model in models if model.get("id")}
-    active_model = requested_model if requested_model in available_model_ids else (models[0]["id"] if models else DEFAULT_MODEL)
+    active_model = requested_model if requested_model in available_model_ids else (DEFAULT_MODEL if DEFAULT_MODEL in available_model_ids else (models[0]["id"] if models else DEFAULT_MODEL))
     return {
         "models": models,
         "active_model": active_model,

@@ -59,9 +59,20 @@ def get_base_instructions(locale: str = "ru-RU") -> str:
 
 
 DEFAULT_BASE_INSTRUCTIONS = get_base_instructions("ru-RU")
-DEFAULT_MODEL = "gpt-5.6-luna"
+DEFAULT_MODEL = "gpt-6-luna"
 
 FALLBACK_MODELS: list[dict[str, Any]] = [
+    {
+        "id": "gpt-6-luna",
+        "displayName": "GPT-6-Luna",
+        "description": "Fast and responsive personal voice companion",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "low", "description": "Fast responses with lighter reasoning"},
+            {"reasoningEffort": "medium", "description": "Balances speed and reasoning depth"},
+            {"reasoningEffort": "high", "description": "Greater reasoning depth"},
+            {"reasoningEffort": "xhigh", "description": "Extra high reasoning depth"},
+        ],
+    },
     {
         "id": "gpt-5.6-luna",
         "displayName": "GPT-5.6-Luna",
