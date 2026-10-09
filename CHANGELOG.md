@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.2] - 2026-10-09
+
+### Fixed
+- Fixed fatal `ReferenceError: initProjectRootApply is not defined` in `voice.js` caused by missing function declarations, which blocked `DOMContentLoaded` listeners, disabled voice selection event handling, and prevented TTS model downloads from starting.
+- Added dynamic version cache busting to static script and stylesheet tags in `index.html` (`/static/voice.js?v={{ version }}` and `/static/app.css?v={{ version }}`).
+- Ensured uninstalled voice selection on page load automatically triggers background download and status tracking.
+
 ## [0.40.1] - 2026-10-09
 
 ### Changed

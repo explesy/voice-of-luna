@@ -999,3 +999,18 @@ def test_favicon_endpoint_and_markup() -> None:
     res_svg = client.get("/static/favicon.svg")
     assert res_svg.status_code == 200
     assert "image/svg+xml" in res_svg.headers["content-type"]
+
+
+def test_static_scripts_have_version_cache_busting() -> None:
+    page = client.get("/")
+    assert page.status_code == 200
+    assert f'/static/voice.js?v={main_module.__version__}' in page.text
+    assert f'/static/js/audio-player.js?v={main_module.__version__}' in page.text
+
+
+def test_voice_js_contains_gpt6_legacy_migration() -> None:
+    voice_js_path = Path(__file__).resolve().parents[1] / "app" / "static" / "voice.js"
+    content = voice_js_path.read_text(encoding="utf-8")
+    assert "voice_of_luna_migrated_gpt6" in content
+    assert "gpt-6-luna" in content
+

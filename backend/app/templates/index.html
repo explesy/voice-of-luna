@@ -12,7 +12,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
     <link rel="manifest" href="/static/site.webmanifest" />
     <meta name="theme-color" content="#090a10" />
-    <link rel="stylesheet" href="/static/app.css?v=0.28.16" />
+    <link rel="stylesheet" href="/static/app.css?v={{ version }}" />
     <script src="/static/vendor/htmx-2.0.4.min.js"></script>
   </head>
   <body>
@@ -209,9 +209,9 @@
       window._ACTIVE_PLUGIN = {{ active_plugin | tojson }};
       window._ACTIVE_PLUGIN_MODE = {{ active_plugin_mode | tojson }};
     </script>
-    <script src="/static/js/audio-player.js"></script>
-    <script src="/static/js/terminal-formatter.js"></script>
-    <script src="/static/js/vad.js"></script>
-    <script src="/static/voice.js"></script>
+    <script src="/static/js/audio-player.js?v={{ version }}"></script>
+    <script src="/static/js/terminal-formatter.js?v={{ version }}"></script>
+    <script src="/static/js/vad.js?v={{ version }}"></script>
+    <script src="/static/voice.js?v={{ version }}"></script>
   </body>
 </html>

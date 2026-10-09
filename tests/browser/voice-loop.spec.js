@@ -70,3 +70,49 @@ test("text turn, settings, and fake microphone stay on one browser session", asy
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
 });
+
+test("selecting uninstalled model triggers download banner and polling UI", async ({ page }) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
+  await page.route("**/api/voice", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        active_voice: "Denis (Piper Neural · Offline)",
+        auto_downloading: true,
+        model_id: "piper_ru_denis",
+      }),
+    });
+  });
+
+  await page.route("**/api/tts/models/piper_ru_denis/status", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "piper_ru_denis",
+        name: "Piper Denis (Medium)",
+        status: "downloading",
+        progress_percent: 42,
+        downloaded_mb: 25.2,
+        total_mb: 60.0,
+        speed_kbps: 1024,
+        eta_seconds: 35,
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.locator("#voice-select").selectOption("Denis (Piper Neural · Offline)");
+
+  const banner = page.locator("#model-download-banner");
+  await expect(banner).toBeVisible();
+  await expect(page.locator("#download-pct")).toHaveText(/42%/);
+  await expect(page.locator("#voice-download-badge")).toBeVisible();
+  await expect(page.locator("#voice-download-badge")).toContainText("42%");
+
+  expect(pageErrors).toEqual([]);
+});

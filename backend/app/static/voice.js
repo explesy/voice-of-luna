@@ -1460,11 +1460,15 @@ function initVoiceSelector() {
         hasOption = true;
       }
     }
-    if (hasOption && select.value !== saved) {
-      select.value = saved;
-      select.dataset.lastVoice = saved;
-      updateVoiceAttributes(saved);
-      sendVoiceUpdate(saved);
+    if (hasOption) {
+      const opt = select.querySelector(`option[value="${CSS.escape(saved)}"]`);
+      const isUninstalled = opt && (opt.dataset.installed === "false" || opt.textContent.includes("[↓"));
+      if (select.value !== saved || isUninstalled) {
+        select.value = saved;
+        select.dataset.lastVoice = saved;
+        updateVoiceAttributes(saved);
+        sendVoiceUpdate(saved);
+      }
     }
   }
 
@@ -1705,8 +1709,22 @@ function initSettingsSelectors() {
   const effortSelect = document.querySelector("#effort-select");
 
   if (modelSelect) {
-    const savedModel = localStorage.getItem("voice_of_luna_model");
-    if (savedModel) {
+    let savedModel = localStorage.getItem("voice_of_luna_model");
+    const migratedToGpt6 = localStorage.getItem("voice_of_luna_migrated_gpt6");
+    const hasLegacyCookie = document.cookie.split("; ").some((c) => c.startsWith("voice_of_luna_model=gpt-5.6"));
+    const hasGpt6Option = Array.from(modelSelect.options).some((opt) => opt.value === "gpt-6-luna");
+
+    if (!migratedToGpt6) {
+      // Migrate legacy default (gpt-5.6-luna) to gpt-6-luna
+      if (hasGpt6Option && (savedModel === "gpt-5.6-luna" || savedModel === "gpt-5.6" || modelSelect.value === "gpt-5.6-luna" || hasLegacyCookie || !savedModel)) {
+        savedModel = "gpt-6-luna";
+        localStorage.setItem("voice_of_luna_model", "gpt-6-luna");
+        document.cookie = `voice_of_luna_model=${encodeURIComponent("gpt-6-luna")}; path=/; max-age=31536000; SameSite=Lax`;
+        modelSelect.value = "gpt-6-luna";
+        sendSettingsUpdate({ model: "gpt-6-luna" });
+      }
+      localStorage.setItem("voice_of_luna_migrated_gpt6", "true");
+    } else if (savedModel) {
       const hasOption = Array.from(modelSelect.options).some((opt) => opt.value === savedModel);
       if (hasOption && modelSelect.value !== savedModel) {
         modelSelect.value = savedModel;
@@ -2065,6 +2083,45 @@ function renderPluginPanel(panel, pluginId, settings = {}) {
   document.querySelector(".session-plugin-chip")?.after(wrapper);
   initProjectRootApply();
   initProjectRoomActions();
+}
+
+function initProjectRootApply() {
+  const button = document.querySelector(".plugin-settings-apply");
+  if (!button || button.dataset.initialized) return;
+  button.dataset.initialized = "true";
+  button.addEventListener("click", () => {
+    const selector = document.querySelector("#session-plugin-select, #plugin-select, .plugin-select");
+    sendPluginUpdate(selector?.value || "neutral", document.querySelector("#mode-select")?.value || "default");
+  });
+}
+
+function initProjectRoomActions() {
+  const convId = document.querySelector("[data-conversation-id]")?.dataset?.conversationId;
+  if (!convId) return;
+  document.querySelectorAll("[data-plugin-action]").forEach((button) => button.addEventListener("click", async () => {
+    const action = button.dataset.pluginAction;
+    if (action === "forget" && !window.confirm("Forget this plugin data?")) return;
+    const response = await fetch(`/api/conversations/${convId}/plugin/action`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    if (response.ok) showToast(`// PLUGIN ACTION: ${action.toUpperCase()}`);
+  }));
+}
+
+async function pollToolApprovals() {
+  const convId = document.querySelector("[data-conversation-id]")?.dataset?.conversationId;
+  const dialog = document.querySelector("#tool-approval-dialog");
+  if (!convId || !dialog) return;
+  const response = await fetch(`/api/conversations/${convId}/tool-approval`).catch(() => null);
+  const data = response?.ok ? await response.json() : null;
+  const request = data?.requests?.[0];
+  if (!request) { dialog.hidden = true; return; }
+  dialog.hidden = false;
+  dialog.textContent = `Разрешить ${request.tool} в ${request.target || "выбранном проекте"}? `;
+  const approve = document.createElement("button"); approve.textContent = "APPROVE";
+  approve.onclick = async () => { await fetch(`/api/conversations/${convId}/tool-approval`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({request_id: request.id, args_hash: request.args_hash})}); pollToolApprovals(); };
+  dialog.appendChild(approve);
 }
 
 window.initProjectRootApply = initProjectRootApply;
