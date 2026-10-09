@@ -21,6 +21,7 @@ let streamingTextFrame = null;
 let interimTranscriptEntry = null;
 let liveTranscriptAvailable = false;
 let liveTranscriptEnabled = true;
+let lastVoiceUiState = "idle";
 
 // Audio processing and VAD state are provided by audio-player.js and vad.js
 
@@ -208,7 +209,6 @@ function setVoiceState(state, statusMessage, modeLabel) {
   const statusEl = document.querySelector("[data-voice-status]");
   const recordBtns = document.querySelectorAll("[data-record]");
   const stopBtns = document.querySelectorAll("[data-stop-speaking]");
-  const pauseBtns = document.querySelectorAll("[data-pause-speaking]");
 
   if (stage) {
     stage.classList.remove("state-idle", "state-listening", "state-transcribing", "state-thinking", "state-speaking", "state-paused", "state-error");
@@ -256,18 +256,9 @@ function setVoiceState(state, statusMessage, modeLabel) {
     }
   });
 
-  // Pause/Resume Button: available while speaking or already paused.
-  pauseBtns.forEach((btn) => {
-    if (uiState === "speaking" || uiState === "paused") {
-      btn.classList.add("is-active");
-      btn.hidden = false;
-    } else {
-      btn.classList.remove("is-active");
-      btn.hidden = true;
-    }
-    const textEl = btn.querySelector(".pause-text");
-    if (textEl) textEl.textContent = uiState === "paused" ? "RESUME" : "PAUSE";
-  });
+  // Playback transport lives under the latest assistant bubble.
+  lastVoiceUiState = uiState;
+  updateBubbleTransportVisibility(uiState);
 }
 
 function togglePauseSpeaking() {
@@ -582,6 +573,7 @@ function appendMessageToFeed(role, text) {
   }
 
   feed.appendChild(entry);
+  if (role === "assistant") updateBubbleTransportVisibility(lastVoiceUiState);
 
   scrollFeedToBottom();
   return entry;
@@ -607,7 +599,49 @@ function buildMessageControls() {
 
   controls.appendChild(replayBtn);
   controls.appendChild(revoiceBtn);
+  controls.appendChild(buildBubbleTransport());
   return controls;
+}
+
+function buildBubbleTransport() {
+  const transport = document.createElement("span");
+  transport.className = "bubble-transport";
+  transport.hidden = true;
+
+  const pauseBtn = document.createElement("button");
+  pauseBtn.type = "button";
+  pauseBtn.className = "btn-inline-replay";
+  pauseBtn.dataset.bubblePause = "";
+  pauseBtn.title = "Pause/resume this playback (P)";
+  const pauseText = document.createElement("span");
+  pauseText.className = "pause-text";
+  pauseText.textContent = "PAUSE";
+  pauseBtn.appendChild(pauseText);
+
+  const stopBtn = document.createElement("button");
+  stopBtn.type = "button";
+  stopBtn.className = "btn-inline-replay";
+  stopBtn.dataset.bubbleStop = "";
+  stopBtn.title = "Stop playback (Esc)";
+  stopBtn.textContent = "■ STOP";
+
+  transport.appendChild(pauseBtn);
+  transport.appendChild(stopBtn);
+  return transport;
+}
+
+function updateBubbleTransportVisibility(uiState) {
+  document.querySelectorAll(".bubble-transport").forEach((el) => {
+    el.hidden = true;
+  });
+  if (uiState !== "speaking" && uiState !== "paused") return;
+  const entries = document.querySelectorAll(".log-entry.assistant");
+  const last = entries[entries.length - 1];
+  const transport = last?.querySelector(".bubble-transport");
+  if (!transport) return;
+  transport.hidden = false;
+  const label = transport.querySelector(".pause-text");
+  if (label) label.textContent = uiState === "paused" ? "RESUME" : "PAUSE";
 }
 
 function updateTurnsCount() {
@@ -888,6 +922,7 @@ function handleSocketMessage(event) {
     }
     currentStreamingEntry = null;
     updateTurnsCount();
+    updateBubbleTransportVisibility(lastVoiceUiState);
   } else if (data.type === "error") {
     clearInterimTranscript();
     if (currentStreamingEntry) {
@@ -1019,16 +1054,24 @@ async function resynthesizeAndPlay(entry, voice, setDefault) {
     }
     const data = await resp.json();
     await enqueueAudioChunk(null, entry, data.audio_base64, data.mime_type, null, data.turn_id, data.clip_id, data.text, true);
-    if (data.set_default && data.voice) {
+    const requested = data.requested_voice || voice;
+    const actual = data.voice;
+    if (data.fallback && actual) {
+      // Be explicit: the chosen voice could not produce this text, so a
+      // different local voice was used.
+      showToast(`// ГОЛОС ${requested} НЕДОСТУПЕН -> ЗВУЧИТ ${actual}`);
+    } else if (data.set_default && actual) {
       const voiceSelect = document.querySelector("#voice-select");
       if (voiceSelect) {
-        voiceSelect.value = data.voice;
+        voiceSelect.value = actual;
         // Reuse the standard change handler so the session default is
         // persisted in localStorage/cookie and synced to the server.
         voiceSelect.dispatchEvent(new Event("change"));
       }
+      showToast(`// ГОЛОС ПО УМОЛЧАНИЮ: ${actual}`);
+    } else {
+      showToast(`// ОЗВУЧЕНО: ${actual || requested} (${data.tts_engine || "?"})`);
     }
-    showToast(setDefault ? "// VOICE SET AS DEFAULT" : "// RE-SYNTHESIZED (NO CODEX CALL)");
   } catch (err) {
     showToast(`// re-synthesis failed: ${err.message || err}`);
     setVoiceState("idle", "Press [Space] or click radar to speak", "IDLE // READY");
@@ -1064,14 +1107,25 @@ function openRevoiceDialog(entry) {
   select.innerHTML = "";
   const source = document.querySelector("#voice-select");
   if (source) {
+    const seen = new Set();
     Array.from(source.options).forEach((option) => {
+      // Skip placeholders and voices whose local model is not downloaded:
+      // re-voice synthesizes immediately, so an uninstalled voice can only
+      // silently fall back to a different voice.
       if (!option.value || option.value.startsWith("__")) return;
+      if (option.dataset.installed === "false") return;
+      if (seen.has(option.value)) return;
+      seen.add(option.value);
       const clone = document.createElement("option");
       clone.value = option.value;
       clone.textContent = option.textContent;
       select.appendChild(clone);
     });
-    if (source.value) select.value = source.value;
+    if (source.value && seen.has(source.value)) select.value = source.value;
+  }
+  if (select.options.length === 0) {
+    showToast("// нет установленных голосов для re-voice");
+    return;
   }
   if (defaultCheck) defaultCheck.checked = false;
   revoiceTargetEntry = entry;
@@ -1329,14 +1383,14 @@ document.addEventListener("click", (event) => {
     return;
   }
 
-  // Stop Speaking Button (Barge-in)
-  if (event.target.closest("[data-stop-speaking]")) {
+  // Stop Speaking Button (Barge-in) — dock and per-bubble.
+  if (event.target.closest("[data-stop-speaking]") || event.target.closest("[data-bubble-stop]")) {
     stopSpeaking();
     return;
   }
 
-  // Pause/Resume Button
-  if (event.target.closest("[data-pause-speaking]")) {
+  // Pause/Resume Button — per-bubble transport.
+  if (event.target.closest("[data-bubble-pause]")) {
     togglePauseSpeaking();
     return;
   }
@@ -1504,6 +1558,7 @@ document.body.addEventListener("htmx:afterSwap", (event) => {
     initLiveTranscriptToggle();
     initRevoiceDialog();
     applyLiveTranscriptAvailability(liveTranscriptAvailable, liveTranscriptEnabled);
+    updateBubbleTransportVisibility(lastVoiceUiState);
     document.querySelectorAll(".log-text").forEach((el) => {
       if (!el.querySelector(".term-link") && !el.querySelector(".log-sources")) {
         formatTerminalText(el);
@@ -2471,6 +2526,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initRemoteWarmupToggle();
   initLiveTranscriptToggle();
   initRevoiceDialog();
+  updateBubbleTransportVisibility(lastVoiceUiState);
   document.querySelectorAll(".log-text").forEach((el) => {
     if (!el.querySelector(".term-link") && !el.querySelector(".log-sources")) {
       formatTerminalText(el);

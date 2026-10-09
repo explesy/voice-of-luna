@@ -29,6 +29,7 @@ class SpeechSynthesisResult:
     requested_engine: str
     actual_engine: str
     fallback_reason: str | None = None
+    actual_voice: str | None = None
 
 
 @dataclass
@@ -1253,6 +1254,7 @@ class LocalMacOsSpeaker:
                     requested_engine=requested_engine,
                     actual_engine=_engine_for_voice(candidate),
                     fallback_reason="; ".join(failures) if failures else None,
+                    actual_voice=candidate,
                 )
             except Exception as exc:
                 failures.append(f"{candidate}: {exc}")

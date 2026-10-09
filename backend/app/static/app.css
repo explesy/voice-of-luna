@@ -1116,6 +1116,17 @@ body::after {
   margin-left: 4px;
 }
 
+.bubble-transport {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.bubble-transport[hidden] {
+  display: none;
+}
+
 /* ==================== Re-voice Dialog ==================== */
 .revoice-dialog {
   position: fixed;

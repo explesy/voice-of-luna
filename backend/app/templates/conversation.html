@@ -178,6 +178,10 @@
             <div class="log-audio">
               <button type="button" class="btn-inline-replay" data-replay title="Replay this response">↻ REPLAY</button>
               <button type="button" class="btn-inline-replay" data-revoice title="Speak again with another voice">🎙 REVOICE</button>
+              <span class="bubble-transport" hidden>
+                <button type="button" class="btn-inline-replay" data-bubble-pause title="Pause/resume this playback (P)"><span class="pause-text">PAUSE</span></button>
+                <button type="button" class="btn-inline-replay" data-bubble-stop title="Stop playback (Esc)">■ STOP</button>
+              </span>
             </div>
             {% endif %}
           </div>
@@ -191,10 +195,6 @@
           <!-- Stop speaking -->
           <button type="button" class="btn-cmd stop-speaking" data-stop-speaking title="Stop speaking (Esc)" hidden>
             <span>STOP</span>
-          </button>
-          <!-- Pause / resume speech -->
-          <button type="button" class="btn-cmd pause-speaking" data-pause-speaking title="Pause/resume speech (P)" hidden>
-            <span class="pause-text">PAUSE</span>
           </button>
 
           <!-- Command input line -->

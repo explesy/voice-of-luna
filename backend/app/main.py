@@ -1140,15 +1140,19 @@ async def resynthesize_turn(
     finally:
         await asyncio.to_thread(_remove_temporary_audio, synthesis.path)
 
-    if body.set_default:
-        conversation.set_selected_voice(requested_voice)
+    actual_voice = synthesis.actual_voice or requested_voice
+    fallback = actual_voice != requested_voice
+    # Never silently change the session default to a voice the user did not pick.
+    applied_default = bool(body.set_default and not fallback)
+    if applied_default:
+        conversation.set_selected_voice(actual_voice)
 
     engine_label = {
         "edge": "EDGE_TTS",
         "piper": "PIPER_OFFLINE",
         "silero": "SILERO_OFFLINE",
         "macos": "MACOS_SAY",
-    }.get(synthesis.actual_engine, _get_tts_engine(requested_voice))
+    }.get(synthesis.actual_engine, _get_tts_engine(actual_voice))
     return {
         "ok": True,
         "clip_id": str(uuid4()),
@@ -1156,10 +1160,13 @@ async def resynthesize_turn(
         "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
         "mime_type": mime_type,
         "text": text,
-        "voice": requested_voice,
+        "voice": actual_voice,
+        "requested_voice": requested_voice,
+        "fallback": fallback,
+        "fallback_reason": synthesis.fallback_reason,
         "requested_tts_engine": _get_tts_engine(requested_voice),
         "tts_engine": engine_label,
-        "set_default": bool(body.set_default),
+        "set_default": applied_default,
         "replay": True,
     }
 

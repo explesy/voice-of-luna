@@ -40,6 +40,7 @@ test("pause button toggles the paused playback state", async ({ page }) => {
 
   await page.goto("/");
   await expect(page.locator("[data-conversation-id]")).toBeVisible();
+  await seedAssistantTurn(page);
 
   await page.evaluate(() => {
     window.pauseAudioPlayback = () => {
@@ -52,7 +53,7 @@ test("pause button toggles the paused playback state", async ({ page }) => {
     setVoiceState("speaking", "Luna responding", "SPEAKING // STREAM");
   });
 
-  const pauseBtn = page.locator("[data-pause-speaking]");
+  const pauseBtn = page.locator(".log-entry.assistant .bubble-transport [data-bubble-pause]");
   await expect(pauseBtn).toBeVisible();
   await pauseBtn.click();
   await expect(page.locator(".radar-stage")).toHaveClass(/state-paused/);
@@ -65,7 +66,7 @@ test("pause button toggles the paused playback state", async ({ page }) => {
   // Barge-in while paused stops everything immediately.
   await pauseBtn.click();
   await expect(page.locator(".radar-stage")).toHaveClass(/state-paused/);
-  await page.locator("[data-stop-speaking]").click();
+  await page.locator(".log-entry.assistant .bubble-transport [data-bubble-stop]").click();
   await expect(page.locator(".radar-stage")).toHaveClass(/state-idle/);
   expect(await page.evaluate(() => window.isAudioPaused)).toBe(false);
 });

@@ -1016,6 +1016,42 @@ def test_resynthesize_locates_turn_by_id_and_reports_failure(monkeypatch, tmp_pa
     client.delete(f"/api/conversations/{conversation_id}")
 
 
+def test_resynthesize_reports_voice_fallback_and_never_sets_default(monkeypatch, tmp_path) -> None:
+    clip = tmp_path / "resynth_fallback.wav"
+    clip.write_bytes(b"RIFFfb")
+
+    async def fake_synthesize_with_metadata(self, text, voice=None):
+        return main_module.SpeechSynthesisResult(
+            path=clip,
+            requested_engine="piper",
+            actual_engine="piper",
+            fallback_reason="Ruslan model missing",
+            actual_voice="Dmitri (Piper Neural · Offline)",
+        )
+
+    monkeypatch.setattr(main_module.LocalMacOsSpeaker, "synthesize_with_metadata", fake_synthesize_with_metadata)
+
+    conversation_id = client.post("/api/conversations").json()["id"]
+    conversation = main_module.conversations[conversation_id]
+    original_voice = conversation.voice
+    conversation.turns.append({"role": "assistant", "text": "Ответ"})
+
+    response = client.post(
+        f"/api/conversations/{conversation_id}/turns/0/resynthesize",
+        json={"voice": "Ruslan (Piper Neural · Offline)", "set_default": True},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["fallback"] is True
+    assert data["requested_voice"] == "Ruslan (Piper Neural · Offline)"
+    assert data["voice"] == "Dmitri (Piper Neural · Offline)"
+    assert data["set_default"] is False
+    assert conversation.voice == original_voice
+
+    client.delete(f"/api/conversations/{conversation_id}")
+
+
 def test_websocket_output_event_carries_replay_metadata(monkeypatch) -> None:
     captured = []
 
