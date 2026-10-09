@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.2] - 2026-10-09
+
+### Added
+- STT spike tooling for issue #22: `backend/scripts/build_stt_corpus.py` generates an offline synthetic corpus from known reference text using local macOS voices (ru/es/en plus mixed ru/en), and `backend/scripts/run_stt_benchmark.py` now compares T-One, ru-vosk zipformer, es-kroko zipformer, Nemotron 3.5 (320 ms and 560 ms), pseudo-streaming Whisper and batch Whisper with WER/CER, RTF, first-partial latency, partial cadence and peak RSS.
+- Dated measurement tables, license review and the D7/D10 engine recommendation in `docs/06 — STT Recording & Benchmark.md`.
+- `make stt-corpus` and `make stt-benchmark` helper targets.
+
+### Fixed
+- T-One streaming now feeds trailing padding at the same input sample rate as the audio frames instead of always 8 kHz. sherpa-onnx rejects a changing input sample rate within one stream, so enabling T-One would have failed at finalize time.
+
 ## [0.42.1] - 2026-10-09
 
 ### Fixed
