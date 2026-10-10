@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-10-10
+
+### Added
+
+- Mixed-language and deliberately bilingual speech output (issue #13, phase 1).
+  Assistant text is split into deterministic language runs and each run is
+  spoken by the best installed voice for its language, so a Russian sentence
+  with embedded English ("включи Docker container и проверь build") is voiced
+  with English words in an English voice instead of being transliterated.
+- Generic plugin capability `explanation_locale`: a plugin can request
+  target-language speech plus native-language explanation, and the host routes
+  explanation runs to a distinct installed voice (for example Spanish tutor +
+  Russian explainer).
+- `VOICE_OF_LUNA_SEGMENT_ROUTING=0` kill switch restores the previous
+  single-voice behaviour exactly.
+
+### Changed
+
+- Browser audio playback preserves arrival order: chunk ingestion is serialized
+  so an asynchronously decoded later clip can no longer be queued (and spoken)
+  before an earlier one, and in-flight decodes are dropped after a stop/barge-in.
+- Replay/re-voice of a mixed-language turn keeps the single-clip contract by
+  joining locally synthesized runs with ffmpeg; an explicit `re-voice` still
+  applies one voice to the whole text.
+- Conservative, documented language classifier: only strong script/orthography
+  and fixed English/Spanish cue words switch the voice; short shared words,
+  digits and unknown scripts inherit the neighbouring run to prevent churn.
+- Voice resolution for embedded/explanation runs is local-first (Piper, Silero,
+  macOS, Edge) and skips catalog entries whose model file is not installed.
+
 ## [0.44.0] - 2026-10-09
 
 ### Added

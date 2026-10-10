@@ -1,7 +1,7 @@
 # Voice of Lúna — Current Status
 
-Updated: 2026-10-09
-Current release: **0.44.0** (2026-10-09)
+Updated: 2026-10-10
+Current release: **0.45.0** (2026-10-10)
 
 Purpose: compact current truth for fresh-session startup. This is not a changelog, task list, benchmark table, or replacement for the numbered canonical docs.
 
@@ -17,6 +17,7 @@ The current product is a local single-user tool, not a public multi-user service
 - Local Whisper speech recognition and multi-tier TTS (Piper, optional Silero, Edge TTS, macOS system fallback).
 - Live interim transcript while speaking (local streaming STT partials in the feed, replaced by the authoritative Whisper transcript; per-session `LIVE` toggle, batch fallback when unavailable). Language-routed engines (T-One ru, es-kroko es, opt-in Nemotron) are downloaded on first use through the streaming-STT model manager.
 - Speech playback controls: pause/resume, per-message replay, and ephemeral re-voice through the full TTS stack without a new Codex turn.
+- Mixed-language speech routing: assistant text is split into deterministic language runs and each run is spoken by the best installed, ready voice for its language (Piper, Silero, macOS, then Edge), so embedded English terms are no longer transliterated by Russian voices. A plugin may declare `explanation_locale` for deliberately bilingual target-plus-native output, and `VOICE_OF_LUNA_SEGMENT_ROUTING=0` restores the previous single-voice path. Single-clip endpoints join runs locally.
 - Streaming speech segmentation / pipelined TTS and measured latency stages.
 - Client-side adaptive VAD and instant barge-in/cancellation.
 - Live model discovery from the local Codex runtime and per-session reasoning selection, with `live`/`preset` provenance labels so an unavailable model is not silently reattributed.
@@ -55,6 +56,7 @@ Concrete work lives in GitHub Issues, not in this file:
 
 - **#1** — extraction record for Voice Trainer; follow-up product work belongs in its standalone repository.
 - **#2** — progressive repo-memory/docs refactor (this runtime layer).
+- **#27** — phase 1c of mixed-language work: multilingual engines (Edge multilingual first, optional local engine behind a flag) for native one-voice code-switching. Phase 1 (#13) is delivered in 0.45.0.
 
 If an issue is closed, do not keep its task state here as a parallel TODO. Current state may be refreshed when a release materially changes product shape or boundaries.
 
