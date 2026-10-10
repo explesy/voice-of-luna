@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.1] - 2026-10-10
+
+### Changed
+
+- Mixed-language segment routing is now **opt-in** and off by default. It is
+  enabled for a session with `VOICE_OF_LUNA_SEGMENT_ROUTING=1`; with the default
+  `0` the previous single-voice behaviour is used exactly. The code, the generic
+  `explanation_locale` plugin capability and the deterministic router remain in
+  place for evaluation. Rationale: the mixed-voice output was not yet understood
+  and evaluated as a product behaviour, so it should not change default speech.
+
 ## [0.45.0] - 2026-10-10
 
 ### Added
