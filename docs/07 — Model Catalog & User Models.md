@@ -65,6 +65,33 @@ No shipped voice is currently marked `native`; a user-defined model may declare
 🌐 badge and a `NATIVE` filter; when the filter matches nothing it says so
 explicitly instead of inventing capability metadata.
 
+### How the router consumes this metadata (issue #13)
+
+`code_switching` is not only a UI label; it changes the speech path:
+
+- `native` — the selected primary voice receives the whole sentence as-is, with
+  no segmentation. Mixed text is spoken by the one voice that can switch
+  internally. This is the only mode where the catalog metadata suppresses
+  routing.
+- `segment_only` — a sentence is split into language runs by
+  `speech_pipeline.segment_language_runs` and each run is synthesized with the
+  best installed voice for its language. Splitting is conservative: only strong
+  evidence (Cyrillic script, Spanish orthography, or fixed English/Spanish cue
+  lists) switches the voice, while short shared words, digits and unknown
+  scripts inherit the neighbouring run so a sentence cannot flap between voices.
+- `none` — no cross-language capability. The run still resolves through the
+  normal voice resolver, so it either finds a suitable voice or degrades to the
+  primary voice (the same single-voice fallback as before).
+
+Voice selection for embedded and explanation runs is local-first: Piper, then
+Silero, then macOS system voices, then Edge. A catalog entry whose model file is
+not installed is skipped, so a Russian Piper session with embedded English uses
+an installed local English voice before it would ever reach the network-backed
+Edge path.
+
+The catalog still has no timbre/pair data, so "matched timbre pairs" are **not**
+implemented; voice names are never used to guess gender or timbre.
+
 ## STT selection: batch vs live streaming
 
 Two independent mechanisms exist:

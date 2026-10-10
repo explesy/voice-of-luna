@@ -27,11 +27,14 @@ from .speech_pipeline import (
     SENTENCE_SPLIT_RE,
     SOURCES_SPLIT_RE,
     AudioConversionError,
+    VoicePlan,
     convert_to_wav,
     detect_effective_turn_locale,
     extract_speech_sentence,
     is_16k_mono_wav,
+    join_speech_clips,
     remove_temporary_audio,
+    route_speech,
     write_temporary_audio,
 )
 from .conversation_service import (
@@ -47,6 +50,7 @@ from .conversation_service import (
     approve_pending_tool,
     resolve_stt_config,
     resolve_turn_language,
+    resolve_voice_plan,
     plugin_storage,
 )
 from .i18n import get_ui_text
@@ -87,6 +91,7 @@ from .speak import (
     get_default_voice,
     get_default_voice_for_locale,
     get_installed_voices,
+    get_ready_voice_for_locale,
     get_voice_for_locale,
     is_edge_voice,
     is_piper_voice,
@@ -1337,10 +1342,11 @@ async def plugin_speak_approved(conversation_id: str, body: ApprovedSpeechInput)
     conversation = conversations.get(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    voice = resolve_turn_language(conversation).speaker_voice
+    turn_lang = resolve_turn_language(conversation)
+    voice = turn_lang.speaker_voice
     speaker = LocalMacOsSpeaker(voice=voice)
     try:
-        result = await speaker.synthesize_with_metadata(body.text.strip())
+        result = await _synthesize_routed_single_clip(speaker, body.text.strip(), resolve_voice_plan(conversation, turn_lang))
     except LocalSpeechError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     if result is None or not result.path.is_file():
@@ -1392,9 +1398,26 @@ async def resynthesize_turn(
         raise HTTPException(status_code=400, detail="Only assistant turns with text can be re-synthesized")
 
     requested_voice = (body.voice or "").strip() or conversation.voice
+    explicit_voice = bool((body.voice or "").strip())
+    turn_lang = resolve_turn_language(conversation)
+    turn_plan = resolve_voice_plan(conversation, turn_lang)
+    # A plain replay must keep the resolved turn voices (including a plugin's
+    # target/explanation pair); only an explicit re-voice applies one voice to
+    # the whole text.
+    if not explicit_voice:
+        requested_voice = turn_lang.speaker_voice
+    # An explicit re-voice applies one voice to the whole text; a plain replay
+    # still routes embedded/explanation language runs to their own voices.
+    plan = VoicePlan(
+        primary_locale=turn_plan.primary_locale,
+        primary_voice=requested_voice,
+        explanation_locale=turn_plan.explanation_locale,
+        explanation_voice=turn_plan.explanation_voice,
+        enabled=turn_plan.enabled and not explicit_voice,
+    )
     speaker = LocalMacOsSpeaker(voice=requested_voice)
     try:
-        synthesis = await speaker.synthesize_with_metadata(text)
+        synthesis = await _synthesize_routed_single_clip(speaker, text, plan)
     except LocalSpeechError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     if synthesis is None or not synthesis.path.is_file():
@@ -1583,6 +1606,99 @@ def _extract_speech_sentence(buffer: str, is_first_chunk: bool = False) -> tuple
     return extract_speech_sentence(buffer, is_first_chunk=is_first_chunk)
 
 
+async def _synthesize_speech_chunk(
+    speaker: LocalMacOsSpeaker,
+    speaker_voice: str,
+    text: str,
+    voice: str | None = None,
+) -> SpeechSynthesisResult | None:
+    """Synthesize one routed language run with its own voice.
+
+    Keeps compatibility with integrations/tests that override the legacy
+    path-only ``synthesize`` method: a run for another voice gets its own
+    speaker instance, while the primary run keeps the caller's speaker.
+    """
+
+    run_voice = voice or speaker_voice
+    if getattr(speaker.synthesize, "__func__", None) is not _DEFAULT_SPEAKER_SYNTHESIZE:
+        active = speaker if run_voice == speaker_voice else LocalMacOsSpeaker(voice=run_voice)
+        path = await active.synthesize(text)
+        if path is None:
+            return None
+        engine_label = _get_tts_engine(run_voice)
+        actual_engine = {
+            "EDGE_TTS": "edge",
+            "PIPER_OFFLINE": "piper",
+            "SILERO_OFFLINE": "silero",
+            "MACOS_SAY": "macos",
+        }.get(engine_label, "macos")
+        return SpeechSynthesisResult(
+            path=path,
+            requested_engine=actual_engine,
+            actual_engine=actual_engine,
+            actual_voice=run_voice,
+        )
+    return await speaker.synthesize_with_metadata(text, voice=run_voice)
+
+
+async def _synthesize_routed_single_clip(
+    speaker: LocalMacOsSpeaker,
+    text: str,
+    plan: VoicePlan,
+) -> SpeechSynthesisResult | None:
+    """Synthesize routed speech as ONE clip for the single-clip endpoints.
+
+    Single-language text keeps the existing one-call path. Mixed text is
+    synthesized per run and joined locally; if the join is impossible the call
+    fails instead of silently romanizing the mixed text with one voice.
+    """
+
+    chunks = route_speech(sanitize_for_speech(text), plan, resolve_voice=get_ready_voice_for_locale)
+    if not chunks:
+        return None
+    if len(chunks) == 1:
+        return await _synthesize_speech_chunk(speaker, plan.primary_voice, chunks[0].text, chunks[0].voice)
+
+    results: list[SpeechSynthesisResult] = []
+    joined: Path | None = None
+    try:
+        for chunk in chunks:
+            result = await _synthesize_speech_chunk(speaker, plan.primary_voice, chunk.text, chunk.voice)
+            if result is None or result.path is None:
+                raise LocalSpeechError(
+                    f"Could not synthesize the {chunk.language or chunk.role} segment of a mixed-language reply"
+                )
+            results.append(result)
+        descriptor, raw_joined = tempfile.mkstemp(prefix="voice-of-luna-mixed-", suffix=".wav")
+        os.close(descriptor)
+        joined = Path(raw_joined)
+        joined.unlink(missing_ok=True)
+        if not await join_speech_clips([result.path for result in results], joined):
+            raise LocalSpeechError(
+                "Could not join mixed-language speech locally (ffmpeg is unavailable or the join failed)"
+            )
+        primary = next(
+            (result for result in results if result.actual_voice == plan.primary_voice),
+            results[0],
+        )
+        return SpeechSynthesisResult(
+            path=joined,
+            requested_engine=primary.requested_engine,
+            actual_engine=primary.actual_engine,
+            fallback_reason="; ".join(
+                result.fallback_reason for result in results if result.fallback_reason
+            ) or None,
+            actual_voice=primary.actual_voice,
+        )
+    except BaseException:
+        if joined is not None:
+            joined.unlink(missing_ok=True)
+        raise
+    finally:
+        for result in results:
+            result.path.unlink(missing_ok=True)
+
+
 async def _gated_turn_and_synthesize(
     websocket: WebSocket,
     conversation: Conversation,
@@ -1621,26 +1737,28 @@ async def _gated_turn_and_synthesize(
             return
         approved = str(decision.text or generated).strip()
         await websocket.send_json({"type": "delta", "delta": approved})
-        speaker_voice = resolve_turn_language(conversation, user_text=prompt_text).speaker_voice
+        turn_lang = resolve_turn_language(conversation, user_text=prompt_text)
+        speaker_voice = turn_lang.speaker_voice
+        voice_plan = resolve_voice_plan(conversation, turn_lang)
         speaker = LocalMacOsSpeaker(voice=speaker_voice)
-        if getattr(speaker.synthesize, "__func__", None) is not _DEFAULT_SPEAKER_SYNTHESIZE:
-            clip_path = await speaker.synthesize(approved)
-            synthesis = SpeechSynthesisResult(path=clip_path, requested_engine=_get_tts_engine(speaker_voice), actual_engine=_get_tts_engine(speaker_voice)) if clip_path else None
-        else:
-            synthesis = await speaker.synthesize_with_metadata(approved)
-        if synthesis is None:
+        chunks = route_speech(approved, voice_plan, resolve_voice=get_ready_voice_for_locale)
+        if not chunks:
             raise CodexUnavailable("Unable to synthesize approved response")
-        clip_id = str(uuid4())
-        speech_clips[clip_id] = SpeechClip(conversation_id=conversation.id, path=synthesis.path)
-        audio_bytes = await asyncio.to_thread(synthesis.path.read_bytes)
-        mime_type = "audio/mpeg" if synthesis.path.suffix == ".mp3" else "audio/wav"
-        payload = {"type": "audio_chunk", "clip_id": clip_id, "turn_id": turn_id, "audio_url": f"/speech/{clip_id}", "mime_type": mime_type, "text": approved}
-        if conversation.binary_audio:
-            header = json.dumps({k: v for k, v in payload.items() if k != "type"}).encode("utf-8")
-            await websocket.send_bytes(b"\x01" + len(header).to_bytes(2, "big") + header + audio_bytes)
-        else:
-            payload["audio_base64"] = base64.b64encode(audio_bytes).decode("ascii")
-            await websocket.send_json(payload)
+        for chunk in chunks:
+            synthesis = await _synthesize_speech_chunk(speaker, speaker_voice, chunk.text, chunk.voice)
+            if synthesis is None:
+                raise CodexUnavailable("Unable to synthesize approved response")
+            clip_id = str(uuid4())
+            speech_clips[clip_id] = SpeechClip(conversation_id=conversation.id, path=synthesis.path)
+            audio_bytes = await asyncio.to_thread(synthesis.path.read_bytes)
+            mime_type = "audio/mpeg" if synthesis.path.suffix == ".mp3" else "audio/wav"
+            payload = {"type": "audio_chunk", "clip_id": clip_id, "turn_id": turn_id, "audio_url": f"/speech/{clip_id}", "mime_type": mime_type, "text": chunk.text}
+            if conversation.binary_audio:
+                header = json.dumps({k: v for k, v in payload.items() if k != "type"}).encode("utf-8")
+                await websocket.send_bytes(b"\x01" + len(header).to_bytes(2, "big") + header + audio_bytes)
+            else:
+                payload["audio_base64"] = base64.b64encode(audio_bytes).decode("ascii")
+                await websocket.send_json(payload)
         turn = {"role": "assistant", "text": approved, "turn_id": turn_id}
         conversation.turns.append(turn)
         await plugin_manager.execute_after_turn(conversation.plugin_id, turn_ctx, approved)
@@ -1668,6 +1786,7 @@ async def _stream_and_synthesize(
     turn_lang = resolve_turn_language(conversation, user_text=prompt_text)
     effective_locale = turn_lang.response_locale
     speaker_voice = turn_lang.speaker_voice
+    voice_plan = resolve_voice_plan(conversation, turn_lang)
 
     speaker = LocalMacOsSpeaker(voice=speaker_voice)
     turn_id = str(uuid4())
@@ -1742,36 +1861,20 @@ async def _stream_and_synthesize(
     consumer_task = asyncio.create_task(_synthesis_consumer())
     synth_semaphore = asyncio.Semaphore(2)
 
-    async def _bounded_synthesize(text: str) -> SpeechSynthesisResult | None:
+    async def _bounded_synthesize(text: str, voice: str | None = None) -> SpeechSynthesisResult | None:
         async with synth_semaphore:
-            # Keep compatibility with integrations/tests that override the
-            # legacy path-only ``synthesize`` method.
-            if getattr(speaker.synthesize, "__func__", None) is not _DEFAULT_SPEAKER_SYNTHESIZE:
-                path = await speaker.synthesize(text)
-                if path is None:
-                    return None
-                engine_label = _get_tts_engine(speaker_voice)
-                actual_engine = {
-                    "EDGE_TTS": "edge",
-                    "PIPER_OFFLINE": "piper",
-                    "SILERO_OFFLINE": "silero",
-                    "MACOS_SAY": "macos",
-                }.get(engine_label, "macos")
-                return SpeechSynthesisResult(
-                    path=path,
-                    requested_engine=actual_engine,
-                    actual_engine=actual_engine,
-                )
-            return await speaker.synthesize_with_metadata(text)
+            return await _synthesize_speech_chunk(speaker, speaker_voice, text, voice)
 
     async def _queue_sentence(sentence_to_deliver: str) -> None:
         nonlocal t_first_sentence_queued
         clean_text = sanitize_for_speech(sentence_to_deliver).strip()
-        if clean_text:
-            if t_first_sentence_queued is None:
-                t_first_sentence_queued = time.perf_counter()
-            synth_task = asyncio.create_task(_bounded_synthesize(clean_text))
-            await synthesis_jobs.put((clean_text, synth_task))
+        if not clean_text:
+            return
+        if t_first_sentence_queued is None:
+            t_first_sentence_queued = time.perf_counter()
+        for chunk in route_speech(clean_text, voice_plan, resolve_voice=get_ready_voice_for_locale):
+            synth_task = asyncio.create_task(_bounded_synthesize(chunk.text, chunk.voice))
+            await synthesis_jobs.put((chunk.text, synth_task))
 
     turn_ctx = TurnContext(
         conversation_id=conversation.id,
@@ -1913,17 +2016,26 @@ async def _stream_and_synthesize(
         if not consumer_task.done():
             consumer_task.cancel()
             await asyncio.gather(consumer_task, return_exceptions=True)
-        # Cancel any pending pre-synthesis tasks remaining in the queue
+        # Cancel any pending pre-synthesis tasks remaining in the queue, await
+        # them, and delete clips that were produced but never delivered. Without
+        # this, a barge-in leaks temporary artifacts (``to_thread`` work already
+        # running cannot be interrupted, so the file may still appear).
+        abandoned: list[asyncio.Task[SpeechSynthesisResult | None]] = []
         while not synthesis_jobs.empty():
             try:
                 item = synthesis_jobs.get_nowait()
-                if item is not None:
-                    _, task = item
-                    if not task.done():
-                        task.cancel()
-                synthesis_jobs.task_done()
             except Exception:
                 break
+            if item is not None:
+                _, task = item
+                if not task.done():
+                    task.cancel()
+                abandoned.append(task)
+            synthesis_jobs.task_done()
+        if abandoned:
+            for result in await asyncio.gather(*abandoned, return_exceptions=True):
+                if isinstance(result, SpeechSynthesisResult) and result.path is not None:
+                    result.path.unlink(missing_ok=True)
 
 
 def _streaming_enabled_by_env() -> bool:
@@ -2422,7 +2534,10 @@ async def _append_assistant_turn(conversation: Conversation, text: str) -> str |
     turn_lang = resolve_turn_language(conversation, user_text=source_user_text)
     voice_to_use = turn_lang.speaker_voice
     try:
-        speech_path = await LocalMacOsSpeaker(voice=voice_to_use).synthesize(text)
+        synthesis = await _synthesize_routed_single_clip(
+            LocalMacOsSpeaker(voice=voice_to_use), text, resolve_voice_plan(conversation, turn_lang)
+        )
+        speech_path = synthesis.path if synthesis is not None else None
     except LocalSpeechError as exception:
         conversation.turns.append(turn)
         return str(exception)

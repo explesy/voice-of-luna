@@ -298,9 +298,11 @@ def test_websocket_streaming_speaks_all_bullet_items(monkeypatch, tmp_path) -> N
             if msg.get("type") == "status" and msg.get("state") == "idle":
                 break
 
-        # All 4 content sentences (intro + 3 bullets) must be synthesized and delivered as audio chunks
-        assert len(synthesized_phrases) == 4
-        assert len(audio_chunks) == 4
+        # All 4 content sentences (intro + 3 bullets) must be synthesized and
+        # delivered. Mixed-language routing may split one bullet into an extra
+        # per-language run, so the chunk count is now a lower bound.
+        assert len(synthesized_phrases) >= 4
+        assert len(audio_chunks) == len(synthesized_phrases)
         assert any("Zelda" in p for p in synthesized_phrases)
         assert any("Super Mario Bros" in p for p in synthesized_phrases)
         assert any("Mario Kart" in p for p in synthesized_phrases)
@@ -625,11 +627,14 @@ def test_websocket_streaming_voices_all_sentences_with_links_in_bullets(monkeypa
             if msg.get("type") == "status" and msg.get("state") == "idle":
                 break
 
-        # Intro + 2 bullet items must all be synthesized (3 total chunks)
-        assert len(synthesized_phrases) == 3
-        assert len(audio_chunks) == 3
+        # Intro + 2 bullet items must all be synthesized. Mixed-language
+        # routing splits the English title of the first bullet from its Russian
+        # commentary, so the old exact count becomes a lower bound.
+        assert len(synthesized_phrases) >= 3
+        assert len(audio_chunks) == len(synthesized_phrases)
         assert any("отличный старт" in p for p in synthesized_phrases)
         assert any("The Legend of Zelda" in p for p in synthesized_phrases)
+        assert any("огромный открытый мир" in p for p in synthesized_phrases)
         assert any("Super Mario Bros" in p for p in synthesized_phrases)
         # Verify correct audio/mpeg mime_type for mp3 clips
         assert audio_chunks[0]["mime_type"] == "audio/mpeg"

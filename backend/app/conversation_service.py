@@ -23,6 +23,7 @@ from uuid import uuid4
 from app.codex import CodexAppServer, get_base_instructions
 from app.plugin_storage import PluginStorage
 from app.github_gateway import GitHubGateway
+from app.model_catalog import normalize_language as model_catalog_normalize
 import os
 import hashlib
 import json
@@ -33,10 +34,12 @@ from app.plugins import ToolCallContext, plugin_manager
 from app.speak import (
     get_active_voice,
     get_default_voice_for_locale,
+    get_ready_voice_for_locale,
     prewarm_voice,
     voice_matches_locale,
 )
 from app.speech_pipeline import (
+    VoicePlan,
     detect_effective_turn_locale,
     remove_temporary_audio,
 )
@@ -99,6 +102,40 @@ class TurnLanguage:
     response_locale: str
     voice_locale: str
     speaker_voice: str
+    # Optional second locale a plugin deliberately asked for (target language
+    # plus native-language explanation). ``explanation_voice`` is only set when
+    # an installed voice distinct from the primary speaker can speak it.
+    explanation_locale: str | None = None
+    explanation_voice: str | None = None
+
+
+SEGMENT_ROUTING_ENV = "VOICE_OF_LUNA_SEGMENT_ROUTING"
+
+
+def segment_routing_enabled() -> bool:
+    """Mixed-language segment routing is on by default; ``=0`` restores the
+    previous single-voice behaviour exactly."""
+
+    return os.environ.get(SEGMENT_ROUTING_ENV, "1") != "0"
+
+
+def resolve_voice_plan(conversation: Conversation, turn_lang: TurnLanguage) -> VoicePlan:
+    """Build the generic primary/explanation/fallback plan for one turn."""
+
+    from app import model_catalog
+    enabled = segment_routing_enabled()
+    if enabled and not turn_lang.explanation_locale:
+        capability = model_catalog.voice_capability(turn_lang.speaker_voice, turn_lang.voice_locale)
+        if capability.code_switching == model_catalog.CODE_SWITCHING_NATIVE:
+            # A voice that switches language natively must receive the text as-is.
+            enabled = False
+    return VoicePlan(
+        primary_locale=turn_lang.response_locale,
+        primary_voice=turn_lang.speaker_voice,
+        explanation_locale=turn_lang.explanation_locale,
+        explanation_voice=turn_lang.explanation_voice,
+        enabled=enabled,
+    )
 
 
 @dataclass(frozen=True)
@@ -170,11 +207,27 @@ def resolve_turn_language(
         # Fixed locale without plugin override: respect user's explicit voice selection if set
         speaker_voice = selected_voice or get_default_voice_for_locale(voice_locale)
 
+    # 5. Resolve optional plugin-declared explanation locale. A plugin may ask
+    # for target-language speech plus native-language explanation; the host only
+    # routes it when a distinct installed voice can actually speak it.
+    explanation_locale = plugin_manager.get_explanation_locale(conversation.plugin_id)
+    explanation_voice: str | None = None
+    if explanation_locale:
+        normalized_explanation = model_catalog_normalize(explanation_locale)
+        if normalized_explanation and normalized_explanation != model_catalog_normalize(response_locale):
+            candidate = get_ready_voice_for_locale(explanation_locale, exclude_voice=speaker_voice)
+            if candidate and candidate.casefold() != speaker_voice.casefold():
+                explanation_voice = candidate
+        else:
+            explanation_locale = None
+
     return TurnLanguage(
         input_locale=input_locale,
         response_locale=response_locale,
         voice_locale=voice_locale,
         speaker_voice=speaker_voice,
+        explanation_locale=explanation_locale,
+        explanation_voice=explanation_voice,
     )
 
 

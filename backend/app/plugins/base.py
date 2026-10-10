@@ -136,6 +136,11 @@ class Plugin(ABC):
     stt_prompt: str | None = None
     preferred_voice_locale: str | None = None
     response_locale_override: str | None = None
+    # Optional second locale for deliberately bilingual turns: the model speaks
+    # the target/response locale and explains in this locale, which the host
+    # routes to a distinct installed voice. Domain-neutral: the plugin owns the
+    # meaning, the host only owns locale-to-voice routing.
+    explanation_locale: str | None = None
     delivery_mode: str = "streaming"
 
     async def system_prompt(self, conversation_id: str) -> str:

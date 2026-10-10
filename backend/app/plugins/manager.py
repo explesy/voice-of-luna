@@ -235,6 +235,10 @@ class PluginManager:
         plugin = self.get(plugin_id)
         return getattr(plugin, "preferred_voice_locale", None)
 
+    def get_explanation_locale(self, plugin_id: str) -> str | None:
+        plugin = self.get(plugin_id)
+        return getattr(plugin, "explanation_locale", None)
+
     async def get_system_prompt(
         self, plugin_id: str, conversation_id: str, timeout: float = 1.5
     ) -> str:

@@ -77,6 +77,12 @@ var firstAudioSoundOffsetMs = null;
 var lastSpeechEndTime = null;
 var latestTiming = null;
 var isAudioPaused = false;
+// Ingest ordering: decode is asynchronous, so two clips that arrive in order
+// could otherwise be pushed out of order and be spoken in the wrong order.
+// Every enqueue is chained so queue order always matches arrival order, and a
+// generation counter invalidates decodes still in flight when playback stops.
+var audioIngestChain = Promise.resolve();
+var audioIngestGeneration = 0;
 
 function notifyVoiceState(state, message, modeLabel) {
   if (typeof setVoiceState === "function") {
@@ -138,6 +144,7 @@ function stopAudioPlayback() {
   isAudioQueuePlaying = false;
   isAudioPaused = false;
   nextAudioChunkStartTime = 0;
+  audioIngestGeneration += 1;
 
   activeScheduledSources.forEach((src) => {
     if (src._lunaItem) {
@@ -224,6 +231,16 @@ function getPlaybackContext() {
   return playbackAudioContext;
 }
 async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "audio/wav", rawArrayBuffer = null, turnId = null, clipId = null, text = null, replay = false) {
+  const generation = audioIngestGeneration;
+  const run = audioIngestChain.then(() => {
+    if (generation !== audioIngestGeneration) return undefined;
+    return enqueueAudioChunkNow(url, entry, audioBase64, mimeType, rawArrayBuffer, turnId, clipId, text, replay, generation);
+  });
+  audioIngestChain = run.catch(() => {});
+  return run;
+}
+
+async function enqueueAudioChunkNow(url, entry, audioBase64 = null, mimeType = "audio/wav", rawArrayBuffer = null, turnId = null, clipId = null, text = null, replay = false, generation = undefined) {
   const targetEntry = entry || currentStreamingEntry;
   // Server-streamed audio counts as delivered: never let the browser-TTS
   // fallback (speakLatestResponse) read this message aloud a second time.
@@ -265,6 +282,13 @@ async function enqueueAudioChunk(url, entry, audioBase64 = null, mimeType = "aud
     } catch (e) {
       console.warn("// inline audio decode error:", e);
     }
+  }
+
+  // A stop/barge-in during decoding must drop this clip: the generation is
+  // captured before the await, so re-check it before the queue push.
+  if (generation !== undefined && generation !== audioIngestGeneration) {
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    return;
   }
 
   audioQueue.push({ url, blobUrl, audioBuffer, entry: targetEntry, turnId, clipId, text, replay });

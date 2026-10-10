@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -20,6 +21,22 @@ logger = logging.getLogger("voice_of_luna.speak")
 
 class LocalSpeechError(RuntimeError):
     """Raised when a local response cannot be rendered to audio."""
+
+
+def _terminate_process(process: object) -> None:
+    """Best-effort kill for a subprocess abandoned by cancellation.
+
+    ``kill`` is absent on test doubles, so it is looked up defensively; a
+    cancelled ``say`` render must not keep writing its output file after the
+    caller has cleaned it up.
+    """
+
+    kill = getattr(process, "kill", None)
+    if callable(kill):
+        try:
+            kill()
+        except Exception:
+            pass
 
 
 @dataclass(frozen=True)
@@ -1039,6 +1056,42 @@ def set_active_voice(voice: str) -> None:
     _active_voice = voice
 
 
+def _voice_is_ready(voice: VoiceInfo) -> bool:
+    """A voice can be used right now: local models must be downloaded/verified."""
+
+    return voice.engine in ("macos", "edge") or bool(getattr(voice, "is_downloaded", True))
+
+
+def get_ready_voice_for_locale(locale_prefix: str, exclude_voice: str | None = None) -> str | None:
+    """Best *ready* installed voice for a language, local-first.
+
+    Used by mixed-language routing for embedded and explanation runs. The
+    existing locale resolver can return a catalog entry whose model file is not
+    installed, so this wrapper filters readiness and prefers the same
+    privacy-preserving order as the synthesis fallback (Piper, Silero, macOS,
+    then Edge). Returns ``None`` when nothing suitable is installed.
+    """
+
+    prefix = model_catalog.normalize_language(locale_prefix)
+    if not prefix:
+        return None
+    excluded = exclude_voice.casefold() if exclude_voice else None
+    voices = [voice for voice in get_installed_voices() if not voice.is_deprecated and _voice_is_ready(voice)]
+
+    def matches(voice: VoiceInfo) -> bool:
+        languages = voice.languages or model_catalog.languages_for_locale(voice.locale)
+        return prefix in languages or voice.locale.lower().replace("_", "-").startswith(prefix)
+
+    for engine in ("piper", "silero", "macos", "edge"):
+        for voice in voices:
+            if voice.engine != engine or not matches(voice):
+                continue
+            if excluded and voice.name.casefold() == excluded:
+                continue
+            return voice.name
+    return None
+
+
 def get_voice_for_locale(
     locale_prefix: str,
     allowed_engines: set[str] | None = None,
@@ -1257,6 +1310,7 @@ class LocalMacOsSpeaker:
         os.close(descriptor)
         destination = Path(raw_wav)
         destination.unlink(missing_ok=True)
+        render = None
         try:
             render = await asyncio.create_subprocess_exec(
                 "say",
@@ -1271,10 +1325,18 @@ class LocalMacOsSpeaker:
                 stderr=asyncio.subprocess.PIPE,
             )
             if hasattr(render, "communicate"):
-                _, stderr_bytes = await render.communicate()
+                try:
+                    _, stderr_bytes = await render.communicate()
+                except asyncio.CancelledError:
+                    _terminate_process(render)
+                    raise
                 returncode = render.returncode
             else:
-                returncode = await render.wait()
+                try:
+                    returncode = await render.wait()
+                except asyncio.CancelledError:
+                    _terminate_process(render)
+                    raise
                 stderr_bytes = b""
             if returncode != 0 or not destination.is_file():
                 err_msg = stderr_bytes.decode(errors="replace").strip() if stderr_bytes else ""
@@ -1283,6 +1345,7 @@ class LocalMacOsSpeaker:
                 )
             return destination
         except BaseException:
+            _terminate_process(render)
             destination.unlink(missing_ok=True)
             raise
 
@@ -1305,6 +1368,7 @@ class LocalMacOsSpeaker:
         os.close(descriptor)
         destination = Path(raw_wav)
         destination.unlink(missing_ok=True)
+        cancelled = threading.Event()
 
         def _generate():
             if "v5" in voice_name.lower():
@@ -1318,12 +1382,18 @@ class LocalMacOsSpeaker:
                 wav_file.setsampwidth(2)
                 wav_file.setframerate(48000)
                 wav_file.writeframes(int16_data)
+            if cancelled.is_set():
+                destination.unlink(missing_ok=True)
 
         try:
             await asyncio.to_thread(_generate)
             if not destination.is_file() or destination.stat().st_size == 0:
                 raise LocalSpeechError(f"Silero TTS produced an empty audio clip for '{voice_name}'")
             return destination
+        except asyncio.CancelledError:
+            cancelled.set()
+            destination.unlink(missing_ok=True)
+            raise
         except BaseException:
             destination.unlink(missing_ok=True)
             raise
@@ -1346,17 +1416,24 @@ class LocalMacOsSpeaker:
         os.close(descriptor)
         destination = Path(raw_wav)
         destination.unlink(missing_ok=True)
+        cancelled = threading.Event()
 
         def _generate():
             voice = _get_piper_voice(model_key)
             with wave.open(str(destination), "wb") as wav_file:
                 voice.synthesize_wav(piper_text, wav_file)
+            if cancelled.is_set():
+                destination.unlink(missing_ok=True)
 
         try:
             await asyncio.to_thread(_generate)
             if not destination.is_file() or destination.stat().st_size == 0:
                 raise LocalSpeechError(f"Piper TTS produced an empty audio clip for '{voice_name}'")
             return destination
+        except asyncio.CancelledError:
+            cancelled.set()
+            destination.unlink(missing_ok=True)
+            raise
         except BaseException:
             destination.unlink(missing_ok=True)
             raise

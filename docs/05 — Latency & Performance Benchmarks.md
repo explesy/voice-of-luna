@@ -132,6 +132,50 @@ Record the fixture's language, transcript, duration, hardware, OS, Python and
 model/runtime versions alongside the result. Do not commit private recordings
 or conversation audio.
 
+### Recorded local mixed-language routing run — 2026-10-10
+
+Environment: macOS 27.0 (26A428), Apple M2 / arm64, Python 3.12.13. This run
+was fully offline: it used only installed local voices (Piper Dmitri for
+Russian, macOS `Karen` for English) and made no Edge/Codex/network call. It is a
+router measurement, not a quality SLA.
+
+Phrase: `включи Docker container и проверь build` (issue #13 acceptance example).
+
+| Path | Voices | Result |
+|---|---|---|
+| Baseline (single voice) | Dmitri (Piper) | 1 clip, 93.1 ms median over 3 measured reps (1 warm-up excluded). Latin words are transliterated by the existing Piper path. |
+| Routed (segment router) | Dmitri (Piper) + Karen (macOS) | 4 runs / 4 local synthesis calls, 1265.0 ms median for the whole phrase. |
+
+Per-run attribution for the routed phrase (one representative run):
+
+| Run | Language / role | Requested voice | Actual engine | Time |
+|---|---|---|---:|
+| `включи` | ru / primary | Dmitri (Piper Neural · Offline) | piper | 34 ms |
+| `Docker container` | en / embedded | Karen | macos | 573 ms |
+| `и проверь` | ru / primary | Dmitri (Piper Neural · Offline) | piper | 40 ms |
+| `build` | en / embedded | Karen | macos | 550 ms |
+
+Router overhead is negligible: `segment_language_runs` measured **6.2 µs per
+call** over 20,000 calls on this machine. The added cost is therefore the extra
+synthesis calls for short runs, not the detection itself. The two English runs
+cost ~550 ms each only because the only installed local English voice on this
+machine is a macOS `say` voice whose process start-up dominates a two-word
+utterance; a Piper English model (`Lessac`) or the pipelined streaming path
+would change that number. In the live WebSocket path runs are queued as
+separate clips and playback starts after the first run, so the relevant
+responsiveness figure is time-to-first-run, not the sum above.
+
+Listening quality (whether the timbre change at a run boundary sounds natural)
+was **not** assessed by the agent — no audio was retained and the agent cannot
+listen. What was verified programmatically: every run was dispatched to a voice
+whose declared language matches the detected run language, and the actual engine
+reported by synthesis matched the requested voice. An operator listening check
+of the mixed RU/EN phrase is recommended before treating the routing as a
+quality win.
+
+Automated routing tests (`backend/tests/test_speech_routing.py`) make no network
+or paid calls; the local join test runs only when `ffmpeg` is present.
+
 ### Recorded local STT run — 2026-09-08
 
 A user-supplied private Russian MP3 was converted locally to temporary 16 kHz
