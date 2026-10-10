@@ -255,6 +255,12 @@ def test_plugin_explanation_locale_resolves_distinct_voice(monkeypatch) -> None:
 # --- plan resolution ----------------------------------------------------------
 
 
+def test_segment_routing_is_off_by_default() -> None:
+    from app.conversation_service import segment_routing_enabled
+
+    assert segment_routing_enabled() is False
+
+
 def test_resolve_voice_plan_disabled_by_env(monkeypatch) -> None:
     from app.conversation_service import Conversation, TurnLanguage, resolve_voice_plan
 
@@ -265,11 +271,10 @@ def test_resolve_voice_plan_disabled_by_env(monkeypatch) -> None:
 
 
 def test_resolve_voice_plan_native_voice_bypasses_routing(monkeypatch) -> None:
-    from app import conversation_service
     from app import model_catalog
     from app.conversation_service import Conversation, TurnLanguage, resolve_voice_plan
 
-    monkeypatch.delenv("VOICE_OF_LUNA_SEGMENT_ROUTING", raising=False)
+    monkeypatch.setenv("VOICE_OF_LUNA_SEGMENT_ROUTING", "1")
     monkeypatch.setattr(
         model_catalog,
         "voice_capability",
@@ -286,7 +291,7 @@ def test_resolve_voice_plan_explanation_keeps_routing_for_native_voice(monkeypat
     from app import model_catalog
     from app.conversation_service import Conversation, TurnLanguage, resolve_voice_plan
 
-    monkeypatch.delenv("VOICE_OF_LUNA_SEGMENT_ROUTING", raising=False)
+    monkeypatch.setenv("VOICE_OF_LUNA_SEGMENT_ROUTING", "1")
     monkeypatch.setattr(
         model_catalog,
         "voice_capability",
@@ -329,6 +334,7 @@ def test_websocket_mixed_language_turn_routes_per_run(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(main_module.CodexAppServer, "reply_stream", fake_reply_stream)
     monkeypatch.setattr(main_module.LocalMacOsSpeaker, "synthesize_with_metadata", fake_synthesize_with_metadata)
     monkeypatch.setattr(main_module, "get_ready_voice_for_locale", lambda language, exclude_voice=None: f"{language}-voice")
+    monkeypatch.setenv("VOICE_OF_LUNA_SEGMENT_ROUTING", "1")
 
     with client.websocket_connect("/ws/conversations/test-mixed-routing") as ws:
         assert ws.receive_json()["type"] == "ready"
@@ -487,6 +493,7 @@ def test_gated_turn_routes_mixed_text_after_approval(monkeypatch, tmp_path) -> N
     monkeypatch.setattr(main_module, "_call_reply", fake_call_reply)
     monkeypatch.setattr(main_module.LocalMacOsSpeaker, "synthesize_with_metadata", fake_synthesize_with_metadata)
     monkeypatch.setattr(main_module, "get_ready_voice_for_locale", lambda language, exclude_voice=None: f"{language}-voice")
+    monkeypatch.setenv("VOICE_OF_LUNA_SEGMENT_ROUTING", "1")
 
     conversation_id = client.post("/api/conversations").json()["id"]
     selected = client.post(
@@ -524,6 +531,7 @@ def test_resynthesize_replay_routes_mixed_text_into_one_clip(monkeypatch, tmp_pa
     monkeypatch.setattr(main_module.LocalMacOsSpeaker, "synthesize_with_metadata", fake_synthesize_with_metadata)
     monkeypatch.setattr(main_module, "join_speech_clips", fake_join)
     monkeypatch.setattr(main_module, "get_ready_voice_for_locale", lambda language, exclude_voice=None: "en-voice")
+    monkeypatch.setenv("VOICE_OF_LUNA_SEGMENT_ROUTING", "1")
 
     conversation_id = client.post("/api/conversations").json()["id"]
     conversation = main_module.conversations[conversation_id]
@@ -577,6 +585,7 @@ def test_plain_replay_keeps_target_and_explanation_voices(monkeypatch, tmp_path)
 
     monkeypatch.setattr(main_module.LocalMacOsSpeaker, "synthesize_with_metadata", fake_synthesize_with_metadata)
     monkeypatch.setattr(main_module, "join_speech_clips", fake_join)
+    monkeypatch.setenv("VOICE_OF_LUNA_SEGMENT_ROUTING", "1")
 
     conversation_id = client.post("/api/conversations").json()["id"]
     selected = client.post(

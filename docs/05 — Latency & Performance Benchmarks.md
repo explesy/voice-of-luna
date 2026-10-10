@@ -137,7 +137,8 @@ or conversation audio.
 Environment: macOS 27.0 (26A428), Apple M2 / arm64, Python 3.12.13. This run
 was fully offline: it used only installed local voices (Piper Dmitri for
 Russian, macOS `Karen` for English) and made no Edge/Codex/network call. It is a
-router measurement, not a quality SLA.
+router measurement, not a quality SLA. The router is **opt-in**
+(`VOICE_OF_LUNA_SEGMENT_ROUTING=1`); this run was taken with it enabled.
 
 Phrase: `включи Docker container и проверь build` (issue #13 acceptance example).
 

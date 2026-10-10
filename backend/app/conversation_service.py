@@ -113,10 +113,14 @@ SEGMENT_ROUTING_ENV = "VOICE_OF_LUNA_SEGMENT_ROUTING"
 
 
 def segment_routing_enabled() -> bool:
-    """Mixed-language segment routing is on by default; ``=0`` restores the
-    previous single-voice behaviour exactly."""
+    """Mixed-language segment routing is **opt-in**.
 
-    return os.environ.get(SEGMENT_ROUTING_ENV, "1") != "0"
+    It is disabled by default while the behaviour is evaluated; set
+    ``VOICE_OF_LUNA_SEGMENT_ROUTING=1`` to enable it for a session. When
+    disabled, the previous single-voice path is used exactly.
+    """
+
+    return os.environ.get(SEGMENT_ROUTING_ENV, "0") == "1"
 
 
 def resolve_voice_plan(conversation: Conversation, turn_lang: TurnLanguage) -> VoicePlan:

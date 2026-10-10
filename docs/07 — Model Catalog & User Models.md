@@ -67,7 +67,9 @@ explicitly instead of inventing capability metadata.
 
 ### How the router consumes this metadata (issue #13)
 
-`code_switching` is not only a UI label; it changes the speech path:
+The mixed-language router is **opt-in** (`VOICE_OF_LUNA_SEGMENT_ROUTING=1`); with
+the default `0` the single-voice path is used and the metadata below only drives
+the UI badge/filter. When enabled, `code_switching` changes the speech path:
 
 - `native` — the selected primary voice receives the whole sentence as-is, with
   no segmentation. Mixed text is spoken by the one voice that can switch
